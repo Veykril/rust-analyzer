@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["proc_macro_api"] = [{"text":"impl <a class=\"trait\" href=\"tt/trait.TokenExpander.html\" title=\"trait tt::TokenExpander\">TokenExpander</a> for <a class=\"struct\" href=\"proc_macro_api/struct.ProcMacroProcessExpander.html\" title=\"struct proc_macro_api::ProcMacroProcessExpander\">ProcMacroProcessExpander</a>","synthetic":false,"types":["proc_macro_api::ProcMacroProcessExpander"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

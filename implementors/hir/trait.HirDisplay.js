@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["hir"] = [{"text":"impl <a class=\"trait\" href=\"hir/trait.HirDisplay.html\" title=\"trait hir::HirDisplay\">HirDisplay</a> for <a class=\"struct\" href=\"hir/struct.Type.html\" title=\"struct hir::Type\">Type</a>","synthetic":false,"types":["hir::code_model::Type"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()

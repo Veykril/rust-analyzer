@@ -1,0 +1,3 @@
+(function() {var implementors = {};
+implementors["rust_analyzer"] = [{"text":"impl Notification for <a class=\"enum\" href=\"rust_analyzer/lsp_ext/enum.StatusNotification.html\" title=\"enum rust_analyzer::lsp_ext::StatusNotification\">StatusNotification</a>","synthetic":false,"types":["rust_analyzer::lsp_ext::StatusNotification"]}];
+if (window.register_implementors) {window.register_implementors(implementors);} else {window.pending_implementors = implementors;}})()
