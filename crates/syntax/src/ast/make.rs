@@ -237,18 +237,28 @@ pub fn tuple_pat(pats: impl IntoIterator<Item = ast::Pat>) -> ast::TuplePat {
 pub fn tuple_struct_pat(
     path: ast::Path,
     pats: impl IntoIterator<Item = ast::Pat>,
+    ellipsis: bool,
 ) -> ast::TupleStructPat {
     let pats_str = pats.into_iter().join(", ");
-    return from_text(&format!("{}({})", path, pats_str));
+    return from_text(&format!("{}({}{})", path, pats_str, if ellipsis { ", .." } else { "" }));
 
     fn from_text(text: &str) -> ast::TupleStructPat {
         ast_from_text(&format!("fn f({}: ())", text))
     }
 }
 
-pub fn record_pat(path: ast::Path, pats: impl IntoIterator<Item = ast::Pat>) -> ast::RecordPat {
+pub fn record_pat(
+    path: ast::Path,
+    pats: impl IntoIterator<Item = ast::Pat>,
+    ellipsis: bool,
+) -> ast::RecordPat {
     let pats_str = pats.into_iter().join(", ");
-    return from_text(&format!("{} {{ {} }}", path, pats_str));
+    return from_text(&format!(
+        "{} {{ {}{} }}",
+        path,
+        pats_str,
+        if ellipsis { ", .." } else { "" }
+    ));
 
     fn from_text(text: &str) -> ast::RecordPat {
         ast_from_text(&format!("fn f({}: ())", text))

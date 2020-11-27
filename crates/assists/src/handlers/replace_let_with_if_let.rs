@@ -55,6 +55,7 @@ pub(crate) fn replace_let_with_if_let(acc: &mut Assists, ctx: &AssistContext) ->
                 Some(var_name) => make::tuple_struct_pat(
                     make::path_unqualified(make::path_segment(make::name_ref(var_name))),
                     once(make::wildcard_pat().into()),
+                    false,
                 )
                 .into(),
             };

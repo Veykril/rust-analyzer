@@ -54,7 +54,7 @@ pub(crate) fn replace_unwrap_with_match(acc: &mut Assists, ctx: &AssistContext) 
         |builder| {
             let ok_path = make::path_unqualified(make::path_segment(make::name_ref(happy_variant)));
             let it = make::ident_pat(make::name("a")).into();
-            let ok_tuple = make::tuple_struct_pat(ok_path, iter::once(it)).into();
+            let ok_tuple = make::tuple_struct_pat(ok_path, iter::once(it), false).into();
 
             let bind_path = make::path_unqualified(make::path_segment(make::name_ref("a")));
             let ok_arm = make::match_arm(iter::once(ok_tuple), make::expr_path(bind_path));

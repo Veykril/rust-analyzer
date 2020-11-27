@@ -198,11 +198,11 @@ fn build_pat(db: &RootDatabase, module: hir::Module, var: hir::EnumVariant) -> O
     let pat: ast::Pat = match var.source(db).value.kind() {
         ast::StructKind::Tuple(field_list) => {
             let pats = iter::repeat(make::wildcard_pat().into()).take(field_list.fields().count());
-            make::tuple_struct_pat(path, pats).into()
+            make::tuple_struct_pat(path, pats, false).into()
         }
         ast::StructKind::Record(field_list) => {
             let pats = field_list.fields().map(|f| make::ident_pat(f.name().unwrap()).into());
-            make::record_pat(path, pats).into()
+            make::record_pat(path, pats, false).into()
         }
         ast::StructKind::Unit => make::path_pat(path),
     };
