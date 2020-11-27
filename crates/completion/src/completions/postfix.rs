@@ -3,6 +3,7 @@
 mod format_like;
 
 use ide_db::ty_filter::TryEnum;
+use itertools::Itertools;
 use syntax::{
     ast::{self, AstNode, AstToken},
     TextRange, TextSize,
@@ -225,6 +226,37 @@ pub(crate) fn complete_postfix(acc: &mut Completions, ctx: &CompletionContext) {
             add_format_like_completions(acc, ctx, &dot_receiver, cap, &literal_text);
         }
     }
+
+    if receiver_ty.is_tuple() && !receiver_ty.is_unit() {
+        let fields = receiver_ty.tuple_fields(ctx.db);
+        let field_names = fields
+            .iter()
+            .enumerate()
+            .map(|(idx, ty)| match ty.as_adt() {
+                Some(adt) => format!("${{{idx}:{name}}}", idx = idx, name = adt.name(ctx.db),),
+                None => format!("${}", idx),
+            })
+            .collect::<Vec<_>>();
+
+        postfix_snippet(
+            ctx,
+            cap,
+            &dot_receiver,
+            "letp",
+            "let pattern = expr;",
+            &format!("let ({}) = {};", field_names.iter().join(", "), receiver_text),
+        )
+        .add_to(acc);
+        postfix_snippet(
+            ctx,
+            cap,
+            &dot_receiver,
+            "letpm",
+            "let pattern = expr;",
+            &format!("let (mut {}) = {};", field_names.iter().join(", mut "), receiver_text),
+        )
+        .add_to(acc);
+    }
 }
 
 fn get_receiver_text(receiver: &ast::Expr, receiver_is_ambiguous_float_literal: bool) -> String {
@@ -376,6 +408,56 @@ fn main() {
     Ok(${1:_}) => {$2},
     Err(${3:_}) => {$0},
 }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn tuple_let_destruct() {
+        check_edit(
+            "letp",
+            r#"
+struct Foo;
+struct Bar(i32);
+
+fn main() {
+    let foo = (123, 544, 0.5345, "foobar", Foo, Bar(3));
+    foo.<|>
+}
+"#,
+            r#"
+struct Foo;
+struct Bar(i32);
+
+fn main() {
+    let foo = (123, 544, 0.5345, "foobar", Foo, Bar(3));
+    let ($0, $1, $2, $3, ${4:Foo}, ${5:Bar}) = foo;
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn tuple_let_mut_destruct() {
+        check_edit(
+            "letpm",
+            r#"
+struct Foo;
+struct Bar(i32);
+
+fn main() {
+    let foo = (123, 544, 0.5345, "foobar", Foo, Bar(3));
+    foo.<|>
+}
+"#,
+            r#"
+struct Foo;
+struct Bar(i32);
+
+fn main() {
+    let foo = (123, 544, 0.5345, "foobar", Foo, Bar(3));
+    let (mut $0, mut $1, mut $2, mut $3, mut ${4:Foo}, mut ${5:Bar}) = foo;
 }
 "#,
         );

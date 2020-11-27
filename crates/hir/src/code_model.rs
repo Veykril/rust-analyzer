@@ -1497,6 +1497,10 @@ impl Type {
         matches!(&self.ty.value, Ty::Apply(ApplicationTy { ctor: TypeCtor::RawPtr(..), .. }))
     }
 
+    pub fn is_tuple(&self) -> bool {
+        matches!(&self.ty.value, Ty::Apply(ApplicationTy { ctor: TypeCtor::Tuple { .. }, .. }))
+    }
+
     pub fn contains_unknown(&self) -> bool {
         return go(&self.ty.value);
 
