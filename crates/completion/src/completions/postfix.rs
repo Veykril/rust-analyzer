@@ -226,18 +226,27 @@ pub(crate) fn complete_postfix(acc: &mut Completions, ctx: &CompletionContext) {
             add_format_like_completions(acc, ctx, &dot_receiver, cap, &literal_text);
         }
     }
+    add_postfix_let_destruct(acc, ctx, cap, &dot_receiver, &receiver_ty, &receiver_text);
+}
 
+fn add_postfix_let_destruct(
+    acc: &mut Completions,
+    ctx: &CompletionContext,
+    cap: SnippetCap,
+    dot_receiver: &ast::Expr,
+    receiver_ty: &hir::Type,
+    receiver_text: &str,
+) {
     if receiver_ty.is_tuple() && !receiver_ty.is_unit() {
         let fields = receiver_ty.tuple_fields(ctx.db);
         let field_names = fields
             .iter()
             .enumerate()
             .map(|(idx, ty)| match ty.as_adt() {
-                Some(adt) => format!("${{{idx}:{name}}}", idx = idx, name = adt.name(ctx.db),),
+                Some(adt) => format!("${{{idx}:{name}}}", idx = idx, name = adt.name(ctx.db)),
                 None => format!("${}", idx),
             })
             .collect::<Vec<_>>();
-
         postfix_snippet(
             ctx,
             cap,
@@ -256,6 +265,42 @@ pub(crate) fn complete_postfix(acc: &mut Completions, ctx: &CompletionContext) {
             &format!("let (mut {}) = {};", field_names.iter().join(", mut "), receiver_text),
         )
         .add_to(acc);
+    } else if let Some(strukt) = receiver_ty.as_adt().and_then(|adt| match adt {
+        hir::Adt::Struct(strukt) if !strukt.is_unit(ctx.db) => Some(strukt),
+        _ => None,
+    }) {
+        let name = strukt.name(ctx.db);
+        let fields = strukt.fields(ctx.db);
+        let field_names = fields
+            .iter()
+            .enumerate()
+            .map(|(idx, field)| format!("${{{idx}:{name}}}", idx = idx, name = field.name(ctx.db)))
+            .collect::<Vec<_>>();
+        let (immutable, mutable) = if strukt.is_tuple(ctx.db) {
+            (
+                format!("let {}({}) = {};", &name, field_names.iter().join(", "), receiver_text),
+                format!(
+                    "let {}(mut {}) = {};",
+                    &name,
+                    field_names.iter().join(", mut "),
+                    receiver_text
+                ),
+            )
+        } else {
+            (
+                format!("let {} {{{}}} = {};", &name, field_names.iter().join(", "), receiver_text),
+                format!(
+                    "let {} {{mut {}}} = {};",
+                    &name,
+                    field_names.iter().join(", mut "),
+                    receiver_text
+                ),
+            )
+        };
+        postfix_snippet(ctx, cap, &dot_receiver, "letp", "let pattern = expr;", &immutable)
+            .add_to(acc);
+        postfix_snippet(ctx, cap, &dot_receiver, "letpm", "let pattern = expr;", &mutable)
+            .add_to(acc);
     }
 }
 
@@ -458,6 +503,31 @@ struct Bar(i32);
 fn main() {
     let foo = (123, 544, 0.5345, "foobar", Foo, Bar(3));
     let (mut $0, mut $1, mut $2, mut $3, mut ${4:Foo}, mut ${5:Bar}) = foo;
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn record_let_destruct() {
+        check_edit(
+            "letp",
+            r#"
+struct Foo { bar: i32, baz: f32, qux: Qux };
+struct Qux(i32);
+
+fn main() {
+    let foo = Foo { bar: 3, baz: 5.1, qux: Qux(1)};
+    foo.<|>
+}
+"#,
+            r#"
+struct Foo { bar: i32, baz: f32, qux: Qux };
+struct Qux(i32);
+
+fn main() {
+    let foo = Foo { bar: 3, baz: 5.1, qux: Qux(1)};
+    let Foo {${0:bar}, ${1:baz}, ${2:qux}} = foo;
 }
 "#,
         );

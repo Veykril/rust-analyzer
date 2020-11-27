@@ -503,6 +503,18 @@ impl Struct {
         db.struct_data(self.id).repr.clone()
     }
 
+    pub fn is_unit(self, db: &dyn HirDatabase) -> bool {
+        matches!(db.struct_data(self.id).variant_data.as_ref(), VariantData::Unit)
+    }
+
+    pub fn is_tuple(self, db: &dyn HirDatabase) -> bool {
+        matches!(db.struct_data(self.id).variant_data.as_ref(), VariantData::Tuple(..))
+    }
+
+    pub fn is_record(self, db: &dyn HirDatabase) -> bool {
+        matches!(db.struct_data(self.id).variant_data.as_ref(), VariantData::Record(..))
+    }
+
     fn variant_data(self, db: &dyn HirDatabase) -> Arc<VariantData> {
         db.struct_data(self.id).variant_data.clone()
     }
