@@ -127,6 +127,7 @@ mod handlers {
     mod auto_import;
     mod change_visibility;
     mod convert_integer_literal;
+    mod destructure_irrefutable;
     mod early_return;
     mod expand_glob_import;
     mod extract_struct_from_enum_variant;
@@ -180,6 +181,7 @@ mod handlers {
             expand_glob_import::expand_glob_import,
             extract_struct_from_enum_variant::extract_struct_from_enum_variant,
             extract_variable::extract_variable,
+            destructure_irrefutable::destructure_irrefutable,
             fill_match_arms::fill_match_arms,
             fix_visibility::fix_visibility,
             flip_binexpr::flip_binexpr,
