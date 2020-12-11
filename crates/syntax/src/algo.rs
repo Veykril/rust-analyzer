@@ -8,7 +8,7 @@ use std::{
 
 use indexmap::IndexMap;
 use itertools::Itertools;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use test_utils::mark;
 use text_edit::TextEditBuilder;
 
@@ -349,6 +349,7 @@ pub struct SyntaxRewriter<'a> {
     //FIXME: add debug_assertions that all elements are in fact from the same file.
     replacements: FxHashMap<SyntaxElement, Replacement>,
     insertions: IndexMap<InsertPos, Vec<SyntaxElement>>,
+    touched: FxHashSet<SyntaxElement>,
 }
 
 impl fmt::Debug for SyntaxRewriter<'_> {
@@ -366,11 +367,26 @@ impl<'a> SyntaxRewriter<'a> {
             f: Some(Box::new(f)),
             replacements: FxHashMap::default(),
             insertions: IndexMap::default(),
+            touched: FxHashSet::default(),
         }
     }
+    fn touch(&mut self, element: &SyntaxElement) {
+        self.touched.insert(element.clone());
+        let node = match element {
+            SyntaxElement::Node(it) => it.clone(),
+            SyntaxElement::Token(it) => it.parent(),
+        };
+        for ancestor in node.ancestors() {
+            if self.touched.insert(ancestor.into()) {
+                break;
+            }
+        }
+    }
+
     pub fn delete<T: Clone + Into<SyntaxElement>>(&mut self, what: &T) {
         let what = what.clone().into();
         let replacement = Replacement::Delete;
+        self.touch(&what);
         self.replacements.insert(what, replacement);
     }
     pub fn insert_before<T: Clone + Into<SyntaxElement>, U: Clone + Into<SyntaxElement>>(
@@ -386,15 +402,19 @@ impl<'a> SyntaxRewriter<'a> {
                 None => return,
             },
         };
-        self.insertions.entry(pos).or_insert_with(Vec::new).push(what.clone().into());
+        let what = what.clone().into();
+        self.touch(&what);
+        self.insertions.entry(pos).or_insert_with(Vec::new).push(what);
     }
     pub fn insert_after<T: Clone + Into<SyntaxElement>, U: Clone + Into<SyntaxElement>>(
         &mut self,
         after: &T,
         what: &U,
     ) {
+        let after = after.clone().into();
+        self.touch(&after);
         self.insertions
-            .entry(InsertPos::After(after.clone().into()))
+            .entry(InsertPos::After(after))
             .or_insert_with(Vec::new)
             .push(what.clone().into());
     }
@@ -403,6 +423,7 @@ impl<'a> SyntaxRewriter<'a> {
         parent: &T,
         what: &U,
     ) {
+        self.touch(&parent.clone().into().into());
         self.insertions
             .entry(InsertPos::FirstChildOf(parent.clone().into()))
             .or_insert_with(Vec::new)
@@ -424,6 +445,7 @@ impl<'a> SyntaxRewriter<'a> {
                 None => return,
             },
         };
+        self.touch(&before);
         self.insertions.entry(pos).or_insert_with(Vec::new).extend(what);
     }
     pub fn insert_many_after<
@@ -434,10 +456,9 @@ impl<'a> SyntaxRewriter<'a> {
         after: &T,
         what: U,
     ) {
-        self.insertions
-            .entry(InsertPos::After(after.clone().into()))
-            .or_insert_with(Vec::new)
-            .extend(what);
+        let after = after.clone().into();
+        self.touch(&after);
+        self.insertions.entry(InsertPos::After(after)).or_insert_with(Vec::new).extend(what);
     }
     pub fn insert_many_as_first_children<
         T: Clone + Into<SyntaxNode>,
@@ -447,6 +468,7 @@ impl<'a> SyntaxRewriter<'a> {
         parent: &T,
         what: U,
     ) {
+        self.touch(&parent.clone().into().into());
         self.insertions
             .entry(InsertPos::FirstChildOf(parent.clone().into()))
             .or_insert_with(Vec::new)
@@ -454,6 +476,7 @@ impl<'a> SyntaxRewriter<'a> {
     }
     pub fn replace<T: Clone + Into<SyntaxElement>>(&mut self, what: &T, with: &T) {
         let what = what.clone().into();
+        self.touch(&what);
         let replacement = Replacement::Single(with.clone().into());
         self.replacements.insert(what, replacement);
     }
@@ -463,6 +486,7 @@ impl<'a> SyntaxRewriter<'a> {
         with: Vec<SyntaxElement>,
     ) {
         let what = what.clone().into();
+        self.touch(&what);
         let replacement = Replacement::Many(with);
         self.replacements.insert(what, replacement);
     }
@@ -529,13 +553,20 @@ impl<'a> SyntaxRewriter<'a> {
 
         //  FIXME: this could be made much faster.
         let mut new_children = Vec::new();
+        let mut x = false;
         if let Some(elements) = self.insertions(&InsertPos::FirstChildOf(node.clone())) {
+            x = true;
             new_children.extend(elements.map(element_to_green));
         }
         for child in node.children_with_tokens() {
-            self.rewrite_self(&mut new_children, &child);
+            if self.f.is_some() || self.touched.contains(&child) {
+                x = true;
+                self.rewrite_self(&mut new_children, &child);
+            } else {
+                new_children.push(element_to_green(child));
+            }
         }
-
+        assert!(x);
         rowan::GreenNode::new(rowan::SyntaxKind(node.kind() as u16), new_children)
     }
 
@@ -578,6 +609,7 @@ fn element_to_green(element: SyntaxElement) -> NodeOrToken<rowan::GreenNode, row
 impl ops::AddAssign for SyntaxRewriter<'_> {
     fn add_assign(&mut self, rhs: SyntaxRewriter) {
         assert!(rhs.f.is_none());
+        self.touched.extend(rhs.touched);
         self.replacements.extend(rhs.replacements);
         for (pos, insertions) in rhs.insertions.into_iter() {
             match self.insertions.entry(pos) {
