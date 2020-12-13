@@ -788,6 +788,7 @@ fn highlight_def(db: &RootDatabase, def: Definition) -> Highlight {
         },
         Definition::SelfType(_) => HighlightTag::SelfType,
         Definition::TypeParam(_) => HighlightTag::TypeParam,
+        Definition::LifetimeParam(_) => HighlightTag::Lifetime,
         Definition::Local(local) => {
             let tag =
                 if local.is_param(db) { HighlightTag::ValueParam } else { HighlightTag::Local };

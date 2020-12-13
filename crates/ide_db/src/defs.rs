@@ -6,12 +6,12 @@
 // FIXME: this badly needs rename/rewrite (matklad, 2020-02-06).
 
 use hir::{
-    db::HirDatabase, Crate, Field, HasVisibility, ImplDef, Local, MacroDef, Module, ModuleDef,
-    Name, PathResolution, Semantics, TypeParam, Visibility,
+    db::HirDatabase, Crate, Field, HasVisibility, ImplDef, LifetimeParam, Local, MacroDef, Module,
+    ModuleDef, Name, PathResolution, Semantics, TypeParam, Visibility,
 };
 use syntax::{
     ast::{self, AstNode},
-    match_ast, SyntaxNode,
+    match_ast, SyntaxKind, SyntaxNode, SyntaxToken,
 };
 
 use crate::RootDatabase;
@@ -25,6 +25,7 @@ pub enum Definition {
     SelfType(ImplDef),
     Local(Local),
     TypeParam(TypeParam),
+    LifetimeParam(LifetimeParam),
 }
 
 impl Definition {
@@ -36,17 +37,19 @@ impl Definition {
             Definition::SelfType(it) => Some(it.module(db)),
             Definition::Local(it) => Some(it.module(db)),
             Definition::TypeParam(it) => Some(it.module(db)),
+            Definition::LifetimeParam(it) => Some(it.module(db)),
         }
     }
 
     pub fn visibility(&self, db: &RootDatabase) -> Option<Visibility> {
         match self {
-            Definition::Macro(_) => None,
             Definition::Field(sf) => Some(sf.visibility(db)),
             Definition::ModuleDef(def) => def.definition_visibility(db),
-            Definition::SelfType(_) => None,
-            Definition::Local(_) => None,
-            Definition::TypeParam(_) => None,
+            Definition::Macro(_)
+            | Definition::SelfType(_)
+            | Definition::Local(_)
+            | Definition::TypeParam(_)
+            | Definition::LifetimeParam(_) => None,
         }
     }
 
@@ -72,6 +75,7 @@ impl Definition {
             Definition::SelfType(_) => return None,
             Definition::Local(it) => it.name(db)?,
             Definition::TypeParam(it) => it.name(db),
+            Definition::LifetimeParam(it) => it.name(db),
         };
         Some(name)
     }
@@ -110,6 +114,29 @@ impl NameClass {
             NameClass::ExternCrate(krate) => Definition::ModuleDef(krate.root_module(db).into()),
             NameClass::Definition(it) | NameClass::ConstReference(it) => it,
             NameClass::PatFieldShorthand { local_def: _, field_ref } => field_ref,
+        }
+    }
+
+    pub fn classify_lifetime(
+        sema: &Semantics<RootDatabase>,
+        lifetime: &SyntaxToken,
+    ) -> Option<NameClass> {
+        let _p = profile::span("classify_lifetime");
+        if lifetime.kind() != SyntaxKind::LIFETIME {
+            return None;
+        }
+
+        let parent = lifetime.parent();
+
+        match_ast! {
+            match parent {
+                ast::LifetimeParam(it) => {
+                    let def = sema.to_def(&it)?;
+                    Some(NameClass::Definition(Definition::LifetimeParam(def)))
+                },
+                ast::Label(_it) => None,
+                _ => None,
+            }
         }
     }
 
@@ -249,6 +276,31 @@ impl NameRefClass {
                 // two different defs....
                 Definition::Local(local_ref)
             }
+        }
+    }
+
+    pub fn classify_lifetime(
+        sema: &Semantics<RootDatabase>,
+        lifetime_token: &SyntaxToken,
+    ) -> Option<NameRefClass> {
+        let _p = profile::span("classify_lifetime_ref").detail(|| lifetime_token.to_string());
+        if lifetime_token.kind() != SyntaxKind::LIFETIME {
+            return None;
+        }
+
+        let parent = lifetime_token.parent();
+
+        match parent.kind() {
+            SyntaxKind::LIFETIME_ARG
+            | SyntaxKind::SELF_PARAM
+            | SyntaxKind::TYPE_BOUND
+            | SyntaxKind::WHERE_PRED
+            | SyntaxKind::REF_TYPE => sema
+                .resolve_lifetime_param(lifetime_token)
+                .map(Definition::LifetimeParam)
+                .map(NameRefClass::Definition),
+            SyntaxKind::BREAK_EXPR | SyntaxKind::CONTINUE_EXPR => None,
+            _ => None,
         }
     }
 
