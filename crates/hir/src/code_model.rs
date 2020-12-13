@@ -1254,6 +1254,10 @@ impl LifetimeParam {
     pub fn module(self, db: &dyn HirDatabase) -> Module {
         self.id.parent.module(db.upcast()).into()
     }
+
+    pub fn parent(self, _db: &dyn HirDatabase) -> GenericDef {
+        self.id.parent.into()
+    }
 }
 
 // FIXME: rename from `ImplDef` to `Impl`

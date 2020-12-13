@@ -155,6 +155,22 @@ impl From<GenericDef> for GenericDefId {
     }
 }
 
+impl From<GenericDefId> for GenericDef {
+    fn from(def: GenericDefId) -> Self {
+        match def {
+            GenericDefId::FunctionId(it) => GenericDef::Function(it.into()),
+            GenericDefId::AdtId(it) => GenericDef::Adt(it.into()),
+            GenericDefId::TraitId(it) => GenericDef::Trait(it.into()),
+            GenericDefId::TypeAliasId(it) => GenericDef::TypeAlias(it.into()),
+            GenericDefId::ImplId(it) => GenericDef::ImplDef(it.into()),
+            GenericDefId::EnumVariantId(it) => {
+                GenericDef::EnumVariant(EnumVariant { parent: it.parent.into(), id: it.local_id })
+            }
+            GenericDefId::ConstId(it) => GenericDef::Const(it.into()),
+        }
+    }
+}
+
 impl From<Adt> for GenericDefId {
     fn from(id: Adt) -> Self {
         match id {

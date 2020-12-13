@@ -10,7 +10,7 @@ use base_db::{FileId, FileRange, SourceDatabaseExt};
 use hir::{DefWithBody, HasSource, Module, ModuleSource, Semantics, Visibility};
 use once_cell::unsync::Lazy;
 use rustc_hash::FxHashMap;
-use syntax::{ast, match_ast, AstNode, TextRange, TextSize};
+use syntax::{ast, match_ast, AstNode, SyntaxKind, SyntaxNode, TextRange, TextSize};
 
 use crate::defs::NameClass;
 use crate::{
@@ -32,6 +32,7 @@ pub enum ReferenceKind {
     StructLiteral,
     RecordFieldExprOrPat,
     SelfKw,
+    Lifetime,
     Other,
 }
 
@@ -122,6 +123,25 @@ impl Definition {
                 DefWithBody::Function(f) => f.source(db).value.syntax().text_range(),
                 DefWithBody::Const(c) => c.source(db).value.syntax().text_range(),
                 DefWithBody::Static(s) => s.source(db).value.syntax().text_range(),
+            };
+            let mut res = FxHashMap::default();
+            res.insert(file_id, Some(range));
+            return SearchScope::new(res);
+        }
+
+        if let Definition::LifetimeParam(param) = self {
+            let range = match param.parent(db) {
+                hir::GenericDef::Function(it) => it.source(db).value.syntax().text_range(),
+                hir::GenericDef::Adt(it) => match it {
+                    hir::Adt::Struct(it) => it.source(db).value.syntax().text_range(),
+                    hir::Adt::Union(it) => it.source(db).value.syntax().text_range(),
+                    hir::Adt::Enum(it) => it.source(db).value.syntax().text_range(),
+                },
+                hir::GenericDef::Trait(it) => it.source(db).value.syntax().text_range(),
+                hir::GenericDef::TypeAlias(it) => it.source(db).value.syntax().text_range(),
+                hir::GenericDef::ImplDef(it) => it.source(db).value.syntax().text_range(),
+                hir::GenericDef::EnumVariant(it) => it.source(db).value.syntax().text_range(),
+                hir::GenericDef::Const(it) => it.source(db).value.syntax().text_range(),
             };
             let mut res = FxHashMap::default();
             res.insert(file_id, Some(range));
@@ -266,10 +286,52 @@ impl<'a> FindUsages<'a> {
                                 return;
                             }
                         }
-                        None => {}
+                        None if self.find_lifetime(&tree, offset, sink) => return,
+                        None => (),
                     },
                 }
             }
+        }
+    }
+
+    fn find_lifetime(
+        &self,
+        node: &SyntaxNode,
+        offset: TextSize,
+        sink: &mut dyn FnMut(Reference) -> bool,
+    ) -> bool {
+        let lifetime_token =
+            match node.token_at_offset(offset).find(|t| t.kind() == SyntaxKind::LIFETIME) {
+                Some(lifetime) => lifetime,
+                None => return false,
+            };
+        match NameRefClass::classify_lifetime(self.sema, &lifetime_token) {
+            Some(NameRefClass::Definition(def)) if &def == self.def => {
+                let reference = Reference {
+                    file_range: FileRange {
+                        file_id: self.sema.original_range(&lifetime_token.parent()).file_id,
+                        range: lifetime_token.text_range(),
+                    },
+                    kind: ReferenceKind::Lifetime,
+                    access: None,
+                };
+                sink(reference)
+            }
+            None => match NameClass::classify_lifetime(self.sema, &lifetime_token) {
+                Some(NameClass::Definition(def)) if &def == self.def => {
+                    let reference = Reference {
+                        file_range: FileRange {
+                            file_id: self.sema.original_range(&lifetime_token.parent()).file_id,
+                            range: lifetime_token.text_range(),
+                        },
+                        kind: ReferenceKind::Lifetime,
+                        access: None,
+                    };
+                    sink(reference)
+                }
+                _ => false,
+            },
+            _ => false,
         }
     }
 

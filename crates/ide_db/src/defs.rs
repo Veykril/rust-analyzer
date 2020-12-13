@@ -289,8 +289,17 @@ impl NameRefClass {
         }
 
         let parent = lifetime_token.parent();
-
         match parent.kind() {
+            SyntaxKind::LIFETIME_PARAM => {
+                let param_token = ast::LifetimeParam::cast(parent)?.lifetime_token()?;
+                if param_token == *lifetime_token {
+                    None
+                } else {
+                    sema.resolve_lifetime_param(lifetime_token)
+                        .map(Definition::LifetimeParam)
+                        .map(NameRefClass::Definition)
+                }
+            }
             SyntaxKind::LIFETIME_ARG
             | SyntaxKind::SELF_PARAM
             | SyntaxKind::TYPE_BOUND
