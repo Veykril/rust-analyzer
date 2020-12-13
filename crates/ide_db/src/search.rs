@@ -317,20 +317,6 @@ impl<'a> FindUsages<'a> {
                 };
                 sink(reference)
             }
-            None => match NameClass::classify_lifetime(self.sema, &lifetime_token) {
-                Some(NameClass::Definition(def)) if &def == self.def => {
-                    let reference = Reference {
-                        file_range: FileRange {
-                            file_id: self.sema.original_range(&lifetime_token.parent()).file_id,
-                            range: lifetime_token.text_range(),
-                        },
-                        kind: ReferenceKind::Lifetime,
-                        access: None,
-                    };
-                    sink(reference)
-                }
-                _ => false,
-            },
             _ => false,
         }
     }

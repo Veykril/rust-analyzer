@@ -919,7 +919,6 @@ fn foo<'a, 'b: 'a>(x: &'a<|> ()) -> &'a () where &'a (): Foo<'a> {
             expect![[r#"
                 'a LIFETIME_PARAM FileId(0) 55..57 55..57 Lifetime
 
-                FileId(0) 55..57 Lifetime
                 FileId(0) 63..65 Lifetime
                 FileId(0) 71..73 Lifetime
                 FileId(0) 82..84 Lifetime
@@ -938,7 +937,6 @@ type Foo<'a, T> where T: 'a<|> = &'a T;
             expect![[r#"
                 'a LIFETIME_PARAM FileId(0) 9..11 9..11 Lifetime
 
-                FileId(0) 9..11 Lifetime
                 FileId(0) 25..27 Lifetime
                 FileId(0) 31..33 Lifetime
             "#]],
@@ -961,7 +959,6 @@ impl<'a> Foo<'a> for &'a () {
             expect![[r#"
                 'a LIFETIME_PARAM FileId(0) 47..49 47..49 Lifetime
 
-                FileId(0) 47..49 Lifetime
                 FileId(0) 55..57 Lifetime
                 FileId(0) 64..66 Lifetime
                 FileId(0) 89..91 Lifetime

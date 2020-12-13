@@ -287,7 +287,6 @@ impl NameRefClass {
         if lifetime_token.kind() != SyntaxKind::LIFETIME {
             return None;
         }
-
         let parent = lifetime_token.parent();
         match parent.kind() {
             SyntaxKind::LIFETIME_PARAM => {

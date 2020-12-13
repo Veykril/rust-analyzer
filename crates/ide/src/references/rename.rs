@@ -49,11 +49,18 @@ pub(crate) fn rename_with_semantics(
     position: FilePosition,
     new_name: &str,
 ) -> Result<RangeInfo<SourceChange>, RenameError> {
-    match lex_single_syntax_kind(new_name) {
+    let is_lifetime_name = match lex_single_syntax_kind(new_name) {
         Some(res) => match res {
-            (SyntaxKind::IDENT, _) => (),
-            (SyntaxKind::UNDERSCORE, _) => (),
+            (SyntaxKind::IDENT, _) => false,
+            (SyntaxKind::UNDERSCORE, _) => false,
             (SyntaxKind::SELF_KW, _) => return rename_to_self(&sema, position),
+            (SyntaxKind::LIFETIME, _) if new_name != "'static" => true,
+            (SyntaxKind::LIFETIME, _) => {
+                return Err(RenameError(format!(
+                    "Invalid name `{}`: not an valid lifetime identifier",
+                    new_name
+                )))
+            }
             (_, Some(syntax_error)) => {
                 return Err(RenameError(format!("Invalid name `{}`: {}", new_name, syntax_error)))
             }
@@ -62,7 +69,7 @@ pub(crate) fn rename_with_semantics(
             }
         },
         None => return Err(RenameError(format!("Invalid name `{}`: not an identifier", new_name))),
-    }
+    };
 
     let source_file = sema.parse(position.file_id);
     let syntax = source_file.syntax();
@@ -73,7 +80,7 @@ pub(crate) fn rename_with_semantics(
     {
         rename_self_to_param(&sema, position, self_token, new_name)
     } else {
-        rename_reference(&sema, position, new_name)
+        rename_reference(&sema, position, new_name, is_lifetime_name)
     }
 }
 
@@ -355,11 +362,25 @@ fn rename_reference(
     sema: &Semantics<RootDatabase>,
     position: FilePosition,
     new_name: &str,
+    is_lifetime_name: bool,
 ) -> Result<RangeInfo<SourceChange>, RenameError> {
     let RangeInfo { range, info: refs } = match find_all_refs(sema, position, None) {
         Some(range_info) => range_info,
         None => return Err(RenameError("No references found at position".to_string())),
     };
+
+    match (refs.declaration.kind == ReferenceKind::Lifetime, is_lifetime_name) {
+        (true, false) => {
+            return Err(RenameError(format!(
+                "Invalid name `{}`: not a lifetime identifier",
+                new_name
+            )))
+        }
+        (false, true) => {
+            return Err(RenameError(format!("Invalid name `{}`: not an identifier", new_name)))
+        }
+        _ => (),
+    }
 
     let edit = refs
         .into_iter()
@@ -461,6 +482,24 @@ mod tests {
             "let",
             r#"fn main() { let i<|> = 1; }"#,
             "error: Invalid name `let`: not an identifier",
+        );
+    }
+
+    #[test]
+    fn test_rename_to_invalid_identifier_lifetime() {
+        check(
+            "'foo",
+            r#"fn main() { let i<|> = 1; }"#,
+            "error: Invalid name `'foo`: not an identifier",
+        );
+    }
+
+    #[test]
+    fn test_rename_to_invalid_identifier_lifetime2() {
+        check(
+            "foo",
+            r#"fn main<'a>(_: &'a<|> ()) {}"#,
+            "error: Invalid name `foo`: not a lifetime identifier",
         );
     }
 
@@ -1392,6 +1431,33 @@ struct Foo {
 
 fn foo(Foo { i: bar }: foo) -> i32 {
     bar
+}
+"#,
+        )
+    }
+
+    #[test]
+    fn test_rename_lifetimes() {
+        check(
+            "'yeeee",
+            r#"
+trait Foo<'a> {
+    fn foo() -> &'a ();
+}
+impl<'a> Foo<'a> for &'a () {
+    fn foo() -> &'a<|> () {
+        unimplemented!()
+    }
+}
+"#,
+            r#"
+trait Foo<'a> {
+    fn foo() -> &'a ();
+}
+impl<'yeeee> Foo<'yeeee> for &'yeeee () {
+    fn foo() -> &'yeeee () {
+        unimplemented!()
+    }
 }
 "#,
         )
