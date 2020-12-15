@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/*", "xtask/" ]
+members = ["crates/*", "xtask/"]
 
 [profile.dev]
 # Disabling debug info speeds up builds a bunch,
@@ -16,7 +16,7 @@ text-size.opt-level = 3
 miniz_oxide.opt-level = 3
 
 [profile.release]
-incremental = true
+incremental = true 
 debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
 
 [patch.'crates-io']
@@ -26,4 +26,4 @@ debug = 0 # Set this to 1 or 2 to get more useful backtraces in debugger.
 # chalk-ir = { path = "../chalk/chalk-ir" }
 # chalk-recursive = { path = "../chalk/chalk-recursive" }
 
-# ungrammar = { path = "../ungrammar" }
+ungrammar = { git = "https://github.com/Veykril/ungrammar", rev = "bf9091f" }
