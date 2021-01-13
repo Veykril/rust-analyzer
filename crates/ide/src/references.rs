@@ -184,17 +184,16 @@ fn decl_access(def: &Definition, syntax: &SyntaxNode, range: TextRange) -> Optio
         _ => return None,
     };
 
-    let stmt = find_node_at_offset::<ast::LetStmt>(syntax, range.start())?;
-    if stmt.initializer().is_some() {
-        let pat = stmt.pat()?;
-        if let ast::Pat::IdentPat(it) = pat {
-            if it.mut_token().is_some() {
-                return Some(ReferenceAccess::Write);
-            }
+    let pat = find_node_at_offset::<ast::Pat>(syntax, range.start())?;
+    if let ast::Pat::IdentPat(it) = pat {
+        if it.mut_token().is_some() {
+            Some(ReferenceAccess::Write)
+        } else {
+            Some(ReferenceAccess::Read)
         }
+    } else {
+        None
     }
-
-    None
 }
 
 fn get_struct_def_name_for_struct_literal_search(
@@ -533,7 +532,7 @@ fn bar() {
 }
 "#,
             expect![[r#"
-                spam Local FileId(0) 19..23 Other
+                spam Local FileId(0) 19..23 19..23 Other Read
 
                 FileId(0) 34..38 Other Read
                 FileId(0) 41..45 Other Read
@@ -548,7 +547,7 @@ fn bar() {
 fn foo(i : u32) -> u32 { i$0 }
 "#,
             expect![[r#"
-                i ValueParam FileId(0) 7..8 Other
+                i ValueParam FileId(0) 7..8 7..8 Other Read
 
                 FileId(0) 25..26 Other Read
             "#]],
@@ -562,7 +561,7 @@ fn foo(i : u32) -> u32 { i$0 }
 fn foo(i$0 : u32) -> u32 { i }
 "#,
             expect![[r#"
-                i ValueParam FileId(0) 7..8 Other
+                i ValueParam FileId(0) 7..8 7..8 Other Read
 
                 FileId(0) 25..26 Other Read
             "#]],
@@ -850,7 +849,7 @@ fn foo() {
 }
 "#,
             expect![[r#"
-                i Local FileId(0) 19..20 Other
+                i Local FileId(0) 19..20 19..20 Other Read
 
                 FileId(0) 26..27 Other Write
             "#]],
@@ -1100,7 +1099,7 @@ fn main() {
 }
 "#,
             expect![[r#"
-                a Local FileId(0) 59..60 Other
+                a Local FileId(0) 59..60 59..60 Other Read
 
                 FileId(0) 80..81 Other Read
             "#]],
@@ -1118,7 +1117,7 @@ fn main() {
 }
 "#,
             expect![[r#"
-                a Local FileId(0) 59..60 Other
+                a Local FileId(0) 59..60 59..60 Other Read
 
                 FileId(0) 80..81 Other Read
             "#]],
