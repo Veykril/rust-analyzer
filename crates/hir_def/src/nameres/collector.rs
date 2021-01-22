@@ -11,7 +11,7 @@ use hir_expand::{
     ast_id_map::FileAstId,
     builtin_derive::find_builtin_derive,
     builtin_macro::find_builtin_macro,
-    name::{AsName, Name},
+    name::{known, AsName, Name},
     proc_macro::ProcMacroExpander,
     HirFileId, MacroCallId, MacroCallKind, MacroDefId, MacroDefKind,
 };
@@ -179,7 +179,11 @@ impl Import {
         let attrs = &tree.attrs(db, krate, ModItem::from(id.value).into());
         let visibility = &tree[it.visibility];
         Self {
-            path: ModPath::from_segments(PathKind::Plain, iter::once(it.name.clone())),
+            path: if it.name == known::SELF_PARAM {
+                ModPath::from_segments(PathKind::Super(0), None)
+            } else {
+                ModPath::from_segments(PathKind::Plain, iter::once(it.name.clone()))
+            },
             alias: it.alias.clone(),
             visibility: visibility.clone(),
             is_glob: false,
@@ -516,12 +520,18 @@ impl DefCollector<'_> {
     fn resolve_import(&self, module_id: LocalModuleId, import: &Import) -> PartialResolvedImport {
         log::debug!("resolving import: {:?} ({:?})", import, self.def_map.edition);
         if import.is_extern_crate {
-            let res = self.def_map.resolve_name_in_extern_prelude(
-                &import
+            let res = if import.path.is_self() {
+                PerNs::types(
+                    ModuleId { krate: self.def_map.krate, local_id: self.def_map.root }.into(),
+                    Visibility::Public,
+                )
+            } else {
+                let ident = import
                     .path
                     .as_ident()
-                    .expect("extern crate should have been desugared to one-element path"),
-            );
+                    .expect("extern crate should have been desugared to one-element path");
+                self.def_map.resolve_name_in_extern_prelude(ident)
+            };
             if res.is_none() {
                 PartialResolvedImport::Unresolved
             } else {
@@ -670,6 +680,25 @@ impl DefCollector<'_> {
                     }
 
                     self.update(module_id, &[(name, def)], vis, ImportType::Named);
+                }
+                // extern self as alias
+                None if import.is_extern_crate
+                    && module_id == self.def_map.root
+                    && import.path.is_self() =>
+                {
+                    if let Some(ImportAlias::Alias(ref name)) = import.alias {
+                        let krate = self.def_map.krate;
+                        let local_id = self.def_map.root;
+                        self.def_map
+                            .extern_prelude
+                            .insert(name.clone(), ModuleId { krate, local_id }.into());
+                        self.update(
+                            module_id,
+                            &[(Some(name.clone()), def)],
+                            vis,
+                            ImportType::Named,
+                        );
+                    };
                 }
                 None => mark::hit!(bogus_paths),
             }

@@ -425,6 +425,20 @@ struct Arc;
 }
 
 #[test]
+fn extern_crate_rename_self() {
+    check(
+        r#"
+//- /main.rs crate:main
+extern crate self as foo;
+"#,
+        expect![[r#"
+            crate
+            foo: t
+        "#]],
+    );
+}
+
+#[test]
 fn reexport_across_crates() {
     check(
         r#"
