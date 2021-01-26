@@ -70,8 +70,9 @@ impl<'a> EnumRender<'a> {
         if self.variant_kind == StructKind::Tuple {
             mark::hit!(inserts_parens_for_tuple_enums);
             let params = Params::Anonymous(self.variant.fields(self.ctx.db()).len());
-            builder =
-                builder.add_call_parens(self.ctx.completion, self.short_qualified_name, params);
+            builder = builder
+                .add_call_parens(self.ctx.completion, &self.short_qualified_name, params)
+                .lookup_by(self.short_qualified_name);
         } else if self.path.is_some() {
             builder = builder.lookup_by(self.short_qualified_name);
         }

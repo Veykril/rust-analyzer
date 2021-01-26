@@ -459,7 +459,7 @@ fn main() {
         check(
             fixture,
             expect![[r#"
-                me random_method() (dep::test_mod::TestTrait) -> ()
+                me random_method(&self) (dep::test_mod::TestTrait) -> ()
             "#]],
         );
 
@@ -629,7 +629,7 @@ fn main() {
 }
         "#,
             expect![[r#"
-                me random_method() (dep::test_mod::TestTrait) -> () DEPRECATED
+                me random_method(&self) (dep::test_mod::TestTrait) -> () DEPRECATED
             "#]],
         );
 

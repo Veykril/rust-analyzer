@@ -336,8 +336,8 @@ enum E { Foo, Bar(i32) }
 fn foo() { let _ = E::$0 }
 "#,
             expect![[r#"
-                ev Foo    ()
-                ev Bar(…) (i32)
+                ev Foo ()
+                ev Bar (i32)
             "#]],
         );
     }
@@ -359,10 +359,10 @@ impl S {
 fn foo() { let _ = S::$0 }
 "#,
             expect![[r#"
-                fn a()  -> ()
-                me b(…) -> ()
-                ct C    const C: i32 = 42;
-                ta T    type T = i32;
+                fn a()      -> ()
+                me b(&self) -> ()
+                ct C        const C: i32 = 42;
+                ta T        type T = i32;
             "#]],
         );
     }
@@ -509,14 +509,14 @@ trait Sub: Super {
 fn foo<T: Sub>() { T::$0 }
 "#,
             expect![[r#"
-                ta SubTy        type SubTy;
-                ta Ty           type Ty;
-                ct C2           const C2: ();
-                fn subfunc()    -> ()
-                me submethod(…) -> ()
-                ct CONST        const CONST: u8;
-                fn func()       -> ()
-                me method(…)    -> ()
+                ta SubTy            type SubTy;
+                ta Ty               type Ty;
+                ct C2               const C2: ();
+                fn subfunc()        -> ()
+                me submethod(&self) -> ()
+                ct CONST            const CONST: u8;
+                fn func()           -> ()
+                me method(&self)    -> ()
             "#]],
         );
     }
@@ -549,14 +549,14 @@ impl<T> Sub for Wrap<T> {
 }
 "#,
             expect![[r#"
-                ta SubTy        type SubTy;
-                ta Ty           type Ty;
-                ct CONST        const CONST: u8 = 0;
-                fn func()       -> ()
-                me method(…)    -> ()
-                ct C2           const C2: () = ();
-                fn subfunc()    -> ()
-                me submethod(…) -> ()
+                ta SubTy            type SubTy;
+                ta Ty               type Ty;
+                ct CONST            const CONST: u8 = 0;
+                fn func()           -> ()
+                me method(&self)    -> ()
+                ct C2               const C2: () = ();
+                fn subfunc()        -> ()
+                me submethod(&self) -> ()
             "#]],
         );
     }
@@ -752,8 +752,8 @@ fn main() {
 }
 "#,
             expect![[r#"
-                fn main() -> ()
-                fn foo(…) -> ()
+                fn main()           -> ()
+                fn foo(a: i32, b: i32) -> ()
             "#]],
         );
     }
@@ -774,9 +774,9 @@ impl Foo {
 }
 "#,
             expect![[r#"
-                ev Bar    ()
-                ev Baz    ()
-                me foo(…) -> ()
+                ev Bar       ()
+                ev Baz       ()
+                me foo(self) -> ()
             "#]],
         );
     }

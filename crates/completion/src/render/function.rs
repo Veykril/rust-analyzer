@@ -2,6 +2,7 @@
 
 use hir::{HasSource, HirDisplay, Type};
 use ide_db::SymbolKind;
+use stdx::format_to;
 use syntax::ast::Fn;
 use test_utils::mark;
 
@@ -42,16 +43,36 @@ impl<'a> FunctionRender<'a> {
 
     fn render(self, import_to_add: Option<ImportEdit>) -> CompletionItem {
         let params = self.params();
-        CompletionItem::new(CompletionKind::Reference, self.ctx.source_range(), self.name.clone())
+        CompletionItem::new(CompletionKind::Reference, self.ctx.source_range(), self.label())
             .kind(self.kind())
             .set_documentation(self.ctx.docs(self.func))
             .set_deprecated(
                 self.ctx.is_deprecated(self.func) || self.ctx.is_deprecated_assoc_item(self.func),
             )
             .detail(self.detail())
-            .add_call_parens(self.ctx.completion, self.name, params)
+            .insert_text(&self.name)
+            .add_call_parens(self.ctx.completion, &self.name, params)
+            .lookup_by(self.name)
             .add_import(import_to_add)
             .build()
+    }
+
+    fn label(&self) -> String {
+        let mut buf = self.name.clone();
+        buf.push('(');
+        if let Some(param_list) = self.ast_node.param_list() {
+            let len = buf.len();
+            if let Some(self_) = param_list.self_param() {
+                format_to!(buf, "{}, ", self_);
+            }
+            param_list.params().for_each(|param| format_to!(buf, "{}, ", param));
+            if len < buf.len() {
+                // drop trailing ` ,`
+                buf.truncate(buf.len() - 2);
+            }
+        }
+        buf.push(')');
+        buf
     }
 
     fn detail(&self) -> String {

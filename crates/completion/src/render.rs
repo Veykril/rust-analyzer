@@ -429,14 +429,13 @@ fn main() { Foo::Fo$0 }
             expect![[r#"
                 [
                     CompletionItem {
-                        label: "Foo(…)",
+                        label: "Foo",
                         source_range: 46..48,
                         delete: 46..48,
                         insert: "Foo($0)",
                         kind: SymbolKind(
                             Variant,
                         ),
-                        lookup: "Foo",
                         detail: "(i32, i32)",
                         trigger_call_info: true,
                     },
@@ -482,7 +481,16 @@ fn main() { let _: m::Spam = S$0 }
             expect![[r#"
                 [
                     CompletionItem {
-                        label: "Spam::Bar(…)",
+                        label: "m",
+                        source_range: 75..76,
+                        delete: 75..76,
+                        insert: "m",
+                        kind: SymbolKind(
+                            Module,
+                        ),
+                    },
+                    CompletionItem {
+                        label: "m::Spam::Bar",
                         source_range: 75..76,
                         delete: 75..76,
                         insert: "Spam::Bar($0)",
@@ -492,15 +500,6 @@ fn main() { let _: m::Spam = S$0 }
                         lookup: "Spam::Bar",
                         detail: "(i32)",
                         trigger_call_info: true,
-                    },
-                    CompletionItem {
-                        label: "m",
-                        source_range: 75..76,
-                        delete: 75..76,
-                        insert: "m",
-                        kind: SymbolKind(
-                            Module,
-                        ),
                     },
                     CompletionItem {
                         label: "m::Spam::Foo",
@@ -619,7 +618,7 @@ impl S {
             expect![[r#"
                 [
                     CompletionItem {
-                        label: "bar()",
+                        label: "bar(self)",
                         source_range: 94..94,
                         delete: 94..94,
                         insert: "bar()$0",
@@ -719,7 +718,7 @@ fn foo(s: S) { s.$0 }
             expect![[r#"
                 [
                     CompletionItem {
-                        label: "the_method()",
+                        label: "the_method(&self)",
                         source_range: 81..81,
                         delete: 81..81,
                         insert: "the_method()$0",
@@ -923,7 +922,7 @@ fn go(world: &WorldSnapshot) { go(w$0) }
             expect![[r#"
                 lc world [type+name]
                 st WorldSnapshot []
-                fn go(…) []
+                fn go(world: &WorldSnapshot) []
             "#]],
         );
     }
@@ -937,7 +936,7 @@ fn f(foo: &Foo) { f(foo, w$0) }
 "#,
             expect![[r#"
                 st Foo []
-                fn f(…) []
+                fn f(foo: &Foo) []
                 lc foo []
             "#]],
         );

@@ -55,7 +55,7 @@ impl Builder {
     pub(super) fn add_call_parens(
         mut self,
         ctx: &CompletionContext,
-        name: String,
+        name: &str,
         params: Params,
     ) -> Builder {
         if !self.should_add_parens(ctx) {
@@ -69,8 +69,8 @@ impl Builder {
         // If not an import, add parenthesis automatically.
         mark::hit!(inserts_parens_for_function_calls);
 
-        let (snippet, label) = if params.is_empty() {
-            (format!("{}()$0", name), format!("{}()", name))
+        let snippet = if params.is_empty() {
+            format!("{}()$0", name)
         } else {
             self = self.trigger_call_info();
             let snippet = match (ctx.config.add_call_argument_snippets, params) {
@@ -87,8 +87,8 @@ impl Builder {
                 }
             };
 
-            (snippet, format!("{}(…)", name))
+            snippet
         };
-        self.lookup_by(name).label(label).insert_snippet(cap, snippet)
+        self.insert_snippet(cap, snippet)
     }
 }

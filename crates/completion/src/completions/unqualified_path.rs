@@ -165,9 +165,9 @@ fn quux(x: i32) {
 }
 "#,
             expect![[r#"
-                lc y       i32
-                lc x       i32
-                fn quux(…) -> ()
+                lc y            i32
+                lc x            i32
+                fn quux(x: i32) -> ()
             "#]],
         );
     }
@@ -575,10 +575,10 @@ fn quux(x: i32) {
 }
 "#,
             expect![[r#"
-                lc y       i32
-                lc x       i32
-                fn quux(…) -> ()
-                ma m!(…)   macro_rules! m
+                lc y            i32
+                lc x            i32
+                fn quux(x: i32) -> ()
+                ma m!(…)        macro_rules! m
             "#]],
         );
     }
@@ -594,10 +594,10 @@ fn quux(x: i32) {
 }
 ",
             expect![[r#"
-                lc y       i32
-                lc x       i32
-                fn quux(…) -> ()
-                ma m!(…)   macro_rules! m
+                lc y            i32
+                lc x            i32
+                fn quux(x: i32) -> ()
+                ma m!(…)        macro_rules! m
             "#]],
         );
     }
@@ -613,10 +613,10 @@ fn quux(x: i32) {
 }
 "#,
             expect![[r#"
-                lc y       i32
-                lc x       i32
-                fn quux(…) -> ()
-                ma m!(…)   macro_rules! m
+                lc y            i32
+                lc x            i32
+                fn quux(x: i32) -> ()
+                ma m!(…)        macro_rules! m
             "#]],
         );
     }

@@ -115,6 +115,7 @@ pub(crate) fn check_edit_with_config(
         .filter(|it| it.lookup() == what)
         .collect_tuple()
         .unwrap_or_else(|| panic!("can't find {:?} completion in {:#?}", what, completions));
+    dbg!(&completion);
     let mut actual = db.file_text(position.file_id).to_string();
 
     let mut combined_edit = completion.text_edit().to_owned();
