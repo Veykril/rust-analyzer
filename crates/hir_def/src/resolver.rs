@@ -18,6 +18,7 @@ use crate::{
     nameres::DefMap,
     path::{ModPath, PathKind},
     per_ns::PerNs,
+    type_ref::LifetimeRef,
     visibility::{RawVisibility, Visibility},
     AdtId, AssocContainerId, ConstId, ConstParamId, ContainerId, DefWithBodyId, EnumId,
     EnumVariantId, FunctionId, GenericDefId, GenericParamId, HasModule, ImplId, LifetimeParamId,
@@ -197,6 +198,25 @@ impl Resolver {
             }
         }
         None
+    }
+
+    pub fn resolve_lifetime(
+        &self,
+        _db: &dyn DefDatabase,
+        lifetime: &LifetimeRef,
+    ) -> Option<LifetimeParamId> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| match scope {
+                Scope::GenericParams { params, def } => Some((params, def)),
+                _ => None,
+            })
+            .and_then(|(params, def)| {
+                params
+                    .find_lifetime_by_name(&lifetime.name)
+                    .map(|local_id| LifetimeParamId { local_id, parent: *def })
+            })
     }
 
     pub fn resolve_path_in_type_ns_fully(

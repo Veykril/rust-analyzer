@@ -691,6 +691,8 @@ pub fn write_bounds_like_dyn_trait(
                 write!(f, "{} = ", type_alias.name)?;
                 projection_pred.ty.hir_fmt(f)?;
             }
+            GenericPredicate::LifetimeOutlives(outlives) => outlives.b.hir_fmt(f)?,
+            GenericPredicate::TypeOutlives(outlives) => outlives.lifetime.hir_fmt(f)?,
             GenericPredicate::Error => {
                 if angle_open {
                     // impl Trait<X, {error}>
@@ -761,6 +763,16 @@ impl HirDisplay for GenericPredicate {
                     f.db.type_alias_data(projection_pred.projection_ty.associated_ty).name,
                 )?;
                 projection_pred.ty.hir_fmt(f)?;
+            }
+            GenericPredicate::LifetimeOutlives(outlives) => {
+                outlives.a.hir_fmt(f)?;
+                write!(f, ": ")?;
+                outlives.b.hir_fmt(f)?;
+            }
+            GenericPredicate::TypeOutlives(ty_outlives) => {
+                ty_outlives.ty.hir_fmt(f)?;
+                write!(f, ": ")?;
+                ty_outlives.lifetime.hir_fmt(f)?;
             }
             GenericPredicate::Error => write!(f, "{{error}}")?,
         }

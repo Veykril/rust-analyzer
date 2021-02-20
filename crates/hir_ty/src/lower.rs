@@ -14,12 +14,12 @@ use hir_def::{
     generics::{TypeParamProvenance, WherePredicate, WherePredicateTypeTarget},
     path::{GenericArg, Path, PathSegment, PathSegments},
     resolver::{HasResolver, Resolver, TypeNs},
-    type_ref::{TypeBound, TypeRef},
+    type_ref::{LifetimeRef, TypeBound, TypeRef},
     AdtId, AssocContainerId, AssocItemId, ConstId, ConstParamId, EnumId, EnumVariantId, FunctionId,
     GenericDefId, HasModule, ImplId, LocalFieldId, Lookup, StaticId, StructId, TraitId,
     TypeAliasId, TypeParamId, UnionId, VariantId,
 };
-use hir_expand::name::Name;
+use hir_expand::name::{known, Name};
 use la_arena::ArenaMap;
 use smallvec::SmallVec;
 use stdx::impl_from;
@@ -31,9 +31,9 @@ use crate::{
         all_super_trait_refs, associated_type_by_name_including_super_traits, generics,
         make_mut_slice, variant_data,
     },
-    Binders, BoundVar, DebruijnIndex, FnSig, GenericPredicate, OpaqueTy, OpaqueTyId, PolyFnSig,
-    ProjectionPredicate, ProjectionTy, ReturnTypeImplTrait, ReturnTypeImplTraits, Substs,
-    TraitEnvironment, TraitRef, Ty, TypeCtor, TypeWalk,
+    Binders, BoundVar, DebruijnIndex, FnSig, GenericPredicate, Lifetime, LifetimeOutlives,
+    OpaqueTy, OpaqueTyId, PolyFnSig, ProjectionPredicate, ProjectionTy, ReturnTypeImplTrait,
+    ReturnTypeImplTraits, Substs, TraitEnvironment, TraitRef, Ty, TypeCtor, TypeOutlives, TypeWalk,
 };
 
 #[derive(Debug)]
@@ -655,15 +655,16 @@ impl TraitRef {
     ) -> Substs {
         substs_from_path_segment(ctx, segment, Some(resolved.into()), false)
     }
+}
 
-    pub(crate) fn from_type_bound(
-        ctx: &TyLoweringContext<'_>,
-        bound: &TypeBound,
-        self_ty: Ty,
-    ) -> Option<TraitRef> {
-        match bound {
-            TypeBound::Path(path) => TraitRef::from_path(ctx, path, Some(self_ty)),
-            TypeBound::Lifetime(_) | TypeBound::Error => None,
+impl Lifetime {
+    fn from_lifetime_ref(ctx: &TyLoweringContext<'_>, lifetime_ref: &LifetimeRef) -> Option<Self> {
+        if lifetime_ref.name == known::STATIC_LIFETIME {
+            Some(Lifetime::Static)
+        } else if lifetime_ref.name == known::PLACEHOLDER_LIFETIME {
+            Some(Lifetime::Static)
+        } else {
+            ctx.resolver.resolve_lifetime(ctx.db.upcast(), lifetime_ref).map(Lifetime::Parameter)
         }
     }
 }
@@ -696,7 +697,15 @@ impl GenericPredicate {
                     .collect::<Vec<_>>()
                     .into_iter()
             }
-            WherePredicate::Lifetime { .. } => vec![].into_iter(),
+            WherePredicate::Lifetime { target, bound } => {
+                let a = Lifetime::from_lifetime_ref(ctx, target);
+                let b = Lifetime::from_lifetime_ref(ctx, bound);
+                a.zip(b)
+                    .map(|(a, b)| GenericPredicate::LifetimeOutlives(LifetimeOutlives { a, b }))
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+            }
         }
     }
 
@@ -705,13 +714,24 @@ impl GenericPredicate {
         bound: &'a TypeBound,
         self_ty: Ty,
     ) -> impl Iterator<Item = GenericPredicate> + 'a {
-        let trait_ref = TraitRef::from_type_bound(ctx, bound, self_ty);
-        iter::once(trait_ref.clone().map_or(GenericPredicate::Error, GenericPredicate::Implemented))
-            .chain(
-                trait_ref
-                    .into_iter()
-                    .flat_map(move |tr| assoc_type_bindings_from_type_bound(ctx, bound, tr)),
-            )
+        let mut bindings = None;
+        let trait_ref = match bound {
+            TypeBound::Path(path) => {
+                bindings = TraitRef::from_path(ctx, path, Some(self_ty));
+                bindings.clone().map(GenericPredicate::Implemented)
+            }
+            TypeBound::Lifetime(lifetime) => {
+                Lifetime::from_lifetime_ref(ctx, lifetime).map(|lifetime| {
+                    GenericPredicate::TypeOutlives(TypeOutlives { lifetime, ty: self_ty })
+                })
+            }
+            TypeBound::Error => None,
+        };
+        iter::once(trait_ref.unwrap_or(GenericPredicate::Error)).chain(
+            bindings
+                .into_iter()
+                .flat_map(move |tr| assoc_type_bindings_from_type_bound(ctx, bound, tr)),
+        )
     }
 }
 

@@ -272,8 +272,17 @@ impl InferenceTable {
 
             (Ty::Placeholder(p1), Ty::Placeholder(p2)) if *p1 == *p2 => true,
 
-            (Ty::Dyn(dyn1), Ty::Dyn(dyn2)) if dyn1.len() == dyn2.len() => {
-                for (pred1, pred2) in dyn1.iter().zip(dyn2.iter()) {
+            (Ty::Dyn(dyn1), Ty::Dyn(dyn2)) => {
+                // FIXME we dont properly handle lifetimes yet so for now ignore theses predicates
+                let filter = |pred: &&_| {
+                    !matches!(
+                        pred,
+                        GenericPredicate::LifetimeOutlives(_) | GenericPredicate::TypeOutlives(_)
+                    )
+                };
+                for (pred1, pred2) in
+                    dyn1.iter().take_while(filter).zip(dyn2.iter().take_while(filter))
+                {
                     if !self.unify_preds(pred1, pred2, depth + 1) {
                         return false;
                     }

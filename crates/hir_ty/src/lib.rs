@@ -592,6 +592,18 @@ impl TypeWalk for TraitRef {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct LifetimeOutlives {
+    pub a: Lifetime,
+    pub b: Lifetime,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct TypeOutlives {
+    pub ty: Ty,
+    pub lifetime: Lifetime,
+}
+
 /// Like `generics::WherePredicate`, but with resolved types: A condition on the
 /// parameters of a generic item.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -600,6 +612,8 @@ pub enum GenericPredicate {
     Implemented(TraitRef),
     /// An associated type bindings like in `Iterator<Item = T>`.
     Projection(ProjectionPredicate),
+    LifetimeOutlives(LifetimeOutlives),
+    TypeOutlives(TypeOutlives),
     /// We couldn't resolve the trait reference. (If some type parameters can't
     /// be resolved, they will just be Unknown).
     Error,
@@ -618,7 +632,9 @@ impl GenericPredicate {
         match self {
             GenericPredicate::Implemented(tr) => Some(tr.clone()),
             GenericPredicate::Projection(proj) => Some(proj.projection_ty.trait_ref(db)),
-            GenericPredicate::Error => None,
+            GenericPredicate::TypeOutlives(_)
+            | GenericPredicate::LifetimeOutlives(_)
+            | GenericPredicate::Error => None,
         }
     }
 }
@@ -628,7 +644,9 @@ impl TypeWalk for GenericPredicate {
         match self {
             GenericPredicate::Implemented(trait_ref) => trait_ref.walk(f),
             GenericPredicate::Projection(projection_pred) => projection_pred.walk(f),
-            GenericPredicate::Error => {}
+            GenericPredicate::TypeOutlives(_)
+            | GenericPredicate::LifetimeOutlives(_)
+            | GenericPredicate::Error => {}
         }
     }
 
@@ -642,7 +660,9 @@ impl TypeWalk for GenericPredicate {
             GenericPredicate::Projection(projection_pred) => {
                 projection_pred.walk_mut_binders(f, binders)
             }
-            GenericPredicate::Error => {}
+            GenericPredicate::TypeOutlives(_)
+            | GenericPredicate::LifetimeOutlives(_)
+            | GenericPredicate::Error => {}
         }
     }
 }

@@ -260,6 +260,7 @@ pub mod known {
     pub const SELF_TYPE: super::Name = super::Name::new_inline("Self");
 
     pub const STATIC_LIFETIME: super::Name = super::Name::new_inline("'static");
+    pub const PLACEHOLDER_LIFETIME: super::Name = super::Name::new_inline("'_");
 
     #[macro_export]
     macro_rules! name {

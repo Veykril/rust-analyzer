@@ -379,6 +379,10 @@ impl GenericParams {
         self.consts.iter().find_map(|(id, p)| if p.name == *name { Some(id) } else { None })
     }
 
+    pub fn find_lifetime_by_name(&self, name: &Name) -> Option<LocalLifetimeParamId> {
+        self.lifetimes.iter().find_map(|(id, p)| if p.name == *name { Some(id) } else { None })
+    }
+
     pub fn find_trait_self_param(&self) -> Option<LocalTypeParamId> {
         self.types.iter().find_map(|(id, p)| {
             if p.provenance == TypeParamProvenance::TraitSelf {

@@ -3417,17 +3417,16 @@ impl<T> Foo<T$0> {}
                 ```
                 "#]],
         );
-        // lifetimes aren't being substituted yet
         check(
             r#"
 struct Foo<T>(T);
-impl<T: 'static> Foo<T$0> {}
+impl<'a, T: 'a> Foo<T$0> {}
 "#,
             expect![[r#"
                 *T*
 
                 ```rust
-                T: {error}
+                T: 'a
                 ```
                 "#]],
         );

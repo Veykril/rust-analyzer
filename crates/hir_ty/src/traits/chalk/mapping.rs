@@ -16,8 +16,9 @@ use crate::{
     db::HirDatabase,
     primitive::{FloatBitness, FloatTy, IntBitness, IntTy, Signedness},
     traits::{Canonical, Obligation},
-    ApplicationTy, CallableDefId, GenericPredicate, InEnvironment, OpaqueTy, OpaqueTyId,
-    ProjectionPredicate, ProjectionTy, Substs, TraitEnvironment, TraitRef, Ty, TyKind, TypeCtor,
+    ApplicationTy, CallableDefId, GenericPredicate, InEnvironment, Lifetime, LifetimeOutlives,
+    OpaqueTy, OpaqueTyId, ProjectionPredicate, ProjectionTy, Substs, TraitEnvironment, TraitRef,
+    Ty, TyKind, TypeCtor, TypeOutlives,
 };
 
 use super::interner::*;
@@ -265,6 +266,16 @@ impl ToChalk for Ty {
             chalk_ir::TyKind::Generator(_, _) => unimplemented!(), // FIXME
             chalk_ir::TyKind::GeneratorWitness(_, _) => unimplemented!(), // FIXME
         }
+    }
+}
+
+impl ToChalk for Lifetime {
+    type Chalk = chalk_ir::Lifetime<Interner>;
+    fn to_chalk(self, _db: &dyn HirDatabase) -> chalk_ir::Lifetime<Interner> {
+        LifetimeData::Static.intern(&Interner) // FIXME
+    }
+    fn from_chalk(_db: &dyn HirDatabase, _chalk: chalk_ir::Lifetime<Interner>) -> Self {
+        Lifetime::Static // FIXME
     }
 }
 
@@ -526,6 +537,22 @@ impl ToChalk for GenericPredicate {
                 let alias = chalk_ir::AliasTy::Projection(projection);
                 make_binders(chalk_ir::WhereClause::AliasEq(chalk_ir::AliasEq { alias, ty }), 0)
             }
+            GenericPredicate::LifetimeOutlives(outlives) => {
+                let a = outlives.a.to_chalk(db).shifted_in(&Interner);
+                let b = outlives.b.to_chalk(db).shifted_in(&Interner);
+                make_binders(
+                    chalk_ir::WhereClause::LifetimeOutlives(chalk_ir::LifetimeOutlives { a, b }),
+                    0,
+                )
+            }
+            GenericPredicate::TypeOutlives(outlives) => {
+                let ty = outlives.ty.to_chalk(db).shifted_in(&Interner);
+                let lifetime = outlives.lifetime.to_chalk(db).shifted_in(&Interner);
+                make_binders(
+                    chalk_ir::WhereClause::TypeOutlives(chalk_ir::TypeOutlives { ty, lifetime }),
+                    0,
+                )
+            }
             GenericPredicate::Error => panic!("tried passing GenericPredicate::Error to Chalk"),
         }
     }
@@ -555,15 +582,17 @@ impl ToChalk for GenericPredicate {
                 let ty = from_chalk(db, projection_eq.ty);
                 GenericPredicate::Projection(ProjectionPredicate { projection_ty, ty })
             }
-
-            chalk_ir::WhereClause::LifetimeOutlives(_) => {
-                // we shouldn't get these from Chalk
-                panic!("encountered LifetimeOutlives from Chalk")
+            chalk_ir::WhereClause::LifetimeOutlives(outlives) => {
+                GenericPredicate::LifetimeOutlives(LifetimeOutlives {
+                    a: from_chalk(db, outlives.a),
+                    b: from_chalk(db, outlives.b),
+                })
             }
-
-            chalk_ir::WhereClause::TypeOutlives(_) => {
-                // we shouldn't get these from Chalk
-                panic!("encountered TypeOutlives from Chalk")
+            chalk_ir::WhereClause::TypeOutlives(outlives) => {
+                GenericPredicate::TypeOutlives(TypeOutlives {
+                    ty: from_chalk(db, outlives.ty),
+                    lifetime: from_chalk(db, outlives.lifetime),
+                })
             }
         }
     }
@@ -799,6 +828,8 @@ pub(super) fn generic_predicate_to_inline_bound(
             };
             Some(rust_ir::InlineBound::AliasEqBound(alias_eq_bound))
         }
-        GenericPredicate::Error => None,
+        GenericPredicate::LifetimeOutlives(_)
+        | GenericPredicate::TypeOutlives(_)
+        | GenericPredicate::Error => None,
     }
 }

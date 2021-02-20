@@ -693,6 +693,7 @@ pub(crate) fn inherent_impl_substs(
     // Unknown. I think this can only really happen if self_ty contained
     // Unknown, and in that case we want the result to contain Unknown in those
     // places again.
+
     substs.map(|s| fallback_bound_vars(s.suffix(vars.len()), self_ty.kinds.len()))
 }
 

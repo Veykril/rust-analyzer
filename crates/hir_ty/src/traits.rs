@@ -89,6 +89,8 @@ impl Obligation {
             GenericPredicate::Projection(projection_pred) => {
                 Some(Obligation::Projection(projection_pred))
             }
+            GenericPredicate::LifetimeOutlives(_) => None,
+            GenericPredicate::TypeOutlives(_) => None,
             GenericPredicate::Error => None,
         }
     }
