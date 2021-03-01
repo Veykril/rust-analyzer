@@ -382,10 +382,14 @@ impl<'a, 'b> ExprValidator<'a, 'b> {
         };
 
         let (params, required) = match mismatch.expected {
-            TyKind::Adt(AdtId::EnumId(enum_id), ref parameters) if enum_id == core_result_enum => {
+            TyKind::Adt(chalk_ir::AdtId(AdtId::EnumId(enum_id)), ref parameters)
+                if enum_id == core_result_enum =>
+            {
                 (parameters, "Ok".to_string())
             }
-            TyKind::Adt(AdtId::EnumId(enum_id), ref parameters) if enum_id == core_option_enum => {
+            TyKind::Adt(chalk_ir::AdtId(AdtId::EnumId(enum_id)), ref parameters)
+                if enum_id == core_option_enum =>
+            {
                 (parameters, "Some".to_string())
             }
             _ => return,

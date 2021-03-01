@@ -87,7 +87,7 @@ impl ToChalk for TyKind {
 
             TyKind::Adt(adt_id, substs) => {
                 let substitution = substs.to_chalk(db);
-                chalk_ir::TyKind::Adt(chalk_ir::AdtId(adt_id), substitution).intern(&Interner)
+                chalk_ir::TyKind::Adt(adt_id, substitution).intern(&Interner)
             }
             TyKind::Alias(AliasTy::Projection(proj_ty)) => {
                 let associated_ty_id = TypeAliasAsAssocType(proj_ty.associated_ty).to_chalk(db);
@@ -184,9 +184,7 @@ impl ToChalk for TyKind {
                 TyKind::Dyn(predicates)
             }
 
-            chalk_ir::TyKind::Adt(struct_id, subst) => {
-                TyKind::Adt(struct_id.0, from_chalk(db, subst))
-            }
+            chalk_ir::TyKind::Adt(adt_id, subst) => TyKind::Adt(adt_id, from_chalk(db, subst)),
             chalk_ir::TyKind::AssociatedType(type_id, subst) => TyKind::AssociatedType(
                 from_chalk::<TypeAliasAsAssocType, _>(db, type_id).0,
                 from_chalk(db, subst),
@@ -325,18 +323,6 @@ impl ToChalk for hir_def::ImplId {
 
     fn from_chalk(_db: &dyn HirDatabase, impl_id: ImplId) -> hir_def::ImplId {
         InternKey::from_intern_id(impl_id.0)
-    }
-}
-
-impl ToChalk for hir_def::AdtId {
-    type Chalk = AdtId;
-
-    fn to_chalk(self, _db: &dyn HirDatabase) -> Self::Chalk {
-        chalk_ir::AdtId(self.into())
-    }
-
-    fn from_chalk(_db: &dyn HirDatabase, id: AdtId) -> Self {
-        id.0
     }
 }
 

@@ -27,9 +27,9 @@ use std::{iter, mem, ops::Deref, sync::Arc};
 
 use base_db::salsa;
 use hir_def::{
-    builtin_type::BuiltinType, expr::ExprId, type_ref::Rawness, AdtId, AssocContainerId,
-    DefWithBodyId, FunctionId, GenericDefId, HasModule, LifetimeParamId, Lookup, TraitId,
-    TypeAliasId, TypeParamId,
+    builtin_type::BuiltinType, expr::ExprId, type_ref::Rawness, AssocContainerId, DefWithBodyId,
+    FunctionId, GenericDefId, HasModule, LifetimeParamId, Lookup, TraitId, TypeAliasId,
+    TypeParamId,
 };
 use itertools::Itertools;
 
@@ -47,7 +47,9 @@ pub use lower::{
 };
 pub use traits::{InEnvironment, Obligation, ProjectionPredicate, TraitEnvironment};
 
-pub use chalk_ir::{BoundVar, DebruijnIndex, Mutability, Scalar, TyVariableKind};
+pub use chalk_ir::{AdtId, BoundVar, DebruijnIndex, Mutability, Scalar, TyVariableKind};
+
+pub(crate) use crate::traits::chalk::Interner;
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Lifetime {
@@ -122,6 +124,8 @@ pub enum AliasTy {
     Opaque(OpaqueTy),
 }
 
+pub type TyKind = Ty<Interner>;
+
 /// A type.
 ///
 /// See also the `TyKind` enum in rustc (librustc/ty/sty.rs), which represents
@@ -129,9 +133,9 @@ pub enum AliasTy {
 ///
 /// This should be cheap to clone.
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
-pub enum TyKind {
+pub enum Ty<I: chalk_ir::interner::Interner> {
     /// Structures, enumerations and unions.
-    Adt(AdtId, Substs),
+    Adt(chalk_ir::AdtId<I>, Substs),
 
     /// Represents an associated item like `Iterator::Item`.  This is used
     /// when we have tried to normalize a projection like `T::Item` but
@@ -658,9 +662,9 @@ impl TyKind {
         t
     }
 
-    pub fn as_adt(&self) -> Option<(AdtId, &Substs)> {
+    pub fn as_adt(&self) -> Option<(hir_def::AdtId, &Substs)> {
         match self {
-            TyKind::Adt(adt_def, parameters) => Some((*adt_def, parameters)),
+            TyKind::Adt(chalk_ir::AdtId(adt), parameters) => Some((*adt, parameters)),
             _ => None,
         }
     }
@@ -674,7 +678,7 @@ impl TyKind {
 
     pub fn as_generic_def(&self) -> Option<GenericDefId> {
         match *self {
-            TyKind::Adt(adt, ..) => Some(adt.into()),
+            TyKind::Adt(chalk_ir::AdtId(adt), ..) => Some(adt.into()),
             TyKind::FnDef(callable, ..) => Some(callable.into()),
             TyKind::AssociatedType(type_alias, ..) => Some(type_alias.into()),
             TyKind::ForeignType(type_alias, ..) => Some(type_alias.into()),

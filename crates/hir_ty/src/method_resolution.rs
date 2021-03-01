@@ -50,7 +50,7 @@ impl TyFingerprint {
             &TyKind::Slice(..) => TyFingerprint::Slice,
             &TyKind::Array(..) => TyFingerprint::Array,
             &TyKind::Scalar(scalar) => TyFingerprint::Scalar(scalar),
-            &TyKind::Adt(adt, _) => TyFingerprint::Adt(adt),
+            &TyKind::Adt(chalk_ir::AdtId(adt), _) => TyFingerprint::Adt(adt),
             &TyKind::Tuple(cardinality, _) => TyFingerprint::Tuple(cardinality),
             &TyKind::Raw(mutability, ..) => TyFingerprint::RawPtr(mutability),
             &TyKind::ForeignType(alias_id, ..) => TyFingerprint::ForeignType(alias_id),
@@ -233,7 +233,7 @@ impl TyKind {
         let mod_to_crate_ids = |module: ModuleId| Some(std::iter::once(module.krate()).collect());
 
         let lang_item_targets = match self {
-            TyKind::Adt(def_id, _) => {
+            TyKind::Adt(chalk_ir::AdtId(def_id), _) => {
                 return mod_to_crate_ids(def_id.module(db.upcast()));
             }
             TyKind::ForeignType(type_alias_id) => {

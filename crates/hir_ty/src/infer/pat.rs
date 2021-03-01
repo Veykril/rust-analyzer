@@ -237,7 +237,7 @@ impl<'a> InferenceContext<'a> {
                     };
 
                     let inner_ty = self.infer_pat(*inner, inner_expected, default_bm);
-                    TyKind::Adt(box_adt, Substs::single(inner_ty))
+                    TyKind::Adt(chalk_ir::AdtId(box_adt), Substs::single(inner_ty))
                 }
                 None => TyKind::Unknown,
             },

@@ -2,11 +2,6 @@
 
 use std::{borrow::Cow, fmt};
 
-use crate::{
-    db::HirDatabase, primitive, utils::generics, AliasTy, CallableDefId, CallableSig,
-    GenericPredicate, Lifetime, Obligation, OpaqueTy, OpaqueTyId, ProjectionTy, Scalar, Substs,
-    TraitRef, TyKind,
-};
 use arrayvec::ArrayVec;
 use chalk_ir::Mutability;
 use hir_def::{
@@ -14,6 +9,12 @@ use hir_def::{
     AssocContainerId, HasModule, Lookup, ModuleId, TraitId,
 };
 use hir_expand::name::Name;
+
+use crate::{
+    db::HirDatabase, primitive, utils::generics, AliasTy, CallableDefId, CallableSig,
+    GenericPredicate, Lifetime, Obligation, OpaqueTy, OpaqueTyId, ProjectionTy, Scalar, Substs,
+    TraitRef, TyKind,
+};
 
 pub struct HirFormatter<'a> {
     pub db: &'a dyn HirDatabase,
@@ -400,7 +401,7 @@ impl HirDisplay for TyKind {
                     write!(f, " -> {}", ret_display)?;
                 }
             }
-            TyKind::Adt(def_id, parameters) => {
+            TyKind::Adt(chalk_ir::AdtId(def_id), parameters) => {
                 match f.display_target {
                     DisplayTarget::Diagnostics | DisplayTarget::Test => {
                         let name = match *def_id {

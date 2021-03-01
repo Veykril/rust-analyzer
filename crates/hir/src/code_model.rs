@@ -1705,7 +1705,7 @@ impl Type {
 
     pub fn is_packed(&self, db: &dyn HirDatabase) -> bool {
         let adt_id = match self.ty.value {
-            TyKind::Adt(adt_id, ..) => adt_id,
+            TyKind::Adt(hir_ty::AdtId(adt_id), ..) => adt_id,
             _ => return false,
         };
 
@@ -1733,8 +1733,8 @@ impl Type {
 
     pub fn fields(&self, db: &dyn HirDatabase) -> Vec<(Field, Type)> {
         let (variant_id, substs) = match self.ty.value {
-            TyKind::Adt(AdtId::StructId(s), ref substs) => (s.into(), substs),
-            TyKind::Adt(AdtId::UnionId(u), ref substs) => (u.into(), substs),
+            TyKind::Adt(hir_ty::AdtId(AdtId::StructId(s)), ref substs) => (s.into(), substs),
+            TyKind::Adt(hir_ty::AdtId(AdtId::UnionId(u)), ref substs) => (u.into(), substs),
             _ => return Vec::new(),
         };
 

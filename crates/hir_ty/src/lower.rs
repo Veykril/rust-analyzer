@@ -1107,7 +1107,7 @@ fn type_for_enum_variant_constructor(db: &dyn HirDatabase, def: EnumVariantId) -
 fn type_for_adt(db: &dyn HirDatabase, adt: AdtId) -> Binders<TyKind> {
     let generics = generics(db.upcast(), adt.into());
     let substs = Substs::bound_vars(&generics, DebruijnIndex::INNERMOST);
-    Binders::new(substs.len(), TyKind::Adt(adt, substs))
+    Binders::new(substs.len(), TyKind::Adt(chalk_ir::AdtId(adt), substs))
 }
 
 fn type_for_type_alias(db: &dyn HirDatabase, t: TypeAliasId) -> Binders<TyKind> {

@@ -30,6 +30,10 @@ use super::{
     InferenceDiagnostic, TypeMismatch,
 };
 
+fn adt_ty(adt: AdtId, substs: Substs) -> TyKind {
+    TyKind::Adt(chalk_ir::AdtId(adt), substs)
+}
+
 impl<'a> InferenceContext<'a> {
     pub(super) fn infer_expr(&mut self, tgt_expr: ExprId, expected: &Expectation) -> TyKind {
         let ty = self.infer_expr_inner(tgt_expr, expected);
@@ -438,14 +442,14 @@ impl<'a> InferenceContext<'a> {
                     TyKind::Tuple(_, substs) => {
                         name.as_tuple_index().and_then(|idx| substs.0.get(idx).cloned())
                     }
-                    TyKind::Adt(AdtId::StructId(s), parameters) => {
+                    TyKind::Adt(chalk_ir::AdtId(AdtId::StructId(s)), parameters) => {
                         self.db.struct_data(s).variant_data.field(name).map(|local_id| {
                             let field = FieldId { parent: s.into(), local_id };
                             self.write_field_resolution(tgt_expr, field);
                             self.db.field_types(s.into())[field.local_id].clone().subst(&parameters)
                         })
                     }
-                    TyKind::Adt(AdtId::UnionId(u), parameters) => {
+                    TyKind::Adt(chalk_ir::AdtId(AdtId::UnionId(u)), parameters) => {
                         self.db.union_data(u).variant_data.field(name).map(|local_id| {
                             let field = FieldId { parent: u.into(), local_id };
                             self.write_field_resolution(tgt_expr, field);
@@ -507,7 +511,7 @@ impl<'a> InferenceContext<'a> {
                         _ => (),
                     }
                     sb = sb.fill(repeat_with(|| self.table.new_type_var()));
-                    TyKind::Adt(box_, sb.build())
+                    adt_ty(box_, sb.build())
                 } else {
                     TyKind::Unknown
                 }
@@ -597,31 +601,31 @@ impl<'a> InferenceContext<'a> {
                 let rhs_ty = rhs.map(|e| self.infer_expr(e, &rhs_expect));
                 match (range_type, lhs_ty, rhs_ty) {
                     (RangeOp::Exclusive, None, None) => match self.resolve_range_full() {
-                        Some(adt) => TyKind::Adt(adt, Substs::empty()),
+                        Some(adt) => adt_ty(adt, Substs::empty()),
                         None => TyKind::Unknown,
                     },
                     (RangeOp::Exclusive, None, Some(ty)) => match self.resolve_range_to() {
-                        Some(adt) => TyKind::Adt(adt, Substs::single(ty)),
+                        Some(adt) => adt_ty(adt, Substs::single(ty)),
                         None => TyKind::Unknown,
                     },
                     (RangeOp::Inclusive, None, Some(ty)) => {
                         match self.resolve_range_to_inclusive() {
-                            Some(adt) => TyKind::Adt(adt, Substs::single(ty)),
+                            Some(adt) => adt_ty(adt, Substs::single(ty)),
                             None => TyKind::Unknown,
                         }
                     }
                     (RangeOp::Exclusive, Some(_), Some(ty)) => match self.resolve_range() {
-                        Some(adt) => TyKind::Adt(adt, Substs::single(ty)),
+                        Some(adt) => adt_ty(adt, Substs::single(ty)),
                         None => TyKind::Unknown,
                     },
                     (RangeOp::Inclusive, Some(_), Some(ty)) => {
                         match self.resolve_range_inclusive() {
-                            Some(adt) => TyKind::Adt(adt, Substs::single(ty)),
+                            Some(adt) => adt_ty(adt, Substs::single(ty)),
                             None => TyKind::Unknown,
                         }
                     }
                     (RangeOp::Exclusive, Some(ty), None) => match self.resolve_range_from() {
-                        Some(adt) => TyKind::Adt(adt, Substs::single(ty)),
+                        Some(adt) => adt_ty(adt, Substs::single(ty)),
                         None => TyKind::Unknown,
                     },
                     (RangeOp::Inclusive, _, None) => TyKind::Unknown,

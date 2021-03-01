@@ -627,7 +627,7 @@ pub(super) fn is_useful(
     // - `!` type
     // In those cases, no match arm is useful.
     match cx.infer[cx.match_expr].strip_references() {
-        TyKind::Adt(AdtId::EnumId(enum_id), ..) => {
+        TyKind::Adt(chalk_ir::AdtId(AdtId::EnumId(enum_id)), ..) => {
             if cx.db.enum_data(*enum_id).variants.is_empty() {
                 return Ok(Usefulness::NotUseful);
             }
