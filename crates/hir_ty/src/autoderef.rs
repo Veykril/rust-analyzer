@@ -14,7 +14,7 @@ use crate::{
     db::HirDatabase,
     traits::{InEnvironment, Solution},
     utils::generics,
-    BoundVar, Canonical, DebruijnIndex, Obligation, Substs, TraitRef, Ty,
+    BoundVar, Canonical, DebruijnIndex, Obligation, Substs, TraitRef, TyKind,
 };
 
 const AUTODEREF_RECURSION_LIMIT: usize = 10;
@@ -22,8 +22,8 @@ const AUTODEREF_RECURSION_LIMIT: usize = 10;
 pub fn autoderef<'a>(
     db: &'a dyn HirDatabase,
     krate: Option<CrateId>,
-    ty: InEnvironment<Canonical<Ty>>,
-) -> impl Iterator<Item = Canonical<Ty>> + 'a {
+    ty: InEnvironment<Canonical<TyKind>>,
+) -> impl Iterator<Item = Canonical<TyKind>> + 'a {
     let InEnvironment { value: ty, environment } = ty;
     successors(Some(ty), move |ty| {
         deref(db, krate?, InEnvironment { value: ty, environment: environment.clone() })
@@ -34,8 +34,8 @@ pub fn autoderef<'a>(
 pub(crate) fn deref(
     db: &dyn HirDatabase,
     krate: CrateId,
-    ty: InEnvironment<&Canonical<Ty>>,
-) -> Option<Canonical<Ty>> {
+    ty: InEnvironment<&Canonical<TyKind>>,
+) -> Option<Canonical<TyKind>> {
     if let Some(derefed) = ty.value.value.builtin_deref() {
         Some(Canonical { value: derefed, kinds: ty.value.kinds.clone() })
     } else {
@@ -46,8 +46,8 @@ pub(crate) fn deref(
 fn deref_by_trait(
     db: &dyn HirDatabase,
     krate: CrateId,
-    ty: InEnvironment<&Canonical<Ty>>,
-) -> Option<Canonical<Ty>> {
+    ty: InEnvironment<&Canonical<TyKind>>,
+) -> Option<Canonical<TyKind>> {
     let deref_trait = match db.lang_item(krate, "deref".into())? {
         LangItemTarget::TraitId(it) => it,
         _ => return None,
@@ -81,7 +81,7 @@ fn deref_by_trait(
 
     // Now do the assoc type projection
     let projection = super::traits::ProjectionPredicate {
-        ty: Ty::BoundVar(BoundVar::new(DebruijnIndex::INNERMOST, ty.value.kinds.len())),
+        ty: TyKind::BoundVar(BoundVar::new(DebruijnIndex::INNERMOST, ty.value.kinds.len())),
         projection_ty: super::ProjectionTy { associated_ty: target, parameters },
     };
 
@@ -115,7 +115,7 @@ fn deref_by_trait(
 
             for i in 1..vars.0.kinds.len() {
                 if vars.0.value[i - 1]
-                    != Ty::BoundVar(BoundVar::new(DebruijnIndex::INNERMOST, i - 1))
+                    != TyKind::BoundVar(BoundVar::new(DebruijnIndex::INNERMOST, i - 1))
                 {
                     warn!("complex solution for derefing {:?}: {:?}, ignoring", ty.value, solution);
                     return None;

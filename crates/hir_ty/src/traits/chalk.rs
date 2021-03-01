@@ -20,7 +20,7 @@ use crate::{
     method_resolution::{TyFingerprint, ALL_FLOAT_FPS, ALL_INT_FPS},
     utils::generics,
     BoundVar, CallableDefId, CallableSig, DebruijnIndex, GenericPredicate, ProjectionPredicate,
-    ProjectionTy, Substs, TraitRef, Ty,
+    ProjectionTy, Substs, TraitRef, TyKind,
 };
 use mapping::{
     convert_where_clauses, generic_predicate_to_inline_bound, make_binders, TypeAliasAsAssocType,
@@ -84,13 +84,13 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
         debug!("impls_for_trait {:?}", trait_id);
         let trait_: hir_def::TraitId = from_chalk(self.db, trait_id);
 
-        let ty: Ty = from_chalk(self.db, parameters[0].assert_ty_ref(&Interner).clone());
+        let ty: TyKind = from_chalk(self.db, parameters[0].assert_ty_ref(&Interner).clone());
 
         fn binder_kind(
-            ty: &Ty,
+            ty: &TyKind,
             binders: &CanonicalVarKinds<Interner>,
         ) -> Option<chalk_ir::TyVariableKind> {
-            if let Ty::BoundVar(bv) = ty {
+            if let TyKind::BoundVar(bv) = ty {
                 let binders = binders.as_slice(&Interner);
                 if bv.debruijn == DebruijnIndex::INNERMOST {
                     if let chalk_ir::VariableKind::Ty(tk) = binders[bv.index].kind {
@@ -220,18 +220,18 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
                     let impl_bound = GenericPredicate::Implemented(TraitRef {
                         trait_: future_trait,
                         // Self type as the first parameter.
-                        substs: Substs::single(Ty::BoundVar(BoundVar {
+                        substs: Substs::single(TyKind::BoundVar(BoundVar {
                             debruijn: DebruijnIndex::INNERMOST,
                             index: 0,
                         })),
                     });
                     let proj_bound = GenericPredicate::Projection(ProjectionPredicate {
                         // The parameter of the opaque type.
-                        ty: Ty::BoundVar(BoundVar { debruijn: DebruijnIndex::ONE, index: 0 }),
+                        ty: TyKind::BoundVar(BoundVar { debruijn: DebruijnIndex::ONE, index: 0 }),
                         projection_ty: ProjectionTy {
                             associated_ty: future_output,
                             // Self type as the first parameter.
-                            parameters: Substs::single(Ty::BoundVar(BoundVar::new(
+                            parameters: Substs::single(TyKind::BoundVar(BoundVar::new(
                                 DebruijnIndex::INNERMOST,
                                 0,
                             ))),
@@ -263,7 +263,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
 
     fn hidden_opaque_type(&self, _id: chalk_ir::OpaqueTyId<Interner>) -> chalk_ir::Ty<Interner> {
         // FIXME: actually provide the hidden type; it is relevant for auto traits
-        Ty::Unknown.to_chalk(self.db)
+        TyKind::Unknown.to_chalk(self.db)
     }
 
     fn is_object_safe(&self, _trait_id: chalk_ir::TraitId<Interner>) -> bool {
@@ -284,7 +284,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
         _closure_id: chalk_ir::ClosureId<Interner>,
         substs: &chalk_ir::Substitution<Interner>,
     ) -> chalk_ir::Binders<rust_ir::FnDefInputsAndOutputDatum<Interner>> {
-        let sig_ty: Ty =
+        let sig_ty: TyKind =
             from_chalk(self.db, substs.at(&Interner, 0).assert_ty_ref(&Interner).clone());
         let sig = CallableSig::from_substs(
             &sig_ty.substs().expect("first closure param should be fn ptr"),
@@ -300,7 +300,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
         _closure_id: chalk_ir::ClosureId<Interner>,
         _substs: &chalk_ir::Substitution<Interner>,
     ) -> chalk_ir::Binders<chalk_ir::Ty<Interner>> {
-        let ty = Ty::unit().to_chalk(self.db);
+        let ty = TyKind::unit().to_chalk(self.db);
         make_binders(ty, 0)
     }
     fn closure_fn_substitution(
@@ -392,7 +392,7 @@ pub(crate) fn associated_ty_data_query(
     let resolver = hir_def::resolver::HasResolver::resolver(type_alias, db.upcast());
     let ctx = crate::TyLoweringContext::new(db, &resolver)
         .with_type_param_mode(crate::lower::TypeParamLoweringMode::Variable);
-    let self_ty = Ty::BoundVar(crate::BoundVar::new(crate::DebruijnIndex::INNERMOST, 0));
+    let self_ty = TyKind::BoundVar(crate::BoundVar::new(crate::DebruijnIndex::INNERMOST, 0));
     let bounds = type_alias_data
         .bounds
         .iter()
@@ -489,7 +489,7 @@ pub(crate) fn struct_datum_query(
 ) -> Arc<StructDatum> {
     debug!("struct_datum {:?}", struct_id);
     let adt_id = from_chalk(db, struct_id);
-    let type_ctor = Ty::Adt(adt_id, Substs::empty());
+    let type_ctor = TyKind::Adt(adt_id, Substs::empty());
     debug!("struct {:?} = {:?}", struct_id, type_ctor);
     let num_params = generics(db.upcast(), adt_id.into()).len();
     let upstream = adt_id.module(db.upcast()).krate() != krate;

@@ -20,7 +20,7 @@ use crate::{
     primitive::{self, FloatTy, IntTy, UintTy},
     utils::all_super_traits,
     Canonical, DebruijnIndex, FnPointer, FnSig, InEnvironment, Scalar, Substs, TraitEnvironment,
-    TraitRef, Ty, TypeWalk,
+    TraitRef, TyKind, TypeWalk,
 };
 
 /// This is used as a key for indexing impls.
@@ -43,19 +43,21 @@ impl TyFingerprint {
     /// Creates a TyFingerprint for looking up an impl. Only certain types can
     /// have impls: if we have some `struct S`, we can have an `impl S`, but not
     /// `impl &S`. Hence, this will return `None` for reference types and such.
-    pub(crate) fn for_impl(ty: &Ty) -> Option<TyFingerprint> {
+    pub(crate) fn for_impl(ty: &TyKind) -> Option<TyFingerprint> {
         let fp = match ty {
-            &Ty::Str => TyFingerprint::Str,
-            &Ty::Never => TyFingerprint::Never,
-            &Ty::Slice(..) => TyFingerprint::Slice,
-            &Ty::Array(..) => TyFingerprint::Array,
-            &Ty::Scalar(scalar) => TyFingerprint::Scalar(scalar),
-            &Ty::Adt(adt, _) => TyFingerprint::Adt(adt),
-            &Ty::Tuple(cardinality, _) => TyFingerprint::Tuple(cardinality),
-            &Ty::Raw(mutability, ..) => TyFingerprint::RawPtr(mutability),
-            &Ty::ForeignType(alias_id, ..) => TyFingerprint::ForeignType(alias_id),
-            &Ty::Function(FnPointer { num_args, sig, .. }) => TyFingerprint::FnPtr(num_args, sig),
-            Ty::Dyn(_) => ty.dyn_trait().map(|trait_| TyFingerprint::Dyn(trait_))?,
+            &TyKind::Str => TyFingerprint::Str,
+            &TyKind::Never => TyFingerprint::Never,
+            &TyKind::Slice(..) => TyFingerprint::Slice,
+            &TyKind::Array(..) => TyFingerprint::Array,
+            &TyKind::Scalar(scalar) => TyFingerprint::Scalar(scalar),
+            &TyKind::Adt(adt, _) => TyFingerprint::Adt(adt),
+            &TyKind::Tuple(cardinality, _) => TyFingerprint::Tuple(cardinality),
+            &TyKind::Raw(mutability, ..) => TyFingerprint::RawPtr(mutability),
+            &TyKind::ForeignType(alias_id, ..) => TyFingerprint::ForeignType(alias_id),
+            &TyKind::Function(FnPointer { num_args, sig, .. }) => {
+                TyFingerprint::FnPtr(num_args, sig)
+            }
+            TyKind::Dyn(_) => ty.dyn_trait().map(|trait_| TyFingerprint::Dyn(trait_))?,
             _ => return None,
         };
         Some(fp)
@@ -198,7 +200,7 @@ impl InherentImpls {
         Arc::new(Self { map })
     }
 
-    pub fn for_self_ty(&self, self_ty: &Ty) -> &[ImplId] {
+    pub fn for_self_ty(&self, self_ty: &TyKind) -> &[ImplId] {
         match TyFingerprint::for_impl(self_ty) {
             Some(fp) => self.map.get(&fp).map(|vec| vec.as_ref()).unwrap_or(&[]),
             None => &[],
@@ -210,7 +212,7 @@ impl InherentImpls {
     }
 }
 
-impl Ty {
+impl TyKind {
     pub fn def_crates(
         &self,
         db: &dyn HirDatabase,
@@ -231,30 +233,30 @@ impl Ty {
         let mod_to_crate_ids = |module: ModuleId| Some(std::iter::once(module.krate()).collect());
 
         let lang_item_targets = match self {
-            Ty::Adt(def_id, _) => {
+            TyKind::Adt(def_id, _) => {
                 return mod_to_crate_ids(def_id.module(db.upcast()));
             }
-            Ty::ForeignType(type_alias_id) => {
+            TyKind::ForeignType(type_alias_id) => {
                 return mod_to_crate_ids(type_alias_id.lookup(db.upcast()).module(db.upcast()));
             }
-            Ty::Scalar(Scalar::Bool) => lang_item_crate!("bool"),
-            Ty::Scalar(Scalar::Char) => lang_item_crate!("char"),
-            Ty::Scalar(Scalar::Float(f)) => match f {
+            TyKind::Scalar(Scalar::Bool) => lang_item_crate!("bool"),
+            TyKind::Scalar(Scalar::Char) => lang_item_crate!("char"),
+            TyKind::Scalar(Scalar::Float(f)) => match f {
                 // There are two lang items: one in libcore (fXX) and one in libstd (fXX_runtime)
                 FloatTy::F32 => lang_item_crate!("f32", "f32_runtime"),
                 FloatTy::F64 => lang_item_crate!("f64", "f64_runtime"),
             },
-            &Ty::Scalar(Scalar::Int(t)) => {
+            &TyKind::Scalar(Scalar::Int(t)) => {
                 lang_item_crate!(primitive::int_ty_to_string(t))
             }
-            &Ty::Scalar(Scalar::Uint(t)) => {
+            &TyKind::Scalar(Scalar::Uint(t)) => {
                 lang_item_crate!(primitive::uint_ty_to_string(t))
             }
-            Ty::Str => lang_item_crate!("str_alloc", "str"),
-            Ty::Slice(_) => lang_item_crate!("slice_alloc", "slice"),
-            Ty::Raw(Mutability::Not, _) => lang_item_crate!("const_ptr"),
-            Ty::Raw(Mutability::Mut, _) => lang_item_crate!("mut_ptr"),
-            Ty::Dyn(_) => {
+            TyKind::Str => lang_item_crate!("str_alloc", "str"),
+            TyKind::Slice(_) => lang_item_crate!("slice_alloc", "slice"),
+            TyKind::Raw(Mutability::Not, _) => lang_item_crate!("const_ptr"),
+            TyKind::Raw(Mutability::Mut, _) => lang_item_crate!("mut_ptr"),
+            TyKind::Dyn(_) => {
                 return self.dyn_trait().and_then(|trait_| {
                     mod_to_crate_ids(GenericDefId::TraitId(trait_).module(db.upcast()))
                 });
@@ -276,13 +278,13 @@ impl Ty {
 /// Look up the method with the given name, returning the actual autoderefed
 /// receiver type (but without autoref applied yet).
 pub(crate) fn lookup_method(
-    ty: &Canonical<Ty>,
+    ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: &Name,
-) -> Option<(Ty, FunctionId)> {
+) -> Option<(TyKind, FunctionId)> {
     iterate_method_candidates(
         ty,
         db,
@@ -314,14 +316,14 @@ pub enum LookupMode {
 // lifetime problems, because we need to borrow temp `CrateImplDefs`.
 // FIXME add a context type here?
 pub fn iterate_method_candidates<T>(
-    ty: &Canonical<Ty>,
+    ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: Option<&Name>,
     mode: LookupMode,
-    mut callback: impl FnMut(&Ty, AssocItemId) -> Option<T>,
+    mut callback: impl FnMut(&TyKind, AssocItemId) -> Option<T>,
 ) -> Option<T> {
     let mut slot = None;
     iterate_method_candidates_impl(
@@ -342,14 +344,14 @@ pub fn iterate_method_candidates<T>(
 }
 
 fn iterate_method_candidates_impl(
-    ty: &Canonical<Ty>,
+    ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: Option<&Name>,
     mode: LookupMode,
-    callback: &mut dyn FnMut(&Ty, AssocItemId) -> bool,
+    callback: &mut dyn FnMut(&TyKind, AssocItemId) -> bool,
 ) -> bool {
     match mode {
         LookupMode::MethodCall => {
@@ -408,13 +410,13 @@ fn iterate_method_candidates_impl(
 }
 
 fn iterate_method_candidates_with_autoref(
-    deref_chain: &[Canonical<Ty>],
+    deref_chain: &[Canonical<TyKind>],
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: Option<&Name>,
-    mut callback: &mut dyn FnMut(&Ty, AssocItemId) -> bool,
+    mut callback: &mut dyn FnMut(&TyKind, AssocItemId) -> bool,
 ) -> bool {
     if iterate_method_candidates_by_receiver(
         &deref_chain[0],
@@ -430,7 +432,7 @@ fn iterate_method_candidates_with_autoref(
     }
     let refed = Canonical {
         kinds: deref_chain[0].kinds.clone(),
-        value: Ty::Ref(Mutability::Not, Substs::single(deref_chain[0].value.clone())),
+        value: TyKind::Ref(Mutability::Not, Substs::single(deref_chain[0].value.clone())),
     };
     if iterate_method_candidates_by_receiver(
         &refed,
@@ -446,7 +448,7 @@ fn iterate_method_candidates_with_autoref(
     }
     let ref_muted = Canonical {
         kinds: deref_chain[0].kinds.clone(),
-        value: Ty::Ref(Mutability::Mut, Substs::single(deref_chain[0].value.clone())),
+        value: TyKind::Ref(Mutability::Mut, Substs::single(deref_chain[0].value.clone())),
     };
     if iterate_method_candidates_by_receiver(
         &ref_muted,
@@ -464,14 +466,14 @@ fn iterate_method_candidates_with_autoref(
 }
 
 fn iterate_method_candidates_by_receiver(
-    receiver_ty: &Canonical<Ty>,
-    rest_of_deref_chain: &[Canonical<Ty>],
+    receiver_ty: &Canonical<TyKind>,
+    rest_of_deref_chain: &[Canonical<TyKind>],
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: Option<&Name>,
-    mut callback: &mut dyn FnMut(&Ty, AssocItemId) -> bool,
+    mut callback: &mut dyn FnMut(&TyKind, AssocItemId) -> bool,
 ) -> bool {
     // We're looking for methods with *receiver* type receiver_ty. These could
     // be found in any of the derefs of receiver_ty, so we have to go through
@@ -499,13 +501,13 @@ fn iterate_method_candidates_by_receiver(
 }
 
 fn iterate_method_candidates_for_self_ty(
-    self_ty: &Canonical<Ty>,
+    self_ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: Option<&Name>,
-    mut callback: &mut dyn FnMut(&Ty, AssocItemId) -> bool,
+    mut callback: &mut dyn FnMut(&TyKind, AssocItemId) -> bool,
 ) -> bool {
     if iterate_inherent_methods(self_ty, db, name, None, krate, &mut callback) {
         return true;
@@ -514,19 +516,19 @@ fn iterate_method_candidates_for_self_ty(
 }
 
 fn iterate_trait_method_candidates(
-    self_ty: &Canonical<Ty>,
+    self_ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     traits_in_scope: &FxHashSet<TraitId>,
     name: Option<&Name>,
-    receiver_ty: Option<&Canonical<Ty>>,
-    callback: &mut dyn FnMut(&Ty, AssocItemId) -> bool,
+    receiver_ty: Option<&Canonical<TyKind>>,
+    callback: &mut dyn FnMut(&TyKind, AssocItemId) -> bool,
 ) -> bool {
     // if ty is `dyn Trait`, the trait doesn't need to be in scope
     let inherent_trait =
         self_ty.value.dyn_trait().into_iter().flat_map(|t| all_super_traits(db.upcast(), t));
-    let env_traits = if let Ty::Placeholder(_) = self_ty.value {
+    let env_traits = if let TyKind::Placeholder(_) = self_ty.value {
         // if we have `T: Trait` in the param env, the trait doesn't need to be in scope
         env.trait_predicates_for_self_ty(&self_ty.value)
             .map(|tr| tr.trait_)
@@ -564,12 +566,12 @@ fn iterate_trait_method_candidates(
 }
 
 fn iterate_inherent_methods(
-    self_ty: &Canonical<Ty>,
+    self_ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     name: Option<&Name>,
-    receiver_ty: Option<&Canonical<Ty>>,
+    receiver_ty: Option<&Canonical<TyKind>>,
     krate: CrateId,
-    callback: &mut dyn FnMut(&Ty, AssocItemId) -> bool,
+    callback: &mut dyn FnMut(&TyKind, AssocItemId) -> bool,
 ) -> bool {
     let def_crates = match self_ty.value.def_crates(db, krate) {
         Some(k) => k,
@@ -603,11 +605,11 @@ fn iterate_inherent_methods(
 /// Returns the self type for the index trait call.
 pub fn resolve_indexing_op(
     db: &dyn HirDatabase,
-    ty: &Canonical<Ty>,
+    ty: &Canonical<TyKind>,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
     index_trait: TraitId,
-) -> Option<Canonical<Ty>> {
+) -> Option<Canonical<TyKind>> {
     let ty = InEnvironment { value: ty.clone(), environment: env.clone() };
     let deref_chain = autoderef_method_receiver(db, krate, ty);
     for ty in deref_chain {
@@ -622,9 +624,9 @@ pub fn resolve_indexing_op(
 fn is_valid_candidate(
     db: &dyn HirDatabase,
     name: Option<&Name>,
-    receiver_ty: Option<&Canonical<Ty>>,
+    receiver_ty: Option<&Canonical<TyKind>>,
     item: AssocItemId,
-    self_ty: &Canonical<Ty>,
+    self_ty: &Canonical<TyKind>,
 ) -> bool {
     match item {
         AssocItemId::FunctionId(m) => {
@@ -659,7 +661,7 @@ fn is_valid_candidate(
 pub(crate) fn inherent_impl_substs(
     db: &dyn HirDatabase,
     impl_id: ImplId,
-    self_ty: &Canonical<Ty>,
+    self_ty: &Canonical<TyKind>,
 ) -> Option<Substs> {
     // we create a var for each type parameter of the impl; we need to keep in
     // mind here that `self_ty` might have vars of its own
@@ -684,9 +686,9 @@ pub(crate) fn inherent_impl_substs(
 fn fallback_bound_vars(s: Substs, num_vars_to_keep: usize) -> Substs {
     s.fold_binders(
         &mut |ty, binders| {
-            if let Ty::BoundVar(bound) = &ty {
+            if let TyKind::BoundVar(bound) = &ty {
                 if bound.index >= num_vars_to_keep && bound.debruijn >= binders {
-                    Ty::Unknown
+                    TyKind::Unknown
                 } else {
                     ty
                 }
@@ -701,8 +703,8 @@ fn fallback_bound_vars(s: Substs, num_vars_to_keep: usize) -> Substs {
 fn transform_receiver_ty(
     db: &dyn HirDatabase,
     function_id: FunctionId,
-    self_ty: &Canonical<Ty>,
-) -> Option<Ty> {
+    self_ty: &Canonical<TyKind>,
+) -> Option<TyKind> {
     let substs = match function_id.lookup(db.upcast()).container {
         AssocContainerId::TraitId(_) => Substs::build_for_def(db, function_id)
             .push(self_ty.value.clone())
@@ -722,7 +724,7 @@ fn transform_receiver_ty(
 }
 
 pub fn implements_trait(
-    ty: &Canonical<Ty>,
+    ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
@@ -735,7 +737,7 @@ pub fn implements_trait(
 }
 
 pub fn implements_trait_unique(
-    ty: &Canonical<Ty>,
+    ty: &Canonical<TyKind>,
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     krate: CrateId,
@@ -753,7 +755,7 @@ fn generic_implements_goal(
     db: &dyn HirDatabase,
     env: Arc<TraitEnvironment>,
     trait_: TraitId,
-    self_ty: Canonical<Ty>,
+    self_ty: Canonical<TyKind>,
 ) -> Canonical<InEnvironment<super::Obligation>> {
     let mut kinds = self_ty.kinds.to_vec();
     let substs = super::Substs::build_for_def(db, trait_)
@@ -769,13 +771,13 @@ fn generic_implements_goal(
 fn autoderef_method_receiver(
     db: &dyn HirDatabase,
     krate: CrateId,
-    ty: InEnvironment<Canonical<Ty>>,
-) -> Vec<Canonical<Ty>> {
+    ty: InEnvironment<Canonical<TyKind>>,
+) -> Vec<Canonical<TyKind>> {
     let mut deref_chain: Vec<_> = autoderef::autoderef(db, Some(krate), ty).collect();
     // As a last step, we can do array unsizing (that's the only unsizing that rustc does for method receivers!)
-    if let Some(Ty::Array(parameters)) = deref_chain.last().map(|ty| &ty.value) {
+    if let Some(TyKind::Array(parameters)) = deref_chain.last().map(|ty| &ty.value) {
         let kinds = deref_chain.last().unwrap().kinds.clone();
-        let unsized_ty = Ty::Slice(parameters.clone());
+        let unsized_ty = TyKind::Slice(parameters.clone());
         deref_chain.push(Canonical { value: unsized_ty, kinds })
     }
     deref_chain

@@ -9,7 +9,7 @@ use hir_def::{
 };
 use hir_expand::name::Name;
 
-use crate::{method_resolution, Substs, Ty, ValueTyDefId};
+use crate::{method_resolution, Substs, TyKind, ValueTyDefId};
 
 use super::{ExprOrPatId, InferenceContext, TraitRef};
 
@@ -19,7 +19,7 @@ impl<'a> InferenceContext<'a> {
         resolver: &Resolver,
         path: &Path,
         id: ExprOrPatId,
-    ) -> Option<Ty> {
+    ) -> Option<TyKind> {
         let ty = self.resolve_value_path(resolver, path, id)?;
         let ty = self.insert_type_vars(ty);
         let ty = self.normalize_associated_types_in(ty);
@@ -31,7 +31,7 @@ impl<'a> InferenceContext<'a> {
         resolver: &Resolver,
         path: &Path,
         id: ExprOrPatId,
-    ) -> Option<Ty> {
+    ) -> Option<TyKind> {
         let (value, self_subst) = if let Some(type_ref) = path.type_anchor() {
             if path.segments().is_empty() {
                 // This can't actually happen syntax-wise
@@ -40,7 +40,8 @@ impl<'a> InferenceContext<'a> {
             let ty = self.make_ty(type_ref);
             let remaining_segments_for_ty = path.segments().take(path.segments().len() - 1);
             let ctx = crate::lower::TyLoweringContext::new(self.db, &resolver);
-            let (ty, _) = Ty::from_type_relative_path(&ctx, ty, None, remaining_segments_for_ty);
+            let (ty, _) =
+                TyKind::from_type_relative_path(&ctx, ty, None, remaining_segments_for_ty);
             self.resolve_ty_assoc_item(
                 ty,
                 &path.segments().last().expect("path had at least one segment").name,
@@ -96,7 +97,7 @@ impl<'a> InferenceContext<'a> {
         // self_subst is just for the parent
         let parent_substs = self_subst.unwrap_or_else(Substs::empty);
         let ctx = crate::lower::TyLoweringContext::new(self.db, &self.resolver);
-        let substs = Ty::substs_from_path(&ctx, path, typable, true);
+        let substs = TyKind::substs_from_path(&ctx, path, typable, true);
         let full_substs = Substs::builder(substs.len())
             .use_parent_substs(&parent_substs)
             .fill(substs.0[parent_substs.len()..].iter().cloned())
@@ -137,14 +138,14 @@ impl<'a> InferenceContext<'a> {
                 let remaining_segments_for_ty =
                     remaining_segments.take(remaining_segments.len() - 1);
                 let ctx = crate::lower::TyLoweringContext::new(self.db, &self.resolver);
-                let (ty, _) = Ty::from_partly_resolved_hir_path(
+                let (ty, _) = TyKind::from_partly_resolved_hir_path(
                     &ctx,
                     def,
                     resolved_segment,
                     remaining_segments_for_ty,
                     true,
                 );
-                if let Ty::Unknown = ty {
+                if let TyKind::Unknown = ty {
                     return None;
                 }
 
@@ -205,11 +206,11 @@ impl<'a> InferenceContext<'a> {
 
     fn resolve_ty_assoc_item(
         &mut self,
-        ty: Ty,
+        ty: TyKind,
         name: &Name,
         id: ExprOrPatId,
     ) -> Option<(ValueNs, Option<Substs>)> {
-        if let Ty::Unknown = ty {
+        if let TyKind::Unknown = ty {
             return None;
         }
 
@@ -271,7 +272,7 @@ impl<'a> InferenceContext<'a> {
 
     fn resolve_enum_variant_on_ty(
         &mut self,
-        ty: &Ty,
+        ty: &TyKind,
         name: &Name,
         id: ExprOrPatId,
     ) -> Option<(ValueNs, Option<Substs>)> {

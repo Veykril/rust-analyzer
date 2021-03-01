@@ -10,7 +10,7 @@ use stdx::panic_context;
 
 use crate::{db::HirDatabase, DebruijnIndex, Substs};
 
-use super::{Canonical, GenericPredicate, HirDisplay, ProjectionTy, TraitRef, Ty, TypeWalk};
+use super::{Canonical, GenericPredicate, HirDisplay, ProjectionTy, TraitRef, TyKind, TypeWalk};
 
 use self::chalk::{from_chalk, Interner, ToChalk};
 
@@ -49,7 +49,7 @@ impl TraitEnvironment {
     /// find that `T: SomeTrait` if we call it for `T`.
     pub(crate) fn trait_predicates_for_self_ty<'a>(
         &'a self,
-        ty: &'a Ty,
+        ty: &'a TyKind,
     ) -> impl Iterator<Item = &'a TraitRef> + 'a {
         self.predicates.iter().filter_map(move |pred| match pred {
             GenericPredicate::Implemented(tr) if tr.self_ty() == ty => Some(tr),
@@ -97,18 +97,18 @@ impl Obligation {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ProjectionPredicate {
     pub projection_ty: ProjectionTy,
-    pub ty: Ty,
+    pub ty: TyKind,
 }
 
 impl TypeWalk for ProjectionPredicate {
-    fn walk(&self, f: &mut impl FnMut(&Ty)) {
+    fn walk(&self, f: &mut impl FnMut(&TyKind)) {
         self.projection_ty.walk(f);
         self.ty.walk(f);
     }
 
     fn walk_mut_binders(
         &mut self,
-        f: &mut impl FnMut(&mut Ty, DebruijnIndex),
+        f: &mut impl FnMut(&mut TyKind, DebruijnIndex),
         binders: DebruijnIndex,
     ) {
         self.projection_ty.walk_mut_binders(f, binders);
@@ -129,7 +129,7 @@ pub(crate) fn trait_solve_query(
     log::info!("trait_solve_query({})", goal.value.value.display(db));
 
     if let Obligation::Projection(pred) = &goal.value.value {
-        if let Ty::BoundVar(_) = &pred.projection_ty.parameters[0] {
+        if let TyKind::BoundVar(_) = &pred.projection_ty.parameters[0] {
             // Hack: don't ask Chalk to normalize with an unknown self type, it'll say that's impossible
             return Some(Solution::Ambig(Guidance::Unknown));
         }

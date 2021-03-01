@@ -33,7 +33,8 @@ use tracing_subscriber::{layer::SubscriberExt, EnvFilter, Registry};
 use tracing_tree::HierarchicalLayer;
 
 use crate::{
-    db::HirDatabase, display::HirDisplay, infer::TypeMismatch, test_db::TestDB, InferenceResult, Ty,
+    db::HirDatabase, display::HirDisplay, infer::TypeMismatch, test_db::TestDB, InferenceResult,
+    TyKind,
 };
 
 // These tests compare the inference results for all expressions in a file
@@ -84,7 +85,7 @@ fn check_types_impl(ra_fixture: &str, display_source: bool) {
     assert!(checked_one, "no `//^` annotations found");
 }
 
-fn type_at_range(db: &TestDB, pos: FileRange) -> Ty {
+fn type_at_range(db: &TestDB, pos: FileRange) -> TyKind {
     let file = db.parse(pos.file_id).ok().unwrap();
     let expr = algo::find_node_at_range::<ast::Expr>(file.syntax(), pos.range).unwrap();
     let fn_def = expr.syntax().ancestors().find_map(ast::Fn::cast).unwrap();
@@ -113,7 +114,7 @@ fn infer_with_mismatches(content: &str, include_mismatches: bool) -> String {
 
     let mut infer_def = |inference_result: Arc<InferenceResult>,
                          body_source_map: Arc<BodySourceMap>| {
-        let mut types: Vec<(InFile<SyntaxNode>, &Ty)> = Vec::new();
+        let mut types: Vec<(InFile<SyntaxNode>, &TyKind)> = Vec::new();
         let mut mismatches: Vec<(InFile<SyntaxNode>, &TypeMismatch)> = Vec::new();
 
         for (pat, ty) in inference_result.type_of_pat.iter() {

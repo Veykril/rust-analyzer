@@ -33,7 +33,7 @@ use hir_ty::{
     traits::{FnTrait, Solution, SolutionVariables},
     AliasTy, BoundVar, CallableDefId, CallableSig, Canonical, DebruijnIndex, GenericPredicate,
     InEnvironment, Mutability, Obligation, ProjectionPredicate, ProjectionTy, Scalar, Substs,
-    TraitEnvironment, Ty, TyDefId, TyVariableKind,
+    TraitEnvironment, TyDefId, TyKind, TyVariableKind,
 };
 use rustc_hash::FxHashSet;
 use stdx::{format_to, impl_from};
@@ -628,7 +628,7 @@ impl_from!(Struct, Union, Enum for Adt);
 impl Adt {
     pub fn has_non_default_type_params(self, db: &dyn HirDatabase) -> bool {
         let subst = db.generic_defaults(self.into());
-        subst.iter().any(|ty| &ty.value == &Ty::Unknown)
+        subst.iter().any(|ty| &ty.value == &TyKind::Unknown)
     }
 
     /// Turns this ADT into a type. Any type parameters of the ADT will be
@@ -755,7 +755,7 @@ impl Function {
         let environment = TraitEnvironment::lower(db, &resolver);
         Type {
             krate: self.id.lookup(db.upcast()).container.module(db.upcast()).krate(),
-            ty: InEnvironment { value: Ty::from_hir_ext(&ctx, ret_type).0, environment },
+            ty: InEnvironment { value: TyKind::from_hir_ext(&ctx, ret_type).0, environment },
         }
     }
 
@@ -777,7 +777,7 @@ impl Function {
                 let ty = Type {
                     krate: self.id.lookup(db.upcast()).container.module(db.upcast()).krate(),
                     ty: InEnvironment {
-                        value: Ty::from_hir_ext(&ctx, type_ref).0,
+                        value: TyKind::from_hir_ext(&ctx, type_ref).0,
                         environment: environment.clone(),
                     },
                 };
@@ -964,7 +964,7 @@ pub struct TypeAlias {
 impl TypeAlias {
     pub fn has_non_default_type_params(self, db: &dyn HirDatabase) -> bool {
         let subst = db.generic_defaults(self.id.into());
-        subst.iter().any(|ty| &ty.value == &Ty::Unknown)
+        subst.iter().any(|ty| &ty.value == &TyKind::Unknown)
     }
 
     pub fn module(self, db: &dyn HirDatabase) -> Module {
@@ -1004,7 +1004,7 @@ pub struct BuiltinType {
 impl BuiltinType {
     pub fn ty(self, db: &dyn HirDatabase, module: Module) -> Type {
         let resolver = module.id.resolver(db.upcast());
-        Type::new_with_resolver(db, &resolver, Ty::builtin(self.inner))
+        Type::new_with_resolver(db, &resolver, TyKind::builtin(self.inner))
             .expect("crate not present in resolver")
     }
 
@@ -1341,7 +1341,7 @@ impl TypeParam {
     pub fn ty(self, db: &dyn HirDatabase) -> Type {
         let resolver = self.id.parent.resolver(db.upcast());
         let environment = TraitEnvironment::lower(db, &resolver);
-        let ty = Ty::Placeholder(self.id);
+        let ty = TyKind::Placeholder(self.id);
         Type {
             krate: self.id.parent.module(db.upcast()).krate(),
             ty: InEnvironment { value: ty, environment },
@@ -1462,7 +1462,7 @@ impl Impl {
         let resolver = self.id.resolver(db.upcast());
         let ctx = hir_ty::TyLoweringContext::new(db, &resolver);
         let environment = TraitEnvironment::lower(db, &resolver);
-        let ty = Ty::from_hir(&ctx, &impl_data.target_type);
+        let ty = TyKind::from_hir(&ctx, &impl_data.target_type);
         Type {
             krate: self.id.lookup(db.upcast()).container.module(db.upcast()).krate(),
             ty: InEnvironment { value: ty, environment },
@@ -1511,14 +1511,14 @@ impl Impl {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Type {
     krate: CrateId,
-    ty: InEnvironment<Ty>,
+    ty: InEnvironment<TyKind>,
 }
 
 impl Type {
     pub(crate) fn new_with_resolver(
         db: &dyn HirDatabase,
         resolver: &Resolver,
-        ty: Ty,
+        ty: TyKind,
     ) -> Option<Type> {
         let krate = resolver.krate()?;
         Some(Type::new_with_resolver_inner(db, krate, resolver, ty))
@@ -1527,13 +1527,18 @@ impl Type {
         db: &dyn HirDatabase,
         krate: CrateId,
         resolver: &Resolver,
-        ty: Ty,
+        ty: TyKind,
     ) -> Type {
         let environment = TraitEnvironment::lower(db, &resolver);
         Type { krate, ty: InEnvironment { value: ty, environment } }
     }
 
-    fn new(db: &dyn HirDatabase, krate: CrateId, lexical_env: impl HasResolver, ty: Ty) -> Type {
+    fn new(
+        db: &dyn HirDatabase,
+        krate: CrateId,
+        lexical_env: impl HasResolver,
+        ty: TyKind,
+    ) -> Type {
         let resolver = lexical_env.resolver(db.upcast());
         let environment = TraitEnvironment::lower(db, &resolver);
         Type { krate, ty: InEnvironment { value: ty, environment } }
@@ -1550,18 +1555,18 @@ impl Type {
     }
 
     pub fn is_unit(&self) -> bool {
-        matches!(self.ty.value, Ty::Tuple(0, ..))
+        matches!(self.ty.value, TyKind::Tuple(0, ..))
     }
     pub fn is_bool(&self) -> bool {
-        matches!(self.ty.value, Ty::Scalar(Scalar::Bool))
+        matches!(self.ty.value, TyKind::Scalar(Scalar::Bool))
     }
 
     pub fn is_mutable_reference(&self) -> bool {
-        matches!(self.ty.value, Ty::Ref(Mutability::Mut, ..))
+        matches!(self.ty.value, TyKind::Ref(Mutability::Mut, ..))
     }
 
     pub fn remove_ref(&self) -> Option<Type> {
-        if let Ty::Ref(.., substs) = &self.ty.value {
+        if let TyKind::Ref(.., substs) = &self.ty.value {
             Some(self.derived(substs[0].clone()))
         } else {
             None
@@ -1569,7 +1574,7 @@ impl Type {
     }
 
     pub fn is_unknown(&self) -> bool {
-        matches!(self.ty.value, Ty::Unknown)
+        matches!(self.ty.value, TyKind::Unknown)
     }
 
     /// Checks that particular type `ty` implements `std::future::Future`.
@@ -1651,7 +1656,7 @@ impl Type {
             .build();
         let predicate = ProjectionPredicate {
             projection_ty: ProjectionTy { associated_ty: alias.id, parameters: subst },
-            ty: Ty::BoundVar(BoundVar::new(DebruijnIndex::INNERMOST, 0)),
+            ty: TyKind::BoundVar(BoundVar::new(DebruijnIndex::INNERMOST, 0)),
         };
         let goal = Canonical {
             value: InEnvironment::new(
@@ -1682,7 +1687,7 @@ impl Type {
 
     pub fn as_callable(&self, db: &dyn HirDatabase) -> Option<Callable> {
         let def = match self.ty.value {
-            Ty::FnDef(def, _) => Some(def),
+            TyKind::FnDef(def, _) => Some(def),
             _ => None,
         };
 
@@ -1691,16 +1696,16 @@ impl Type {
     }
 
     pub fn is_closure(&self) -> bool {
-        matches!(&self.ty.value, Ty::Closure { .. })
+        matches!(&self.ty.value, TyKind::Closure { .. })
     }
 
     pub fn is_fn(&self) -> bool {
-        matches!(&self.ty.value, Ty::FnDef(..) | Ty::Function { .. })
+        matches!(&self.ty.value, TyKind::FnDef(..) | TyKind::Function { .. })
     }
 
     pub fn is_packed(&self, db: &dyn HirDatabase) -> bool {
         let adt_id = match self.ty.value {
-            Ty::Adt(adt_id, ..) => adt_id,
+            TyKind::Adt(adt_id, ..) => adt_id,
             _ => return false,
         };
 
@@ -1712,15 +1717,15 @@ impl Type {
     }
 
     pub fn is_raw_ptr(&self) -> bool {
-        matches!(&self.ty.value, Ty::Raw(..))
+        matches!(&self.ty.value, TyKind::Raw(..))
     }
 
     pub fn contains_unknown(&self) -> bool {
         return go(&self.ty.value);
 
-        fn go(ty: &Ty) -> bool {
+        fn go(ty: &TyKind) -> bool {
             match ty {
-                Ty::Unknown => true,
+                TyKind::Unknown => true,
                 _ => ty.substs().map_or(false, |substs| substs.iter().any(go)),
             }
         }
@@ -1728,8 +1733,8 @@ impl Type {
 
     pub fn fields(&self, db: &dyn HirDatabase) -> Vec<(Field, Type)> {
         let (variant_id, substs) = match self.ty.value {
-            Ty::Adt(AdtId::StructId(s), ref substs) => (s.into(), substs),
-            Ty::Adt(AdtId::UnionId(u), ref substs) => (u.into(), substs),
+            TyKind::Adt(AdtId::StructId(s), ref substs) => (s.into(), substs),
+            TyKind::Adt(AdtId::UnionId(u), ref substs) => (u.into(), substs),
             _ => return Vec::new(),
         };
 
@@ -1744,7 +1749,7 @@ impl Type {
     }
 
     pub fn tuple_fields(&self, _db: &dyn HirDatabase) -> Vec<Type> {
-        if let Ty::Tuple(_, substs) = &self.ty.value {
+        if let TyKind::Tuple(_, substs) = &self.ty.value {
             substs.iter().map(|ty| self.derived(ty.clone())).collect()
         } else {
             Vec::new()
@@ -1800,7 +1805,7 @@ impl Type {
         krate: Crate,
         traits_in_scope: &FxHashSet<TraitId>,
         name: Option<&Name>,
-        mut callback: impl FnMut(&Ty, Function) -> Option<T>,
+        mut callback: impl FnMut(&TyKind, Function) -> Option<T>,
     ) -> Option<T> {
         // There should be no inference vars in types passed here
         // FIXME check that?
@@ -1831,7 +1836,7 @@ impl Type {
         krate: Crate,
         traits_in_scope: &FxHashSet<TraitId>,
         name: Option<&Name>,
-        mut callback: impl FnMut(&Ty, AssocItem) -> Option<T>,
+        mut callback: impl FnMut(&TyKind, AssocItem) -> Option<T>,
     ) -> Option<T> {
         // There should be no inference vars in types passed here
         // FIXME check that?
@@ -1885,7 +1890,7 @@ impl Type {
         self.ty.value.equals_ctor(rref.as_ref().map_or(&other.ty.value, |it| &it.ty.value))
     }
 
-    fn derived(&self, ty: Ty) -> Type {
+    fn derived(&self, ty: TyKind) -> Type {
         Type {
             krate: self.krate,
             ty: InEnvironment { value: ty, environment: self.ty.environment.clone() },
@@ -1927,32 +1932,32 @@ impl Type {
         fn walk_type(db: &dyn HirDatabase, type_: &Type, cb: &mut impl FnMut(Type)) {
             let ty = type_.ty.value.strip_references();
             match ty {
-                Ty::Adt(..) => {
+                TyKind::Adt(..) => {
                     cb(type_.derived(ty.clone()));
                 }
-                Ty::AssociatedType(..) => {
+                TyKind::AssociatedType(..) => {
                     if let Some(_) = ty.associated_type_parent_trait(db) {
                         cb(type_.derived(ty.clone()));
                     }
                 }
-                Ty::OpaqueType(..) => {
+                TyKind::OpaqueType(..) => {
                     if let Some(bounds) = ty.impl_trait_bounds(db) {
                         walk_bounds(db, &type_.derived(ty.clone()), &bounds, cb);
                     }
                 }
-                Ty::Alias(AliasTy::Opaque(opaque_ty)) => {
+                TyKind::Alias(AliasTy::Opaque(opaque_ty)) => {
                     if let Some(bounds) = ty.impl_trait_bounds(db) {
                         walk_bounds(db, &type_.derived(ty.clone()), &bounds, cb);
                     }
 
                     walk_substs(db, type_, &opaque_ty.parameters, cb);
                 }
-                Ty::Placeholder(_) => {
+                TyKind::Placeholder(_) => {
                     if let Some(bounds) = ty.impl_trait_bounds(db) {
                         walk_bounds(db, &type_.derived(ty.clone()), &bounds, cb);
                     }
                 }
-                Ty::Dyn(bounds) => {
+                TyKind::Dyn(bounds) => {
                     walk_bounds(db, &type_.derived(ty.clone()), bounds.as_ref(), cb);
                 }
 

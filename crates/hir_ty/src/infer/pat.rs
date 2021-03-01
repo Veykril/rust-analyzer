@@ -13,18 +13,18 @@ use hir_expand::name::Name;
 use test_utils::mark;
 
 use super::{BindingMode, Expectation, InferenceContext};
-use crate::{lower::lower_to_chalk_mutability, utils::variant_data, Substs, Ty};
+use crate::{lower::lower_to_chalk_mutability, utils::variant_data, Substs, TyKind};
 
 impl<'a> InferenceContext<'a> {
     fn infer_tuple_struct_pat(
         &mut self,
         path: Option<&Path>,
         subpats: &[PatId],
-        expected: &Ty,
+        expected: &TyKind,
         default_bm: BindingMode,
         id: PatId,
         ellipsis: Option<usize>,
-    ) -> Ty {
+    ) -> TyKind {
         let (ty, def) = self.resolve_variant(path);
         let var_data = def.map(|it| variant_data(self.db.upcast(), it));
         if let Some(variant) = def {
@@ -47,7 +47,7 @@ impl<'a> InferenceContext<'a> {
             let expected_ty = var_data
                 .as_ref()
                 .and_then(|d| d.field(&Name::new_tuple_field(i)))
-                .map_or(Ty::Unknown, |field| field_tys[field].clone().subst(&substs));
+                .map_or(TyKind::Unknown, |field| field_tys[field].clone().subst(&substs));
             let expected_ty = self.normalize_associated_types_in(expected_ty);
             self.infer_pat(subpat, &expected_ty, default_bm);
         }
@@ -59,10 +59,10 @@ impl<'a> InferenceContext<'a> {
         &mut self,
         path: Option<&Path>,
         subpats: &[RecordFieldPat],
-        expected: &Ty,
+        expected: &TyKind,
         default_bm: BindingMode,
         id: PatId,
-    ) -> Ty {
+    ) -> TyKind {
         let (ty, def) = self.resolve_variant(path);
         let var_data = def.map(|it| variant_data(self.db.upcast(), it));
         if let Some(variant) = def {
@@ -81,8 +81,8 @@ impl<'a> InferenceContext<'a> {
                 self.result.record_pat_field_resolutions.insert(subpat.pat, field_def);
             }
 
-            let expected_ty =
-                matching_field.map_or(Ty::Unknown, |field| field_tys[field].clone().subst(&substs));
+            let expected_ty = matching_field
+                .map_or(TyKind::Unknown, |field| field_tys[field].clone().subst(&substs));
             let expected_ty = self.normalize_associated_types_in(expected_ty);
             self.infer_pat(subpat.pat, &expected_ty, default_bm);
         }
@@ -93,9 +93,9 @@ impl<'a> InferenceContext<'a> {
     pub(super) fn infer_pat(
         &mut self,
         pat: PatId,
-        mut expected: &Ty,
+        mut expected: &TyKind,
         mut default_bm: BindingMode,
-    ) -> Ty {
+    ) -> TyKind {
         let body = Arc::clone(&self.body); // avoid borrow checker problem
 
         if is_non_ref_pat(&body, pat) {
@@ -130,7 +130,7 @@ impl<'a> InferenceContext<'a> {
                     None => (&args[..], &[][..]),
                 };
                 let n_uncovered_patterns = expectations.len().saturating_sub(args.len());
-                let mut expectations_iter = expectations.iter().chain(repeat(&Ty::Unknown));
+                let mut expectations_iter = expectations.iter().chain(repeat(&TyKind::Unknown));
                 let mut infer_pat = |(&pat, ty)| self.infer_pat(pat, ty, default_bm);
 
                 let mut inner_tys = Vec::with_capacity(n_uncovered_patterns + args.len());
@@ -138,7 +138,7 @@ impl<'a> InferenceContext<'a> {
                 inner_tys.extend(expectations_iter.by_ref().take(n_uncovered_patterns).cloned());
                 inner_tys.extend(post.iter().zip(expectations_iter).map(infer_pat));
 
-                Ty::Tuple(inner_tys.len(), Substs(inner_tys.into()))
+                TyKind::Tuple(inner_tys.len(), Substs(inner_tys.into()))
             }
             Pat::Or(ref pats) => {
                 if let Some((first_pat, rest)) = pats.split_first() {
@@ -148,7 +148,7 @@ impl<'a> InferenceContext<'a> {
                     }
                     ty
                 } else {
-                    Ty::Unknown
+                    TyKind::Unknown
                 }
             }
             Pat::Ref { pat, mutability } => {
@@ -160,10 +160,10 @@ impl<'a> InferenceContext<'a> {
                         }
                         inner_ty
                     }
-                    _ => &Ty::Unknown,
+                    _ => &TyKind::Unknown,
                 };
                 let subty = self.infer_pat(*pat, expectation, default_bm);
-                Ty::Ref(mutability, Substs::single(subty))
+                TyKind::Ref(mutability, Substs::single(subty))
             }
             Pat::TupleStruct { path: p, args: subpats, ellipsis } => self.infer_tuple_struct_pat(
                 p.as_ref(),
@@ -179,7 +179,7 @@ impl<'a> InferenceContext<'a> {
             Pat::Path(path) => {
                 // FIXME use correct resolver for the surrounding expression
                 let resolver = self.resolver.clone();
-                self.infer_path(&resolver, &path, pat.into()).unwrap_or(Ty::Unknown)
+                self.infer_path(&resolver, &path, pat.into()).unwrap_or(TyKind::Unknown)
             }
             Pat::Bind { mode, name: _, subpat } => {
                 let mode = if mode == &BindingAnnotation::Unannotated {
@@ -196,7 +196,7 @@ impl<'a> InferenceContext<'a> {
 
                 let bound_ty = match mode {
                     BindingMode::Ref(mutability) => {
-                        Ty::Ref(mutability, Substs::single(inner_ty.clone()))
+                        TyKind::Ref(mutability, Substs::single(inner_ty.clone()))
                     }
                     BindingMode::Move => inner_ty.clone(),
                 };
@@ -206,9 +206,9 @@ impl<'a> InferenceContext<'a> {
             }
             Pat::Slice { prefix, slice, suffix } => {
                 let (container_ty, elem_ty): (fn(_) -> _, _) = match &expected {
-                    Ty::Array(st) => (Ty::Array, st.as_single().clone()),
-                    Ty::Slice(st) => (Ty::Slice, st.as_single().clone()),
-                    _ => (Ty::Slice, Ty::Unknown),
+                    TyKind::Array(st) => (TyKind::Array, st.as_single().clone()),
+                    TyKind::Slice(st) => (TyKind::Slice, st.as_single().clone()),
+                    _ => (TyKind::Slice, TyKind::Unknown),
                 };
 
                 for pat_id in prefix.iter().chain(suffix) {
@@ -233,18 +233,18 @@ impl<'a> InferenceContext<'a> {
                 Some(box_adt) => {
                     let inner_expected = match expected.as_adt() {
                         Some((adt, substs)) if adt == box_adt => substs.as_single(),
-                        _ => &Ty::Unknown,
+                        _ => &TyKind::Unknown,
                     };
 
                     let inner_ty = self.infer_pat(*inner, inner_expected, default_bm);
-                    Ty::Adt(box_adt, Substs::single(inner_ty))
+                    TyKind::Adt(box_adt, Substs::single(inner_ty))
                 }
-                None => Ty::Unknown,
+                None => TyKind::Unknown,
             },
             Pat::ConstBlock(expr) => {
                 self.infer_expr(*expr, &Expectation::has_type(expected.clone()))
             }
-            Pat::Missing => Ty::Unknown,
+            Pat::Missing => TyKind::Unknown,
         };
         // use a new type variable if we got Ty::Unknown here
         let ty = self.insert_type_vars_shallow(ty);

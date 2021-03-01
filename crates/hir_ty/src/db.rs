@@ -13,7 +13,7 @@ use crate::{
     method_resolution::{InherentImpls, TraitImpls},
     traits::chalk,
     Binders, CallableDefId, GenericPredicate, InferenceResult, OpaqueTyId, PolyFnSig,
-    ReturnTypeImplTraits, TraitRef, Ty, TyDefId, ValueTyDefId,
+    ReturnTypeImplTraits, TraitRef, TyDefId, TyKind, ValueTyDefId,
 };
 use hir_expand::name::Name;
 
@@ -28,23 +28,23 @@ pub trait HirDatabase: DefDatabase + Upcast<dyn DefDatabase> {
 
     #[salsa::invoke(crate::lower::ty_query)]
     #[salsa::cycle(crate::lower::ty_recover)]
-    fn ty(&self, def: TyDefId) -> Binders<Ty>;
+    fn ty(&self, def: TyDefId) -> Binders<TyKind>;
 
     #[salsa::invoke(crate::lower::value_ty_query)]
-    fn value_ty(&self, def: ValueTyDefId) -> Binders<Ty>;
+    fn value_ty(&self, def: ValueTyDefId) -> Binders<TyKind>;
 
     #[salsa::invoke(crate::lower::impl_self_ty_query)]
     #[salsa::cycle(crate::lower::impl_self_ty_recover)]
-    fn impl_self_ty(&self, def: ImplId) -> Binders<Ty>;
+    fn impl_self_ty(&self, def: ImplId) -> Binders<TyKind>;
 
     #[salsa::invoke(crate::lower::const_param_ty_query)]
-    fn const_param_ty(&self, def: ConstParamId) -> Ty;
+    fn const_param_ty(&self, def: ConstParamId) -> TyKind;
 
     #[salsa::invoke(crate::lower::impl_trait_query)]
     fn impl_trait(&self, def: ImplId) -> Option<Binders<TraitRef>>;
 
     #[salsa::invoke(crate::lower::field_types_query)]
-    fn field_types(&self, var: VariantId) -> Arc<ArenaMap<LocalFieldId, Binders<Ty>>>;
+    fn field_types(&self, var: VariantId) -> Arc<ArenaMap<LocalFieldId, Binders<TyKind>>>;
 
     #[salsa::invoke(crate::callable_item_sig)]
     fn callable_item_signature(&self, def: CallableDefId) -> PolyFnSig;
@@ -66,7 +66,7 @@ pub trait HirDatabase: DefDatabase + Upcast<dyn DefDatabase> {
     fn generic_predicates(&self, def: GenericDefId) -> Arc<[Binders<GenericPredicate>]>;
 
     #[salsa::invoke(crate::lower::generic_defaults_query)]
-    fn generic_defaults(&self, def: GenericDefId) -> Arc<[Binders<Ty>]>;
+    fn generic_defaults(&self, def: GenericDefId) -> Arc<[Binders<TyKind>]>;
 
     #[salsa::invoke(InherentImpls::inherent_impls_in_crate_query)]
     fn inherent_impls_in_crate(&self, krate: CrateId) -> Arc<InherentImpls>;
