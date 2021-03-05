@@ -41,7 +41,8 @@ use super::{
     InEnvironment, ProjectionTy, Substs, TraitEnvironment, TraitRef, Ty, TypeWalk,
 };
 use crate::{
-    db::HirDatabase, infer::diagnostics::InferenceDiagnostic, lower::ImplTraitLoweringMode, AliasTy,
+    db::HirDatabase, infer::diagnostics::InferenceDiagnostic, lower::ImplTraitLoweringMode,
+    traits::chalk::ToChalkId, AliasTy,
 };
 
 pub(crate) use unify::unify;
@@ -366,7 +367,7 @@ impl<'a> InferenceContext<'a> {
         match assoc_ty {
             Some(res_assoc_ty) => {
                 let trait_ = match res_assoc_ty.lookup(self.db.upcast()).container {
-                    hir_def::AssocContainerId::TraitId(trait_) => trait_,
+                    hir_def::AssocContainerId::TraitId(trait_) => trait_.to_chalk(),
                     _ => panic!("resolve_associated_type called with non-associated type"),
                 };
                 let ty = self.table.new_type_var();

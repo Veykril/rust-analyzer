@@ -15,7 +15,7 @@ use hir_def::{
 };
 use hir_expand::name::{name, Name};
 
-use crate::{db::HirDatabase, GenericPredicate, TraitRef};
+use crate::{db::HirDatabase, traits::chalk::ToHirDefId, GenericPredicate, TraitRef};
 
 fn direct_super_traits(db: &dyn DefDatabase, trait_: TraitId) -> Vec<TraitId> {
     let resolver = trait_.resolver(db);
@@ -55,9 +55,10 @@ fn direct_super_trait_refs(db: &dyn HirDatabase, trait_ref: &TraitRef) -> Vec<Tr
     // lifetime problems, but since there usually shouldn't be more than a
     // few direct traits this should be fine (we could even use some kind of
     // SmallVec if performance is a concern)
-    let generic_params = db.generic_params(trait_ref.trait_.into());
+    let trait_ = trait_ref.trait_.to_hir_def();
+    let generic_params = db.generic_params(trait_.into());
     let trait_self = match generic_params.find_trait_self_param() {
-        Some(p) => TypeParamId { parent: trait_ref.trait_.into(), local_id: p },
+        Some(p) => TypeParamId { parent: trait_.into(), local_id: p },
         None => return Vec::new(),
     };
     db.generic_predicates_for_param(trait_self)
@@ -123,7 +124,7 @@ pub(super) fn associated_type_by_name_including_super_traits(
     name: &Name,
 ) -> Option<(TraitRef, TypeAliasId)> {
     all_super_trait_refs(db, trait_ref).into_iter().find_map(|t| {
-        let assoc_type = db.trait_data(t.trait_).associated_type_by_name(name)?;
+        let assoc_type = db.trait_data(t.trait_.to_hir_def()).associated_type_by_name(name)?;
         Some((t, assoc_type))
     })
 }

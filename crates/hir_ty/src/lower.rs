@@ -28,6 +28,7 @@ use test_utils::mark;
 
 use crate::{
     db::HirDatabase,
+    traits::chalk::{ToChalkId, ToHirDefId},
     utils::{
         all_super_trait_refs, associated_type_by_name_including_super_traits, generics,
         make_mut_slice, variant_data,
@@ -634,7 +635,7 @@ impl TraitRef {
         if let Some(self_ty) = explicit_self_ty {
             make_mut_slice(&mut substs.0)[0] = self_ty;
         }
-        TraitRef { trait_: resolved, substs }
+        TraitRef { trait_: resolved.to_chalk(), substs }
     }
 
     fn from_hir(
@@ -817,7 +818,7 @@ pub fn associated_type_shorthand_candidates<R>(
                     == TypeParamProvenance::TraitSelf
                 {
                     let trait_ref = TraitRef {
-                        trait_: trait_id,
+                        trait_: trait_id.to_chalk(),
                         substs: Substs::bound_vars(&generics, DebruijnIndex::INNERMOST),
                     };
                     traits_.push(trait_ref);
@@ -829,7 +830,7 @@ pub fn associated_type_shorthand_candidates<R>(
     };
 
     for t in traits_from_env.into_iter().flat_map(move |t| all_super_trait_refs(db, t)) {
-        let data = db.trait_data(t.trait_);
+        let data = db.trait_data(t.trait_.to_hir_def());
 
         for (name, assoc_id) in &data.items {
             match assoc_id {
@@ -937,7 +938,7 @@ impl TraitEnvironment {
                 // inside consts or type aliases)
                 test_utils::mark::hit!(trait_self_implements_self);
                 let substs = Substs::type_params(db, trait_id);
-                let trait_ref = TraitRef { trait_: trait_id, substs };
+                let trait_ref = TraitRef { trait_: trait_id.to_chalk(), substs };
                 let pred = GenericPredicate::Implemented(trait_ref);
 
                 predicates.push(pred);

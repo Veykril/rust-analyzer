@@ -9,7 +9,11 @@ use hir_def::{
 };
 use hir_expand::name::Name;
 
-use crate::{method_resolution, Substs, Ty, ValueTyDefId};
+use crate::{
+    method_resolution,
+    traits::chalk::{ToChalkId, ToHirDefId},
+    Substs, Ty, ValueTyDefId,
+};
 
 use super::{ExprOrPatId, InferenceContext, TraitRef};
 
@@ -165,7 +169,7 @@ impl<'a> InferenceContext<'a> {
         segment: PathSegment<'_>,
         id: ExprOrPatId,
     ) -> Option<(ValueNs, Option<Substs>)> {
-        let trait_ = trait_ref.trait_;
+        let trait_ = trait_ref.trait_.to_hir_def();
         let item =
             self.db.trait_data(trait_).items.iter().map(|(_name, id)| (*id)).find_map(|item| {
                 match item {
@@ -255,7 +259,7 @@ impl<'a> InferenceContext<'a> {
                             .fill(std::iter::repeat_with(|| self.table.new_type_var()))
                             .build();
                         self.obligations.push(super::Obligation::Trait(TraitRef {
-                            trait_,
+                            trait_: trait_.to_chalk(),
                             substs: trait_substs.clone(),
                         }));
                         Some(trait_substs)

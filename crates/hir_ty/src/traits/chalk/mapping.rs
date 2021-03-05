@@ -274,27 +274,15 @@ impl ToChalk for TraitRef {
     type Chalk = chalk_ir::TraitRef<Interner>;
 
     fn to_chalk(self: TraitRef, db: &dyn HirDatabase) -> chalk_ir::TraitRef<Interner> {
-        let trait_id = self.trait_.to_chalk(db);
+        let trait_id = self.trait_;
         let substitution = self.substs.to_chalk(db);
         chalk_ir::TraitRef { trait_id, substitution }
     }
 
     fn from_chalk(db: &dyn HirDatabase, trait_ref: chalk_ir::TraitRef<Interner>) -> Self {
-        let trait_ = from_chalk(db, trait_ref.trait_id);
+        let trait_ = trait_ref.trait_id;
         let substs = from_chalk(db, trait_ref.substitution);
         TraitRef { trait_, substs }
-    }
-}
-
-impl ToChalk for hir_def::TraitId {
-    type Chalk = TraitId;
-
-    fn to_chalk(self, _db: &dyn HirDatabase) -> TraitId {
-        chalk_ir::TraitId(self.as_intern_id())
-    }
-
-    fn from_chalk(_db: &dyn HirDatabase, trait_id: TraitId) -> hir_def::TraitId {
-        InternKey::from_intern_id(trait_id.0)
     }
 }
 
@@ -634,8 +622,7 @@ pub(super) fn generic_predicate_to_inline_bound(
                 .iter()
                 .map(|ty| ty.clone().to_chalk(db).cast(&Interner))
                 .collect();
-            let trait_bound =
-                rust_ir::TraitBound { trait_id: trait_ref.trait_.to_chalk(db), args_no_self };
+            let trait_bound = rust_ir::TraitBound { trait_id: trait_ref.trait_, args_no_self };
             Some(rust_ir::InlineBound::TraitBound(trait_bound))
         }
         GenericPredicate::Projection(proj) => {
@@ -652,7 +639,7 @@ pub(super) fn generic_predicate_to_inline_bound(
                 .collect();
             let alias_eq_bound = rust_ir::AliasEqBound {
                 value: proj.ty.clone().to_chalk(db),
-                trait_bound: rust_ir::TraitBound { trait_id: trait_.to_chalk(db), args_no_self },
+                trait_bound: rust_ir::TraitBound { trait_id: trait_.to_chalk(), args_no_self },
                 associated_ty_id: TypeAliasAsAssocType(proj.projection_ty.associated_ty)
                     .to_chalk(db),
                 parameters: Vec::new(), // FIXME we don't support generic associated types yet

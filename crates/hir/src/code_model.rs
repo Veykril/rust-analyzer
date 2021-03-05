@@ -33,7 +33,7 @@ use hir_ty::{
     traits::{FnTrait, Solution, SolutionVariables},
     AliasTy, BoundVar, CallableDefId, CallableSig, Canonical, DebruijnIndex, GenericPredicate,
     InEnvironment, Mutability, Obligation, ProjectionPredicate, ProjectionTy, Scalar, Substs,
-    TraitEnvironment, Ty, TyDefId, TyVariableKind,
+    ToChalkId, ToHirDefId, TraitEnvironment, Ty, TyDefId, TyVariableKind,
 };
 use rustc_hash::FxHashSet;
 use stdx::{format_to, impl_from};
@@ -1353,7 +1353,7 @@ impl TypeParam {
             .into_iter()
             .filter_map(|pred| match &pred.value {
                 hir_ty::GenericPredicate::Implemented(trait_ref) => {
-                    Some(Trait::from(trait_ref.trait_))
+                    Some(Trait::from(trait_ref.trait_.to_hir_def()))
                 }
                 _ => None,
             })
@@ -1620,7 +1620,7 @@ impl Type {
 
     pub fn impls_trait(&self, db: &dyn HirDatabase, trait_: Trait, args: &[Type]) -> bool {
         let trait_ref = hir_ty::TraitRef {
-            trait_: trait_.id,
+            trait_: trait_.id.to_chalk(),
             substs: Substs::build_for_def(db, trait_.id)
                 .push(self.ty.value.clone())
                 .fill(args.iter().map(|t| t.ty.value.clone()))
@@ -1867,7 +1867,7 @@ impl Type {
             it.into_iter()
                 .filter_map(|pred| match pred {
                     hir_ty::GenericPredicate::Implemented(trait_ref) => {
-                        Some(Trait::from(trait_ref.trait_))
+                        Some(Trait::from(trait_ref.trait_.to_hir_def()))
                     }
                     _ => None,
                 })

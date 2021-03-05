@@ -6,14 +6,14 @@ use arrayvec::ArrayVec;
 use chalk_ir::Mutability;
 use hir_def::{
     db::DefDatabase, find_path, generics::TypeParamProvenance, item_scope::ItemInNs,
-    AssocContainerId, HasModule, Lookup, ModuleId, TraitId,
+    AssocContainerId, HasModule, Lookup, ModuleId,
 };
 use hir_expand::name::Name;
 
 use crate::{
-    db::HirDatabase, primitive, utils::generics, AdtId, AliasTy, CallableDefId, CallableSig,
-    GenericPredicate, Lifetime, Obligation, OpaqueTy, OpaqueTyId, ProjectionTy, Scalar, Substs,
-    TraitRef, Ty,
+    db::HirDatabase, primitive, traits::chalk::ToHirDefId, utils::generics, AdtId, AliasTy,
+    CallableDefId, CallableSig, GenericPredicate, Lifetime, Obligation, OpaqueTy, OpaqueTyId,
+    ProjectionTy, Scalar, Substs, TraitRef, Ty,
 };
 
 pub struct HirFormatter<'a> {
@@ -333,7 +333,7 @@ impl HirDisplay for Ty {
                 };
 
                 if let [GenericPredicate::Implemented(trait_ref), _] = predicates.as_ref() {
-                    let trait_ = trait_ref.trait_;
+                    let trait_ = trait_ref.trait_.to_hir_def();
                     if fn_traits(f.db.upcast(), trait_).any(|it| it == trait_) {
                         return write!(f, "{}", ty_display);
                     }
@@ -610,7 +610,10 @@ impl HirDisplay for CallableSig {
     }
 }
 
-fn fn_traits(db: &dyn DefDatabase, trait_: TraitId) -> impl Iterator<Item = TraitId> {
+fn fn_traits(
+    db: &dyn DefDatabase,
+    trait_: hir_def::TraitId,
+) -> impl Iterator<Item = hir_def::TraitId> {
     let krate = trait_.lookup(db).container.module(db).krate();
     let fn_traits = [
         db.lang_item(krate, "fn".into()),
@@ -651,7 +654,7 @@ fn write_bounds_like_dyn_trait(
     for p in predicates.iter() {
         match p {
             GenericPredicate::Implemented(trait_ref) => {
-                let trait_ = trait_ref.trait_;
+                let trait_ = trait_ref.trait_.to_hir_def();
                 if !is_fn_trait {
                     is_fn_trait = fn_traits(f.db.upcast(), trait_).any(|it| it == trait_);
                 }
@@ -730,7 +733,7 @@ impl TraitRef {
         } else {
             write!(f, ": ")?;
         }
-        write!(f, "{}", f.db.trait_data(self.trait_).name)?;
+        write!(f, "{}", f.db.trait_data(self.trait_.to_hir_def()).name)?;
         if self.substs.len() > 1 {
             write!(f, "<")?;
             f.write_joined(&self.substs[1..], ", ")?;

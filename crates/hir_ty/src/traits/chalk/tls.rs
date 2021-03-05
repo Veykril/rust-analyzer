@@ -4,7 +4,7 @@ use std::fmt;
 use chalk_ir::{AliasTy, GenericArg, Goal, Goals, Lifetime, ProgramClauseImplication};
 use itertools::Itertools;
 
-use super::{from_chalk, Interner, TypeAliasAsAssocType};
+use super::{from_chalk, Interner, ToHirDefId, TypeAliasAsAssocType};
 use crate::{db::HirDatabase, CallableDefId};
 use hir_def::{AdtId, AssocContainerId, Lookup, TypeAliasId};
 
@@ -28,11 +28,10 @@ impl DebugContext<'_> {
 
     pub(crate) fn debug_trait_id(
         &self,
-        id: super::TraitId,
+        trait_: super::TraitId,
         fmt: &mut fmt::Formatter<'_>,
     ) -> Result<(), fmt::Error> {
-        let trait_: hir_def::TraitId = from_chalk(self.0, id);
-        let trait_data = self.0.trait_data(trait_);
+        let trait_data = self.0.trait_data(trait_.to_hir_def());
         write!(fmt, "{}", trait_data.name)
     }
 

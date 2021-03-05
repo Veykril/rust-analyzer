@@ -28,8 +28,7 @@ use std::{iter, mem, ops::Deref, sync::Arc};
 use base_db::salsa;
 use hir_def::{
     builtin_type::BuiltinType, expr::ExprId, type_ref::Rawness, AssocContainerId, DefWithBodyId,
-    FunctionId, GenericDefId, HasModule, LifetimeParamId, Lookup, TraitId, TypeAliasId,
-    TypeParamId,
+    FunctionId, GenericDefId, HasModule, LifetimeParamId, Lookup, TypeAliasId, TypeParamId,
 };
 use itertools::Itertools;
 
@@ -39,17 +38,20 @@ use crate::{
     utils::{generics, make_mut_slice, Generics},
 };
 
-pub use autoderef::autoderef;
-pub use infer::{InferenceResult, InferenceVar};
-pub use lower::{
-    associated_type_shorthand_candidates, callable_item_sig, CallableDefId, ImplTraitLoweringMode,
-    TyDefId, TyLoweringContext, ValueTyDefId,
+pub use crate::{
+    autoderef::autoderef,
+    infer::{InferenceResult, InferenceVar},
+    lower::{
+        associated_type_shorthand_candidates, callable_item_sig, CallableDefId,
+        ImplTraitLoweringMode, TyDefId, TyLoweringContext, ValueTyDefId,
+    },
+    traits::{InEnvironment, Obligation, ProjectionPredicate, TraitEnvironment},
 };
-pub use traits::{InEnvironment, Obligation, ProjectionPredicate, TraitEnvironment};
 
-pub use chalk_ir::{AdtId, BoundVar, DebruijnIndex, Mutability, Scalar, TyVariableKind};
+pub use chalk_ir::{AdtId, BoundVar, DebruijnIndex, Mutability, Scalar, TraitId, TyVariableKind};
 
 pub(crate) use crate::traits::chalk::Interner;
+pub use crate::traits::chalk::{ToChalkId, ToHirDefId};
 
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Lifetime {
@@ -74,10 +76,10 @@ pub struct ProjectionTy {
 
 impl ProjectionTy {
     pub fn trait_ref(&self, db: &dyn HirDatabase) -> TraitRef {
-        TraitRef { trait_: self.trait_(db), substs: self.parameters.clone() }
+        TraitRef { trait_: self.trait_(db).to_chalk(), substs: self.parameters.clone() }
     }
 
-    fn trait_(&self, db: &dyn HirDatabase) -> TraitId {
+    fn trait_(&self, db: &dyn HirDatabase) -> hir_def::TraitId {
         match self.associated_ty.lookup(db.upcast()).container {
             AssocContainerId::TraitId(it) => it,
             _ => panic!("projection ty without parent trait"),
@@ -447,7 +449,7 @@ impl<T: TypeWalk> TypeWalk for Binders<T> {
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub struct TraitRef {
     /// FIXME name?
-    pub trait_: TraitId,
+    pub trait_: TraitId<Interner>,
     pub substs: Substs,
 }
 
@@ -724,8 +726,8 @@ impl Ty {
     }
 
     /// If this is a `dyn Trait`, returns that trait.
-    pub fn dyn_trait(&self) -> Option<TraitId> {
-        self.dyn_trait_ref().map(|it| it.trait_)
+    pub fn dyn_trait(&self) -> Option<hir_def::TraitId> {
+        self.dyn_trait_ref().map(|it| it.trait_.to_hir_def())
     }
 
     fn builtin_deref(&self) -> Option<Ty> {
@@ -833,7 +835,7 @@ impl Ty {
                             // Parameters will be walked outside, and projection predicate is not used.
                             // So just provide the Future trait.
                             let impl_bound = GenericPredicate::Implemented(TraitRef {
-                                trait_: future_trait,
+                                trait_: future_trait.to_chalk(),
                                 substs: Substs::empty(),
                             });
                             Some(vec![impl_bound])
@@ -880,7 +882,7 @@ impl Ty {
         }
     }
 
-    pub fn associated_type_parent_trait(&self, db: &dyn HirDatabase) -> Option<TraitId> {
+    pub fn associated_type_parent_trait(&self, db: &dyn HirDatabase) -> Option<hir_def::TraitId> {
         match self {
             Ty::AssociatedType(type_alias_id, ..) => {
                 match type_alias_id.lookup(db.upcast()).container {

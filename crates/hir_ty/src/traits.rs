@@ -8,7 +8,7 @@ use chalk_solve::{logging_db::LoggingRustIrDatabase, Solver};
 use hir_def::{lang_item::LangItemTarget, TraitId};
 use stdx::panic_context;
 
-use crate::{db::HirDatabase, DebruijnIndex, Substs};
+use crate::{db::HirDatabase, traits::chalk::ToHirDefId, DebruijnIndex, Substs};
 
 use super::{Canonical, GenericPredicate, HirDisplay, ProjectionTy, TraitRef, Ty, TypeWalk};
 
@@ -123,7 +123,7 @@ pub(crate) fn trait_solve_query(
     goal: Canonical<InEnvironment<Obligation>>,
 ) -> Option<Solution> {
     let _p = profile::span("trait_solve_query").detail(|| match &goal.value.value {
-        Obligation::Trait(it) => db.trait_data(it.trait_).name.to_string(),
+        Obligation::Trait(it) => db.trait_data(it.trait_.to_hir_def()).name.to_string(),
         Obligation::Projection(_) => "projection".to_string(),
     });
     log::info!("trait_solve_query({})", goal.value.value.display(db));

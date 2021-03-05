@@ -8,8 +8,8 @@ use arrayvec::ArrayVec;
 use base_db::CrateId;
 use chalk_ir::Mutability;
 use hir_def::{
-    lang_item::LangItemTarget, AssocContainerId, AssocItemId, FunctionId, GenericDefId, HasModule,
-    ImplId, Lookup, ModuleId, TraitId, TypeAliasId,
+    lang_item::LangItemTarget, AdtId, AssocContainerId, AssocItemId, FunctionId, GenericDefId,
+    HasModule, ImplId, Lookup, ModuleId, TraitId, TypeAliasId,
 };
 use hir_expand::name::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -18,9 +18,10 @@ use crate::{
     autoderef,
     db::HirDatabase,
     primitive::{self, FloatTy, IntTy, UintTy},
+    traits::chalk::{ToChalkId, ToHirDefId},
     utils::all_super_traits,
-    AdtId, Canonical, DebruijnIndex, FnPointer, FnSig, InEnvironment, Scalar, Substs,
-    TraitEnvironment, TraitRef, Ty, TypeWalk,
+    Canonical, DebruijnIndex, FnPointer, FnSig, InEnvironment, Scalar, Substs, TraitEnvironment,
+    TraitRef, Ty, TypeWalk,
 };
 
 /// This is used as a key for indexing impls.
@@ -32,7 +33,7 @@ pub enum TyFingerprint {
     Never,
     RawPtr(Mutability),
     Scalar(Scalar),
-    Adt(hir_def::AdtId),
+    Adt(AdtId),
     Dyn(TraitId),
     Tuple(usize),
     ForeignType(TypeAliasId),
@@ -50,7 +51,7 @@ impl TyFingerprint {
             &Ty::Slice(..) => TyFingerprint::Slice,
             &Ty::Array(..) => TyFingerprint::Array,
             &Ty::Scalar(scalar) => TyFingerprint::Scalar(scalar),
-            &Ty::Adt(AdtId(adt), _) => TyFingerprint::Adt(adt),
+            &Ty::Adt(adt, _) => TyFingerprint::Adt(adt.0),
             &Ty::Tuple(cardinality, _) => TyFingerprint::Tuple(cardinality),
             &Ty::Raw(mutability, ..) => TyFingerprint::RawPtr(mutability),
             &Ty::ForeignType(alias_id, ..) => TyFingerprint::ForeignType(alias_id),
@@ -98,7 +99,7 @@ impl TraitImpls {
         for (_module_id, module_data) in crate_def_map.modules() {
             for impl_id in module_data.scope.impls() {
                 let target_trait = match db.impl_trait(impl_id) {
-                    Some(tr) => tr.value.trait_,
+                    Some(tr) => tr.value.trait_.to_hir_def(),
                     None => continue,
                 };
                 let self_ty = db.impl_self_ty(impl_id);
@@ -231,8 +232,8 @@ impl Ty {
         let mod_to_crate_ids = |module: ModuleId| Some(std::iter::once(module.krate()).collect());
 
         let lang_item_targets = match self {
-            Ty::Adt(AdtId(def_id), _) => {
-                return mod_to_crate_ids(def_id.module(db.upcast()));
+            Ty::Adt(def_id, _) => {
+                return mod_to_crate_ids(def_id.0.module(db.upcast()));
             }
             Ty::ForeignType(type_alias_id) => {
                 return mod_to_crate_ids(type_alias_id.lookup(db.upcast()).module(db.upcast()));
@@ -530,7 +531,7 @@ fn iterate_trait_method_candidates(
         // if we have `T: Trait` in the param env, the trait doesn't need to be in scope
         env.trait_predicates_for_self_ty(&self_ty.value)
             .map(|tr| tr.trait_)
-            .flat_map(|t| all_super_traits(db.upcast(), t))
+            .flat_map(|t| all_super_traits(db.upcast(), t.to_hir_def()))
             .collect()
     } else {
         Vec::new()
@@ -761,7 +762,7 @@ fn generic_implements_goal(
         .fill_with_bound_vars(DebruijnIndex::INNERMOST, kinds.len())
         .build();
     kinds.extend(iter::repeat(chalk_ir::TyVariableKind::General).take(substs.len() - 1));
-    let trait_ref = TraitRef { trait_, substs };
+    let trait_ref = TraitRef { trait_: trait_.to_chalk(), substs };
     let obligation = super::Obligation::Trait(trait_ref);
     Canonical { kinds: kinds.into(), value: InEnvironment::new(env, obligation) }
 }

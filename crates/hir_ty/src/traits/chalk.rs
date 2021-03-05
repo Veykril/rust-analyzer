@@ -33,13 +33,38 @@ pub(super) mod tls;
 mod interner;
 mod mapping;
 
-pub(super) trait ToChalk {
+pub trait ToChalkId {
+    type Chalk;
+    fn to_chalk(self) -> Self::Chalk;
+}
+
+pub trait ToHirDefId {
+    type HirDef;
+    fn to_hir_def(self) -> Self::HirDef;
+}
+
+impl ToChalkId for hir_def::TraitId {
+    type Chalk = self::interner::TraitId;
+    fn to_chalk(self) -> Self::Chalk {
+        chalk_ir::TraitId(self.as_intern_id())
+    }
+}
+
+impl ToHirDefId for self::interner::TraitId {
+    type HirDef = hir_def::TraitId;
+
+    fn to_hir_def(self) -> Self::HirDef {
+        InternKey::from_intern_id(self.0)
+    }
+}
+
+pub(crate) trait ToChalk {
     type Chalk;
     fn to_chalk(self, db: &dyn HirDatabase) -> Self::Chalk;
     fn from_chalk(db: &dyn HirDatabase, chalk: Self::Chalk) -> Self;
 }
 
-pub(super) fn from_chalk<T, ChalkT>(db: &dyn HirDatabase, chalk: ChalkT) -> T
+pub(crate) fn from_chalk<T, ChalkT>(db: &dyn HirDatabase, chalk: ChalkT) -> T
 where
     T: ToChalk<Chalk = ChalkT>,
 {
@@ -82,7 +107,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
         binders: &CanonicalVarKinds<Interner>,
     ) -> Vec<ImplId> {
         debug!("impls_for_trait {:?}", trait_id);
-        let trait_: hir_def::TraitId = from_chalk(self.db, trait_id);
+        let trait_ = trait_id.to_hir_def();
 
         let ty: Ty = from_chalk(self.db, parameters[0].assert_ty_ref(&Interner).clone());
 
@@ -164,7 +189,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
             Some(LangItemTarget::TraitId(trait_)) => trait_,
             _ => return None,
         };
-        Some(trait_.to_chalk(self.db))
+        Some(trait_.to_chalk())
     }
 
     fn program_clauses_for_env(
@@ -218,7 +243,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
                     // for<T> <Self> [Future<Self>, Future::Output<Self> = T]
                     //     ^1  ^0            ^0                    ^0      ^1
                     let impl_bound = GenericPredicate::Implemented(TraitRef {
-                        trait_: future_trait,
+                        trait_: future_trait.to_chalk(),
                         // Self type as the first parameter.
                         substs: Substs::single(Ty::BoundVar(BoundVar {
                             debruijn: DebruijnIndex::INNERMOST,
@@ -312,7 +337,7 @@ impl<'a> chalk_solve::RustIrDatabase<Interner> for ChalkContext<'a> {
     }
 
     fn trait_name(&self, trait_id: chalk_ir::TraitId<Interner>) -> String {
-        let id = from_chalk(self.db, trait_id);
+        let id = trait_id.to_hir_def();
         self.db.trait_data(id).name.to_string()
     }
     fn adt_name(&self, chalk_ir::AdtId(adt_id): AdtId) -> String {
@@ -403,7 +428,7 @@ pub(crate) fn associated_ty_data_query(
     let where_clauses = convert_where_clauses(db, type_alias.into(), &bound_vars);
     let bound_data = rust_ir::AssociatedTyDatumBound { bounds, where_clauses };
     let datum = AssociatedTyDatum {
-        trait_id: trait_.to_chalk(db),
+        trait_id: trait_.to_chalk(),
         id,
         name: type_alias,
         binders: make_binders(bound_data, generic_params.len()),
@@ -417,7 +442,7 @@ pub(crate) fn trait_datum_query(
     trait_id: TraitId,
 ) -> Arc<TraitDatum> {
     debug!("trait_datum {:?}", trait_id);
-    let trait_: hir_def::TraitId = from_chalk(db, trait_id);
+    let trait_ = trait_id.to_hir_def();
     let trait_data = db.trait_data(trait_);
     debug!("trait {:?} = {:?}", trait_id, trait_data.name);
     let generic_params = generics(db.upcast(), trait_.into());
@@ -547,7 +572,7 @@ fn impl_def_datum(
 
     let generic_params = generics(db.upcast(), impl_id.into());
     let bound_vars = Substs::bound_vars(&generic_params, DebruijnIndex::INNERMOST);
-    let trait_ = trait_ref.trait_;
+    let trait_ = trait_ref.trait_.to_hir_def();
     let impl_type = if impl_id.lookup(db.upcast()).container.module(db.upcast()).krate() == krate {
         rust_ir::ImplType::Local
     } else {
@@ -615,7 +640,7 @@ fn type_alias_associated_ty_value(
     let trait_ref = db.impl_trait(impl_id).expect("assoc ty value should not exist").value; // we don't return any assoc ty values if the impl'd trait can't be resolved
 
     let assoc_ty = db
-        .trait_data(trait_ref.trait_)
+        .trait_data(trait_ref.trait_.to_hir_def())
         .associated_type_by_name(&type_alias_data.name)
         .expect("assoc ty value should not exist"); // validated when building the impl data as well
     let ty = db.ty(type_alias.into());
