@@ -121,11 +121,7 @@ impl<'a> SubstituteTypeParams<'a> {
         // trait ref, and then go from the types in the substs back to the syntax).
         fn get_syntactic_substs(impl_def: ast::Impl) -> Option<Vec<ast::Type>> {
             let target_trait = impl_def.trait_()?;
-            let path_type = match target_trait {
-                ast::Type::PathType(path) => path,
-                _ => return None,
-            };
-            let generic_arg_list = path_type.path()?.segment()?.generic_arg_list()?;
+            let generic_arg_list = target_trait.path()?.segment()?.generic_arg_list()?;
 
             let mut result = Vec::new();
             for generic_arg in generic_arg_list.generic_args() {

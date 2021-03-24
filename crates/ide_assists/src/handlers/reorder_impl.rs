@@ -51,13 +51,7 @@ pub(crate) fn reorder_impl(acc: &mut Assists, ctx: &AssistContext) -> Option<()>
     let items = impl_ast.assoc_item_list()?;
     let methods = get_methods(&items);
 
-    let path = impl_ast
-        .trait_()
-        .and_then(|t| match t {
-            ast::Type::PathType(path) => Some(path),
-            _ => None,
-        })?
-        .path()?;
+    let path = impl_ast.trait_()?.path()?;
 
     let ranks = compute_method_ranks(&path, ctx)?;
     let sorted: Vec<_> = methods

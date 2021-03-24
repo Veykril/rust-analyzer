@@ -50,9 +50,17 @@ pub(super) fn impl_(p: &mut Parser) {
     // test impl_def_neg
     // impl !Send for X {}
     p.eat(T![!]);
-    impl_type(p);
+    let ty_first = impl_type(p);
     if p.eat(T![for]) {
         impl_type(p);
+        if let Some(marker) = ty_first {
+            if marker.kind() != PATH_TYPE {
+                // test_err impl_non_path_type_for_type
+                // impl &T for X {}
+                p.error("expected a trait, found a type");
+                marker.undo_completion(p).complete(p, ERROR);
+            }
+        }
     }
     type_params::opt_where_clause(p);
     if p.at(T!['{']) {
@@ -126,10 +134,10 @@ fn choose_type_params_over_qpath(p: &Parser) -> bool {
 // impl Trait1 for T {}
 // impl impl NotType {}
 // impl Trait2 for impl NotType {}
-pub(crate) fn impl_type(p: &mut Parser) {
+pub(crate) fn impl_type(p: &mut Parser) -> Option<CompletedMarker> {
     if p.at(T![impl]) {
         p.error("expected trait or type");
-        return;
+        return None;
     }
-    types::type_(p);
+    types::type_(p)
 }

@@ -250,9 +250,9 @@ impl ast::Impl {
         }
     }
 
-    pub fn trait_(&self) -> Option<ast::Type> {
+    pub fn trait_(&self) -> Option<ast::PathType> {
         match self.target() {
-            (Some(t), Some(_)) => Some(t),
+            (Some(ast::Type::PathType(p)), Some(_)) => Some(p),
             _ => None,
         }
     }
@@ -529,7 +529,7 @@ pub enum TypeBoundKind {
 
 impl ast::TypeBound {
     pub fn kind(&self) -> TypeBoundKind {
-        if let Some(path_type) = support::children(self.syntax()).next() {
+        if let Some(path_type) = self.path_type() {
             TypeBoundKind::PathType(path_type)
         } else if let Some(for_type) = support::children(self.syntax()).next() {
             TypeBoundKind::ForType(for_type)

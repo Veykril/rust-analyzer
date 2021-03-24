@@ -667,14 +667,10 @@ impl<'a> TyLoweringContext<'a> {
 
     fn lower_trait_ref(
         &self,
-        type_ref: &TypeRef,
+        trait_ref: &hir_def::type_ref::TraitRef,
         explicit_self_ty: Option<Ty>,
     ) -> Option<TraitRef> {
-        let path = match type_ref {
-            TypeRef::Path(path) => path,
-            _ => return None,
-        };
-        self.lower_trait_ref_from_path(path, explicit_self_ty)
+        self.lower_trait_ref_from_path(&trait_ref.path, explicit_self_ty)
     }
 
     fn trait_ref_substs_from_path(

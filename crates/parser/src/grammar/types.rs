@@ -27,23 +27,23 @@ const TYPE_RECOVERY_SET: TokenSet = TokenSet::new(&[
     T![pub],
 ]);
 
-pub(crate) fn type_(p: &mut Parser) {
-    type_with_bounds_cond(p, true);
+pub(crate) fn type_(p: &mut Parser) -> Option<CompletedMarker> {
+    type_with_bounds_cond(p, true)
 }
 
-pub(super) fn type_no_bounds(p: &mut Parser) {
-    type_with_bounds_cond(p, false);
+pub(super) fn type_no_bounds(p: &mut Parser) -> Option<CompletedMarker> {
+    type_with_bounds_cond(p, false)
 }
 
-fn type_with_bounds_cond(p: &mut Parser, allow_bounds: bool) {
-    match p.current() {
+fn type_with_bounds_cond(p: &mut Parser, allow_bounds: bool) -> Option<CompletedMarker> {
+    let m = match p.current() {
         T!['('] => paren_or_tuple_type(p),
         T![!] => never_type(p),
         T![*] => ptr_type(p),
         T!['['] => array_or_slice_type(p),
         T![&] => ref_type(p),
         T![_] => infer_type(p),
-        T![fn] | T![unsafe] | T![extern] => fn_ptr_type(p),
+        T![fn] | T![unsafe] | T![extern] => return fn_ptr_type(p),
         T![for] => for_type(p, allow_bounds),
         T![impl] => impl_trait_type(p),
         T![dyn] => dyn_trait_type(p),
@@ -52,16 +52,18 @@ fn type_with_bounds_cond(p: &mut Parser, allow_bounds: bool) {
         _ if paths::is_use_path_start(p) => path_or_macro_type_(p, allow_bounds),
         _ => {
             p.err_recover("expected type", TYPE_RECOVERY_SET);
+            return None;
         }
-    }
+    };
+    Some(m)
 }
 
-pub(super) fn ascription(p: &mut Parser) {
+pub(super) fn ascription(p: &mut Parser) -> Option<CompletedMarker> {
     p.expect(T![:]);
     type_(p)
 }
 
-fn paren_or_tuple_type(p: &mut Parser) {
+fn paren_or_tuple_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T!['(']));
     let m = p.start();
     p.bump(T!['(']);
@@ -91,19 +93,19 @@ fn paren_or_tuple_type(p: &mut Parser) {
         // type T = (i32,);
         TUPLE_TYPE
     };
-    m.complete(p, kind);
+    m.complete(p, kind)
 }
 
 // test never_type
 // type Never = !;
-fn never_type(p: &mut Parser) {
+fn never_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T![!]));
     let m = p.start();
     p.bump(T![!]);
-    m.complete(p, NEVER_TYPE);
+    m.complete(p, NEVER_TYPE)
 }
 
-fn ptr_type(p: &mut Parser) {
+fn ptr_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T![*]));
     let m = p.start();
     p.bump(T![*]);
@@ -124,10 +126,10 @@ fn ptr_type(p: &mut Parser) {
     };
 
     type_no_bounds(p);
-    m.complete(p, PTR_TYPE);
+    m.complete(p, PTR_TYPE)
 }
 
-fn array_or_slice_type(p: &mut Parser) {
+fn array_or_slice_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T!['[']));
     let m = p.start();
     p.bump(T!['[']);
@@ -156,14 +158,14 @@ fn array_or_slice_type(p: &mut Parser) {
             SLICE_TYPE
         }
     };
-    m.complete(p, kind);
+    m.complete(p, kind)
 }
 
 // test reference_type;
 // type A = &();
 // type B = &'static ();
 // type C = &mut ();
-fn ref_type(p: &mut Parser) {
+fn ref_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T![&]));
     let m = p.start();
     p.bump(T![&]);
@@ -172,16 +174,16 @@ fn ref_type(p: &mut Parser) {
     }
     p.eat(T![mut]);
     type_no_bounds(p);
-    m.complete(p, REF_TYPE);
+    m.complete(p, REF_TYPE)
 }
 
 // test placeholder_type
 // type Placeholder = _;
-fn infer_type(p: &mut Parser) {
+fn infer_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T![_]));
     let m = p.start();
     p.bump(T![_]);
-    m.complete(p, INFER_TYPE);
+    m.complete(p, INFER_TYPE)
 }
 
 // test fn_pointer_type
@@ -189,7 +191,7 @@ fn infer_type(p: &mut Parser) {
 // type B = unsafe fn();
 // type C = unsafe extern "C" fn();
 // type D = extern "C" fn ( u8 , ... ) -> u8;
-fn fn_ptr_type(p: &mut Parser) {
+fn fn_ptr_type(p: &mut Parser) -> Option<CompletedMarker> {
     let m = p.start();
     p.eat(T![unsafe]);
     if p.at(T![extern]) {
@@ -200,7 +202,7 @@ fn fn_ptr_type(p: &mut Parser) {
     if !p.eat(T![fn]) {
         m.abandon(p);
         p.error("expected `fn`");
-        return;
+        return None;
     }
     if p.at(T!['(']) {
         params::param_list_fn_ptr(p);
@@ -210,7 +212,7 @@ fn fn_ptr_type(p: &mut Parser) {
     // test fn_pointer_type_with_ret
     // type F = fn() -> ();
     opt_ret_type(p);
-    m.complete(p, FN_PTR_TYPE);
+    Some(m.complete(p, FN_PTR_TYPE))
 }
 
 pub(super) fn for_binder(p: &mut Parser) {
@@ -227,7 +229,7 @@ pub(super) fn for_binder(p: &mut Parser) {
 // type A = for<'a> fn() -> ();
 // type B = for<'a> unsafe extern "C" fn(&'a ()) -> ();
 // type Obj = for<'a> PartialEq<&'a i32>;
-pub(super) fn for_type(p: &mut Parser, allow_bounds: bool) {
+pub(super) fn for_type(p: &mut Parser, allow_bounds: bool) -> CompletedMarker {
     assert!(p.at(T![for]));
     let m = p.start();
     for_binder(p);
@@ -245,28 +247,30 @@ pub(super) fn for_type(p: &mut Parser, allow_bounds: bool) {
     // test no_dyn_trait_leading_for
     // type A = for<'a> Test<'a> + Send;
     if allow_bounds {
-        opt_type_bounds_as_dyn_trait_type(p, completed);
+        opt_type_bounds_as_dyn_trait_type(p, completed)
+    } else {
+        completed
     }
 }
 
 // test impl_trait_type
 // type A = impl Iterator<Item=Foo<'a>> + 'a;
-fn impl_trait_type(p: &mut Parser) {
+fn impl_trait_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T![impl]));
     let m = p.start();
     p.bump(T![impl]);
     type_params::bounds_without_colon(p);
-    m.complete(p, IMPL_TRAIT_TYPE);
+    m.complete(p, IMPL_TRAIT_TYPE)
 }
 
 // test dyn_trait_type
 // type A = dyn Iterator<Item=Foo<'a>> + 'a;
-fn dyn_trait_type(p: &mut Parser) {
+fn dyn_trait_type(p: &mut Parser) -> CompletedMarker {
     assert!(p.at(T![dyn]));
     let m = p.start();
     p.bump(T![dyn]);
     type_params::bounds_without_colon(p);
-    m.complete(p, DYN_TRAIT_TYPE);
+    m.complete(p, DYN_TRAIT_TYPE)
 }
 
 // test path_type
@@ -275,13 +279,13 @@ fn dyn_trait_type(p: &mut Parser) {
 // type C = self::Foo;
 // type D = super::Foo;
 pub(super) fn path_type(p: &mut Parser) {
-    path_type_(p, true)
+    path_type_(p, true);
 }
 
 // test macro_call_type
 // type A = foo!();
 // type B = crate::foo!();
-fn path_or_macro_type_(p: &mut Parser, allow_bounds: bool) {
+fn path_or_macro_type_(p: &mut Parser, allow_bounds: bool) -> CompletedMarker {
     assert!(paths::is_path_start(p));
     let m = p.start();
     paths::type_path(p);
@@ -296,11 +300,13 @@ fn path_or_macro_type_(p: &mut Parser, allow_bounds: bool) {
     let path = m.complete(p, kind);
 
     if allow_bounds {
-        opt_type_bounds_as_dyn_trait_type(p, path);
+        opt_type_bounds_as_dyn_trait_type(p, path)
+    } else {
+        path
     }
 }
 
-pub(super) fn path_type_(p: &mut Parser, allow_bounds: bool) {
+pub(super) fn path_type_(p: &mut Parser, allow_bounds: bool) -> CompletedMarker {
     assert!(paths::is_path_start(p));
     let m = p.start();
     paths::type_path(p);
@@ -310,19 +316,24 @@ pub(super) fn path_type_(p: &mut Parser, allow_bounds: bool) {
     // fn foo() -> Box<dyn T + 'f> {}
     let path = m.complete(p, PATH_TYPE);
     if allow_bounds {
-        opt_type_bounds_as_dyn_trait_type(p, path);
+        opt_type_bounds_as_dyn_trait_type(p, path)
+    } else {
+        path
     }
 }
 
 /// This turns a parsed PATH_TYPE or FOR_TYPE optionally into a DYN_TRAIT_TYPE
 /// with a TYPE_BOUND_LIST
-fn opt_type_bounds_as_dyn_trait_type(p: &mut Parser, type_marker: CompletedMarker) {
+fn opt_type_bounds_as_dyn_trait_type(
+    p: &mut Parser,
+    type_marker: CompletedMarker,
+) -> CompletedMarker {
     assert!(matches!(
         type_marker.kind(),
         SyntaxKind::PATH_TYPE | SyntaxKind::FOR_TYPE | SyntaxKind::MACRO_CALL
     ));
     if !p.at(T![+]) {
-        return;
+        return type_marker;
     }
 
     // First create a TYPE_BOUND from the completed PATH_TYPE
@@ -339,5 +350,5 @@ fn opt_type_bounds_as_dyn_trait_type(p: &mut Parser, type_marker: CompletedMarke
     let m = type_params::bounds_without_colon_m(p, m);
 
     // Finally precede everything with DYN_TRAIT_TYPE
-    m.precede(p).complete(p, DYN_TRAIT_TYPE);
+    m.precede(p).complete(p, DYN_TRAIT_TYPE)
 }

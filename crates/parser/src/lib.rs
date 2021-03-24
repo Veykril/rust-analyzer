@@ -112,7 +112,7 @@ pub fn parse_fragment(
     let parser: fn(&'_ mut parser::Parser) = match fragment_kind {
         FragmentKind::Path => grammar::fragments::path,
         FragmentKind::Expr => grammar::fragments::expr,
-        FragmentKind::Type => grammar::fragments::type_,
+        FragmentKind::Type => |p| drop(grammar::fragments::type_(p)),
         FragmentKind::Pattern => grammar::fragments::pattern_single,
         FragmentKind::Item => grammar::fragments::item,
         FragmentKind::Block => grammar::fragments::block_expr,

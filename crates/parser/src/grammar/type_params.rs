@@ -58,7 +58,7 @@ fn type_param(p: &mut Parser, m: Marker) {
     // struct S<T = i32>;
     if p.at(T![=]) {
         p.bump(T![=]);
-        types::type_(p)
+        types::type_(p);
     }
     m.complete(p, TYPE_PARAM);
 }
@@ -113,8 +113,8 @@ fn type_bound(p: &mut Parser) -> bool {
     p.eat(T![?]);
     match p.current() {
         LIFETIME_IDENT => lifetime(p),
-        T![for] => types::for_type(p, false),
-        _ if paths::is_use_path_start(p) => types::path_type_(p, false),
+        T![for] => drop(types::for_type(p, false)),
+        _ if paths::is_use_path_start(p) => drop(types::path_type_(p, false)),
         _ => {
             m.abandon(p);
             return false;

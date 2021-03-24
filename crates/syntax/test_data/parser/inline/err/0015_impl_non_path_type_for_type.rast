@@ -1,0 +1,25 @@
+SOURCE_FILE@0..17
+  IMPL@0..16
+    IMPL_KW@0..4 "impl"
+    WHITESPACE@4..5 " "
+    ERROR@5..13
+      AMP@5..6 "&"
+      PATH_TYPE@6..7
+        PATH@6..7
+          PATH_SEGMENT@6..7
+            NAME_REF@6..7
+              IDENT@6..7 "T"
+      WHITESPACE@7..8 " "
+      FOR_KW@8..11 "for"
+      WHITESPACE@11..12 " "
+      PATH_TYPE@12..13
+        PATH@12..13
+          PATH_SEGMENT@12..13
+            NAME_REF@12..13
+              IDENT@12..13 "X"
+    WHITESPACE@13..14 " "
+    ASSOC_ITEM_LIST@14..16
+      L_CURLY@14..15 "{"
+      R_CURLY@15..16 "}"
+  WHITESPACE@16..17 "\n"
+error 13..13: expected a trait, found a type

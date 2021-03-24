@@ -1139,7 +1139,7 @@ pub struct TypeBound {
 impl TypeBound {
     pub fn lifetime(&self) -> Option<Lifetime> { support::child(&self.syntax) }
     pub fn question_mark_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![?]) }
-    pub fn ty(&self) -> Option<Type> { support::child(&self.syntax) }
+    pub fn path_type(&self) -> Option<PathType> { support::child(&self.syntax) }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IdentPat {
