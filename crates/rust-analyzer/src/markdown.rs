@@ -42,7 +42,7 @@ pub(crate) fn format_docs(src: &str) -> String {
 }
 
 fn is_rust_specific_code_block_attribute(attr: &str) -> bool {
-    if RUSTDOC_CODE_BLOCK_ATTRIBUTES_RUST_SPECIFIC.contains(&attr) {
+    if RUSTDOC_CODE_BLOCK_ATTRIBUTES_RUST_SPECIFIC.iter().any(|known| attr.starts_with(known)) {
         return true;
     }
     attr.starts_with('E') && attr.len() == 5 && attr[1..].parse::<u32>().is_ok()

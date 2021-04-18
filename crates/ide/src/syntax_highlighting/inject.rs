@@ -91,7 +91,7 @@ const RUSTDOC_FENCE_TOKENS: &[&'static str] = &[
 ];
 
 fn is_rustdoc_fence_token(token: &str) -> bool {
-    if RUSTDOC_FENCE_TOKENS.contains(&token) {
+    if RUSTDOC_FENCE_TOKENS.iter().any(|known| token.starts_with(known)) {
         return true;
     }
     token.starts_with('E') && token.len() == 5 && token[1..].parse::<u32>().is_ok()
