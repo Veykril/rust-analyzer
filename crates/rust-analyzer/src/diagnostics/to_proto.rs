@@ -155,7 +155,7 @@ fn map_rust_child_diagnostic(
                 message: rd.message.clone(),
             },
             suggested_fix: Some(lsp_ext::CodeAction {
-                title: rd.message.clone(),
+                title: format!("[rustc] {}", rd.message),
                 group: None,
                 kind: Some(lsp_types::CodeActionKind::QUICKFIX),
                 edit: Some(lsp_ext::SnippetWorkspaceEdit {
