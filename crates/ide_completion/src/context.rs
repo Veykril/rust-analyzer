@@ -376,14 +376,11 @@ impl<'a> CompletionContext<'a> {
 
                             (ty, None)
                         },
-                        ast::Fn(_it) => {
+                        ast::Fn(it) => {
                             cov_mark::hit!(expected_type_fn_ret_with_leading_char);
                             cov_mark::hit!(expected_type_fn_ret_without_leading_char);
-                            let ty = self.token.ancestors()
-                                .find_map(|ancestor| ast::Expr::cast(ancestor))
-                                .and_then(|expr| self.sema.type_of_expr(&expr));
-
-                            (ty, None)
+                            let ty = it.ret_type().and_then(|ty| ty.ty()).and_then(|ty| self.sema.resolve_ty(&ty));
+                            (Some(ty.unwrap_or(Type::unit())), None)
                         },
                         _ => {
                             match node.parent() {
@@ -840,8 +837,8 @@ fn foo() -> u32 {
     $0
 }
 "#,
-            expect![[r#"ty: (), name: ?"#]],
-        ) // FIXME this should be `ty: u32, name: ?`
+            expect![[r#"ty: u32, name: ?"#]],
+        )
     }
 
     #[test]
@@ -851,6 +848,18 @@ fn foo() -> u32 {
             r#"
 fn foo() -> u32 {
     c$0
+}
+"#,
+            expect![[r#"ty: u32, name: ?"#]],
+        )
+    }
+
+    #[test]
+    fn expected_type_fn_ret_fn_ref_fully_typed() {
+        check_expected_type_and_name(
+            r#"
+fn foo() -> u32 {
+    foo$0
 }
 "#,
             expect![[r#"ty: u32, name: ?"#]],

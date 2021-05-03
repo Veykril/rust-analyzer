@@ -196,6 +196,10 @@ impl<'db, DB: HirDatabase> Semantics<'db, DB> {
         self.imp.resolve_label(lifetime)
     }
 
+    pub fn resolve_type(&self, ty: &ast::Type) -> Option<Type> {
+        self.imp.resolve_ty(ty)
+    }
+
     pub fn type_of_expr(&self, expr: &ast::Expr) -> Option<Type> {
         self.imp.type_of_expr(expr)
     }
@@ -474,6 +478,10 @@ impl<'db> SemanticsImpl<'db> {
         })?;
         let src = self.find_file(label.syntax().clone()).with_value(label);
         ToDef::to_def(self, src)
+    }
+
+    fn resolve_ty(&self, ty: &ast::Type) -> Option<Type> {
+        self.scope(ty.syntax()).resolve_ty(ty)
     }
 
     fn type_of_expr(&self, expr: &ast::Expr) -> Option<Type> {
@@ -857,5 +865,15 @@ impl<'a> SemanticsScope<'a> {
         let ctx = body::LowerCtx::new(self.db.upcast(), self.file_id);
         let path = Path::from_src(path.clone(), &ctx)?;
         resolve_hir_path(self.db, &self.resolver, &path)
+    }
+
+    pub fn resolve_ty(&self, ty: &ast::Type) -> Option<Type> {
+        let ctx = body::LowerCtx::new(self.db.upcast(), self.file_id);
+        let tyref = hir_def::type_ref::TypeRef::from_ast(&ctx, ty.clone());
+        Type::new_with_resolver(
+            self.db,
+            &self.resolver,
+            hir_ty::TyLoweringContext::new(self.db, &self.resolver).lower_ty(&tyref),
+        )
     }
 }
