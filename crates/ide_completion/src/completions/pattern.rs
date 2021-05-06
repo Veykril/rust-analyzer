@@ -1,5 +1,7 @@
 //! Completes constants and paths in patterns.
 
+use ide_db::helpers::insert_use::ImportScope;
+
 use crate::{CompletionContext, Completions};
 
 /// Completes constants and paths in patterns.
@@ -11,23 +13,45 @@ pub(crate) fn complete_pattern(acc: &mut Completions, ctx: &CompletionContext) {
         return;
     }
 
+    let expected_type = ctx.expected_type.as_ref().map(|ty| ty.strip_references());
+
     if !ctx.is_irrefutable_pat_binding {
-        if let Some(hir::Adt::Enum(e)) =
-            ctx.expected_type.as_ref().and_then(|ty| ty.strip_references().as_adt())
-        {
+        if let Some(hir::Adt::Enum(e)) = expected_type.as_ref().and_then(hir::Type::as_adt) {
             super::complete_enum_variants(acc, ctx, e, |acc, ctx, variant, path| {
                 acc.add_qualified_variant_pat(ctx, variant, path.clone());
                 acc.add_qualified_enum_variant(ctx, variant, path);
             });
         }
     }
+    if let Some(hir::Adt::Struct(strukt)) = expected_type.as_ref().and_then(hir::Type::as_adt) {
+        let import_scope = ctx
+            .original_token
+            .parent()
+            .and_then(|node| ImportScope::find_insert_use_container_with_macros(&node, &ctx.sema))
+            .unwrap();
+        let current_module = ctx.scope.module();
+        let path = current_module.and_then(|module| {
+            module.find_use_path_prefixed(
+                ctx.db,
+                hir::ModuleDef::from(strukt),
+                ctx.config.insert_use.prefix_kind,
+            )
+        });
+        if let Some(import) = path {
+            match import.as_ident() {
+                Some(name) => acc.add_struct_pat(ctx, strukt, Some(name.clone())),
+                None => acc.add_struct_pat_with_import(ctx, strukt, import, import_scope),
+            }
+        }
+    }
 
+    let ty_is_unknown = expected_type.map_or(true, |ty| ty.is_unknown());
     // FIXME: ideally, we should look at the type we are matching against and
     // suggest variants + auto-imports
     ctx.scope.process_all_names(&mut |name, res| {
         let add_resolution = match &res {
             hir::ScopeDef::ModuleDef(def) => match def {
-                hir::ModuleDef::Adt(hir::Adt::Struct(strukt)) => {
+                hir::ModuleDef::Adt(hir::Adt::Struct(strukt)) if ty_is_unknown => {
                     acc.add_struct_pat(ctx, *strukt, Some(name.clone()));
                     true
                 }

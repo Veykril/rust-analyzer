@@ -19,7 +19,7 @@ pub(crate) mod unqualified_path;
 use std::iter;
 
 use hir::{known, ModPath, ScopeDef, Type};
-use ide_db::SymbolKind;
+use ide_db::{helpers::insert_use::ImportScope, SymbolKind};
 
 use crate::{
     item::{Builder, CompletionKind},
@@ -28,7 +28,7 @@ use crate::{
         enum_variant::render_variant,
         function::{render_fn, render_method},
         macro_::render_macro,
-        pattern::{render_struct_pat, render_variant_pat},
+        pattern::{render_struct_pat, render_struct_pat_with_import, render_variant_pat},
         render_field, render_resolution, render_tuple_field,
         type_alias::render_type_alias,
         RenderContext,
@@ -163,6 +163,20 @@ impl Completions {
         local_name: Option<hir::Name>,
     ) {
         if let Some(item) = render_struct_pat(RenderContext::new(ctx), strukt, local_name) {
+            self.add(item);
+        }
+    }
+
+    pub(crate) fn add_struct_pat_with_import(
+        &mut self,
+        ctx: &CompletionContext,
+        strukt: hir::Struct,
+        import: hir::ModPath,
+        import_scope: ImportScope,
+    ) {
+        if let Some(item) =
+            render_struct_pat_with_import(RenderContext::new(ctx), strukt, import, import_scope)
+        {
             self.add(item);
         }
     }

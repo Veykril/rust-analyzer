@@ -1,10 +1,12 @@
 //! Renderer for patterns.
 
 use hir::{db::HirDatabase, HasAttrs, HasVisibility, Name, StructKind};
-use ide_db::helpers::SnippetCap;
+use ide_db::helpers::{import_assets::LocatedImport, insert_use::ImportScope, SnippetCap};
 use itertools::Itertools;
 
-use crate::{item::CompletionKind, render::RenderContext, CompletionItem, CompletionItemKind};
+use crate::{
+    item::CompletionKind, render::RenderContext, CompletionItem, CompletionItemKind, ImportEdit,
+};
 
 pub(crate) fn render_struct_pat(
     ctx: RenderContext<'_>,
@@ -12,7 +14,34 @@ pub(crate) fn render_struct_pat(
     local_name: Option<Name>,
 ) -> Option<CompletionItem> {
     let _p = profile::span("render_struct_pat");
+    let name = local_name.unwrap_or_else(|| strukt.name(ctx.db())).to_string();
+    let pat = render_struct_pat_(&ctx, strukt, &name)?;
+    Some(build_pat_completion(ctx, name, pat, strukt, None))
+}
 
+pub(crate) fn render_struct_pat_with_import(
+    ctx: RenderContext<'_>,
+    strukt: hir::Struct,
+    import: hir::ModPath,
+    scope: ImportScope,
+) -> Option<CompletionItem> {
+    let _p = profile::span("render_struct_pat_with_import");
+
+    let name = import.segments().last()?.to_string();
+    let pat = render_struct_pat_(&ctx, strukt, &name)?;
+    let import = ImportEdit {
+        import: LocatedImport::new(
+            import.clone(),
+            hir::ModuleDef::from(strukt).into(),
+            hir::ModuleDef::from(strukt).into(),
+            Some(import),
+        ),
+        scope,
+    };
+    Some(build_pat_completion(ctx, name, pat, strukt, Some(import)))
+}
+
+fn render_struct_pat_(ctx: &RenderContext<'_>, strukt: hir::Struct, name: &str) -> Option<String> {
     let fields = strukt.fields(ctx.db());
     let (visible_fields, fields_omitted) = visible_fields(&ctx, &fields, strukt)?;
 
@@ -21,10 +50,7 @@ pub(crate) fn render_struct_pat(
         return None;
     }
 
-    let name = local_name.unwrap_or_else(|| strukt.name(ctx.db())).to_string();
-    let pat = render_pat(&ctx, &name, strukt.kind(ctx.db()), &visible_fields, fields_omitted)?;
-
-    Some(build_completion(ctx, name, pat, strukt))
+    render_pat(&ctx, &name, strukt.kind(ctx.db()), &visible_fields, fields_omitted)
 }
 
 pub(crate) fn render_variant_pat(
@@ -44,19 +70,21 @@ pub(crate) fn render_variant_pat(
     };
     let pat = render_pat(&ctx, &name, variant.kind(ctx.db()), &visible_fields, fields_omitted)?;
 
-    Some(build_completion(ctx, name, pat, variant))
+    Some(build_pat_completion(ctx, name, pat, variant, None))
 }
 
-fn build_completion(
+fn build_pat_completion(
     ctx: RenderContext<'_>,
     name: String,
     pat: String,
     def: impl HasAttrs + Copy,
+    import: Option<ImportEdit>,
 ) -> CompletionItem {
     let mut item = CompletionItem::new(CompletionKind::Snippet, ctx.source_range(), name);
     item.kind(CompletionItemKind::Binding)
         .set_documentation(ctx.docs(def))
         .set_deprecated(ctx.is_deprecated(def))
+        .add_import(import)
         .detail(&pat);
     if let Some(snippet_cap) = ctx.snippet_cap() {
         item.insert_snippet(snippet_cap, pat);
