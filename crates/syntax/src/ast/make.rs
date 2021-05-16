@@ -35,6 +35,9 @@ pub mod ext {
         block_expr(None, None)
     }
 
+    pub fn ty_alias_self() -> ast::Type {
+        ty_path(ident_path("Self"))
+    }
     pub fn ty_bool() -> ast::Type {
         ty_path(ident_path("bool"))
     }
@@ -145,8 +148,8 @@ pub fn path_from_segments(
         format!("use {};", segments)
     })
 }
-// FIXME: should not be pub
-pub fn path_from_text(text: &str) -> ast::Path {
+
+pub(crate) fn path_from_text(text: &str) -> ast::Path {
     ast_from_text(&format!("fn main() {{ let test = {}; }}", text))
 }
 
@@ -557,11 +560,12 @@ pub fn fn_(
     type_params: Option<ast::GenericParamList>,
     params: ast::ParamList,
     body: ast::BlockExpr,
-    ret_type: Option<ast::RetType>,
+    ret_type: Option<ast::Type>,
 ) -> ast::Fn {
     let type_params =
         if let Some(type_params) = type_params { format!("<{}>", type_params) } else { "".into() };
-    let ret_type = if let Some(ret_type) = ret_type { format!("{} ", ret_type) } else { "".into() };
+    let ret_type =
+        if let Some(ret_type) = ret_type { format!("-> {} ", ret_type) } else { "".into() };
     let visibility = match visibility {
         None => String::new(),
         Some(it) => format!("{} ", it),
@@ -624,7 +628,7 @@ pub mod tokens {
 
     pub(super) static SOURCE_FILE: Lazy<Parse<SourceFile>> = Lazy::new(|| {
         SourceFile::parse(
-            "const C: <()>::Item = (1 != 1, 2 == 2, 3 < 3, 4 <= 4, 5 > 5, 6 >= 6, !true, *p)\n;\n\n",
+            "const C: <()>::Item = (1 != 1, 2 == 2, 3 < 3, 4 <= 4, 5 > 5, 6 >= 6, !true, *p, for _ in () {})\n;\n\n",
         )
     });
 

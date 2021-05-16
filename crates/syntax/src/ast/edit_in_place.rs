@@ -3,7 +3,7 @@
 use std::iter::empty;
 
 use parser::{SyntaxKind, T};
-use rowan::SyntaxElement;
+use rowan::{NodeOrToken, SyntaxElement};
 
 use crate::{
     algo::neighbor,
@@ -285,6 +285,28 @@ impl ast::Impl {
         }
         self.assoc_item_list().unwrap()
     }
+
+    pub fn clear_assoc_item_list(&self) {
+        let assoc_item_list = self.get_or_create_assoc_item_list();
+        let start = assoc_item_list.l_curly_token().unwrap();
+        let end = assoc_item_list.r_curly_token().unwrap();
+        match start.next_sibling_or_token().zip(end.prev_sibling_or_token()) {
+            Some((first, last)) if first != NodeOrToken::Token(end) => {
+                ted::remove_all(first..=last)
+            }
+            _ => (),
+        }
+    }
+
+    pub fn insert_trait(&self, trait_: ast::Type) {
+        match self.trait_() {
+            Some(prev) => ted::replace(prev.syntax(), trait_.syntax()),
+            None => {
+                ted::insert(Position::after(self.impl_token().unwrap()), make::token(T![for]));
+                ted::insert(Position::after(self.impl_token().unwrap()), trait_.syntax());
+            }
+        }
+    }
 }
 
 impl ast::AssocItemList {
@@ -324,6 +346,27 @@ impl ast::Fn {
             }
         }
         self.body().unwrap()
+    }
+}
+
+impl ast::BlockExpr {
+    pub fn append_expr(&self, expr: ast::Expr) {
+        match self.tail_expr() {
+            Some(tail) => {
+                ted::insert(Position::after(tail.syntax()), expr.syntax());
+                ted::replace(
+                    tail.syntax(),
+                    make::expr_stmt(tail.clone()).syntax().clone_for_update(),
+                );
+            }
+            None => ted::insert(
+                Position::after(match self.statements().last() {
+                    None => NodeOrToken::Token(self.l_curly_token().unwrap()),
+                    Some(stmt) => NodeOrToken::Node(stmt.syntax().clone()),
+                }),
+                expr.syntax(),
+            ),
+        }
     }
 }
 

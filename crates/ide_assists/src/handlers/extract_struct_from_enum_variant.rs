@@ -1,4 +1,4 @@
-use std::iter;
+use std::iter::{self, once};
 
 use either::Either;
 use hir::{Module, ModuleDef, Name, Variant};
@@ -210,7 +210,7 @@ fn apply_references(
     }
     ted::insert_raw(
         ted::Position::before(segment.syntax()),
-        make::path_from_text(&format!("{}", segment)).clone_for_update().syntax(),
+        make::path_from_segments(once(segment.clone()), false).clone_for_update().syntax(),
     );
     ted::insert_raw(ted::Position::before(segment.syntax()), make::token(T!['(']));
     ted::insert_raw(ted::Position::after(&node), make::token(T![')']));

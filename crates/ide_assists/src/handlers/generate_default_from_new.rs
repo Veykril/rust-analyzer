@@ -1,12 +1,12 @@
+use std::array;
+
 use crate::{
     assist_context::{AssistContext, Assists},
     AssistId,
 };
 use ide_db::helpers::FamousDefs;
-use itertools::Itertools;
-use stdx::format_to;
 use syntax::{
-    ast::{self, GenericParamsOwner, Impl, NameOwner, TypeBoundsOwner},
+    ast::{self, make, Impl, NameOwner},
     AstNode,
 };
 
@@ -67,56 +67,37 @@ pub(crate) fn generate_default_from_new(acc: &mut Assists, ctx: &AssistContext) 
         "Generate a Default impl from a new fn",
         insert_location,
         move |builder| {
-            let default_code = "    fn default() -> Self {
-        Self::new()
-    }";
-            let code = generate_trait_impl_text_from_impl(&impl_, "Default", default_code);
-            builder.insert(insert_location.end(), code);
+            let impl_ = impl_.clone_for_update();
+            let default_trait = make::ty_path(make::ext::ident_path("Default"));
+            impl_.insert_trait(default_trait.clone_for_update());
+            impl_.clear_assoc_item_list();
+            let new_call = make::expr_call(
+                make::expr_path(make::path_from_segments(
+                    array::IntoIter::new([
+                        make::path_segment(make::name_ref("Self")),
+                        make::path_segment(make::name_ref("new")),
+                    ]),
+                    false,
+                )),
+                make::arg_list(None),
+            )
+            .clone_for_update();
+            let body = make::block_expr(None, None).clone_for_update();
+            body.append_expr(new_call);
+            let fn_ = make::fn_(
+                None,
+                make::name("default"),
+                None,
+                make::param_list(None, None),
+                body,
+                Some(make::ext::ty_alias_self()),
+            );
+            impl_
+                .get_or_create_assoc_item_list()
+                .add_item(ast::AssocItem::Fn(fn_.clone_for_update()));
+            builder.insert(insert_location.end(), impl_.to_string());
         },
     )
-}
-
-fn generate_trait_impl_text_from_impl(impl_: &ast::Impl, trait_text: &str, code: &str) -> String {
-    let generic_params = impl_.generic_param_list();
-    let mut buf = String::with_capacity(code.len());
-    buf.push_str("\n\n");
-    buf.push_str("impl");
-
-    if let Some(generic_params) = &generic_params {
-        let lifetimes = generic_params.lifetime_params().map(|lt| format!("{}", lt.syntax()));
-        let type_params = generic_params.type_params().map(|type_param| {
-            let mut buf = String::new();
-            if let Some(it) = type_param.name() {
-                format_to!(buf, "{}", it.syntax());
-            }
-            if let Some(it) = type_param.colon_token() {
-                format_to!(buf, "{} ", it);
-            }
-            if let Some(it) = type_param.type_bound_list() {
-                format_to!(buf, "{}", it.syntax());
-            }
-            buf
-        });
-        let const_params = generic_params.const_params().map(|t| t.syntax().to_string());
-        let generics = lifetimes.chain(type_params).chain(const_params).format(", ");
-        format_to!(buf, "<{}>", generics);
-    }
-
-    buf.push(' ');
-    buf.push_str(trait_text);
-    buf.push_str(" for ");
-    buf.push_str(&impl_.self_ty().unwrap().syntax().text().to_string());
-
-    match impl_.where_clause() {
-        Some(where_clause) => {
-            format_to!(buf, "\n{}\n{{\n{}\n}}", where_clause, code);
-        }
-        None => {
-            format_to!(buf, " {{\n{}\n}}", code);
-        }
-    }
-
-    buf
 }
 
 fn is_default_implemented(ctx: &AssistContext, impl_: &Impl) -> bool {

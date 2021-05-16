@@ -105,7 +105,7 @@ struct FunctionBuilder {
     fn_name: ast::Name,
     type_params: Option<ast::GenericParamList>,
     params: ast::ParamList,
-    ret_type: ast::RetType,
+    ret_type: ast::Type,
     should_render_snippet: bool,
     file: FileId,
     needs_pub: bool,
@@ -147,7 +147,7 @@ impl FunctionBuilder {
         // user does in fact intend for this generated function to return some non unit
         // type, but that the current state of their code doesn't allow that return type
         // to be accurately inferred.
-        let (ret_ty, should_render_snippet) = {
+        let (ret_type, should_render_snippet) = {
             match ctx.sema.type_of_expr(&ast::Expr::CallExpr(call.clone())) {
                 Some(ty) if ty.is_unknown() || ty.is_unit() => (make::ty_unit(), true),
                 Some(ty) => {
@@ -160,7 +160,6 @@ impl FunctionBuilder {
                 None => (make::ty_unit(), true),
             }
         };
-        let ret_type = make::ret_type(ret_ty);
 
         Some(Self {
             target,
