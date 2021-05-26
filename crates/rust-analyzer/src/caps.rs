@@ -15,9 +15,12 @@ use lsp_types::{
 };
 use serde_json::json;
 
-use crate::semantic_tokens;
+use crate::{config::Config, semantic_tokens};
 
-pub fn server_capabilities(client_caps: &ClientCapabilities) -> ServerCapabilities {
+pub fn server_capabilities(
+    config: &Config,
+    client_caps: &ClientCapabilities,
+) -> ServerCapabilities {
     ServerCapabilities {
         text_document_sync: Some(TextDocumentSyncCapability::Options(TextDocumentSyncOptions {
             open_close: Some(true),
@@ -54,7 +57,7 @@ pub fn server_capabilities(client_caps: &ClientCapabilities) -> ServerCapabiliti
         code_action_provider: Some(code_action_capabilities(client_caps)),
         code_lens_provider: Some(CodeLensOptions { resolve_provider: Some(true) }),
         document_formatting_provider: Some(OneOf::Left(true)),
-        document_range_formatting_provider: Some(OneOf::Left(true)),
+        document_range_formatting_provider: config.range_formatting().then(|| OneOf::Left(true)),
         document_on_type_formatting_provider: Some(DocumentOnTypeFormattingOptions {
             first_trigger_character: "=".to_string(),
             more_trigger_character: Some(vec![".".to_string(), ">".to_string(), "{".to_string()]),

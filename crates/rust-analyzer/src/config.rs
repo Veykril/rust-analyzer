@@ -563,6 +563,9 @@ impl Config {
     pub fn wrap_rustc(&self) -> bool {
         self.data.cargo_useRustcWrapperForBuildScripts
     }
+    pub fn range_formatting(&self) -> bool {
+        self.data.rustfmt_enableRangeFormatting
+    }
     pub fn cargo(&self) -> CargoConfig {
         let rustc_source = self.data.rustcSource.as_ref().map(|rustc_src| {
             if rustc_src == "discover" {
