@@ -398,7 +398,7 @@ impl Analysis {
     }
 
     /// Finds all methods and free functions for the file. Does not return tests!
-    pub fn find_all_methods(&self, file_id: FileId) -> Cancelable<Vec<FileRange>> {
+    pub fn find_all_methods(&self, file_id: FileId) -> Cancelable<Vec<(TextSize, FileRange)>> {
         self.with_db(|db| fn_references::find_all_methods(db, file_id))
     }
 

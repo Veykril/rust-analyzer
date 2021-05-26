@@ -141,15 +141,16 @@ pub(crate) fn annotations(
     });
 
     if config.annotate_method_references {
-        annotations.extend(find_all_methods(db, file_id).into_iter().map(|method| Annotation {
-            range: method.range,
-            kind: AnnotationKind::HasReferences {
-                position: FilePosition { file_id, offset: method.range.start() },
-                data: None,
-            },
+        annotations.extend(find_all_methods(db, file_id).into_iter().map(|(offset, frange)| {
+            Annotation {
+                range: frange.range,
+                kind: AnnotationKind::HasReferences {
+                    position: FilePosition { file_id: frange.file_id, offset },
+                    data: None,
+                },
+            }
         }));
     }
-
     annotations
 }
 
@@ -301,7 +302,7 @@ fn main() {
                         },
                     },
                     Annotation {
-                        range: 53..57,
+                        range: 50..85,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
@@ -405,7 +406,7 @@ fn main() {
                         },
                     },
                     Annotation {
-                        range: 17..21,
+                        range: 14..48,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
@@ -574,7 +575,7 @@ fn main() {
                         },
                     },
                     Annotation {
-                        range: 69..73,
+                        range: 66..100,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
@@ -639,7 +640,7 @@ fn main() {}
                         },
                     },
                     Annotation {
-                        range: 3..7,
+                        range: 0..12,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
@@ -763,7 +764,7 @@ fn main() {
                         },
                     },
                     Annotation {
-                        range: 33..44,
+                        range: 30..54,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
@@ -784,7 +785,7 @@ fn main() {
                         },
                     },
                     Annotation {
-                        range: 61..65,
+                        range: 58..95,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
@@ -948,7 +949,7 @@ mod tests {
                         },
                     },
                     Annotation {
-                        range: 3..7,
+                        range: 0..12,
                         kind: HasReferences {
                             position: FilePosition {
                                 file_id: FileId(
