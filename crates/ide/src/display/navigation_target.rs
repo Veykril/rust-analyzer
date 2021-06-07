@@ -526,9 +526,69 @@ pub(crate) fn description_from_symbol(db: &RootDatabase, symbol: &FileSymbol) ->
 
 #[cfg(test)]
 mod tests {
-    use expect_test::expect;
+    use expect_test::{expect, Expect};
 
     use crate::{fixture, Query};
+
+    fn check_nav(ra_fixture: &str, expect: Expect) {
+        let (analysis, pos) = fixture::range(ra_fixture);
+        let query = &analysis.file_text(pos.file_id).unwrap()[pos.range];
+
+        let navs = analysis.symbol_search(Query::new(query.to_string())).unwrap();
+        assert_eq!(navs.len(), 1);
+        assert!(navs[0].focus_range.map_or(false, |it| it == pos.range));
+        expect.assert_debug_eq(&navs[0]);
+    }
+
+    #[test]
+    fn test_nav_inner() {
+        check_nav(
+            r#"fn foo() { enum $0ExpectInner$0 { } }"#,
+            expect![[r#"
+                NavigationTarget {
+                    file_id: FileId(
+                        0,
+                    ),
+                    full_range: 11..31,
+                    focus_range: 16..27,
+                    name: "ExpectInner",
+                    kind: Enum,
+                    container_name: "foo",
+                    description: "enum ExpectInner",
+                }
+            "#]],
+        );
+    }
+
+    #[test]
+    fn test_nav_function() {
+        check_nav(
+            r#"fn $0from_def_source_labeled$0<D>(
+    db: &RootDatabase,
+    def: D,
+    short_label: Option<String>,
+    mod_path: Option<String>,
+) -> Option<Markup>
+where
+    D: HasAttrs,
+{
+    let docs = def.attrs(db).docs().map(Into::into);
+    hover_markup(docs, short_label, mod_path)
+}"#,
+            expect![[r#"
+                NavigationTarget {
+                    file_id: FileId(
+                        0,
+                    ),
+                    full_range: 0..274,
+                    focus_range: 3..26,
+                    name: "from_def_source_labeled",
+                    kind: Function,
+                    description: "fn from_def_source_labeled<D>(db: &RootDatabase, def: D, short_label: Option<String>, mod_path: Option<String>) -> Option<Markup>\nwhere\n    D: HasAttrs,",
+                }
+            "#]],
+        );
+    }
 
     #[test]
     fn test_nav_for_symbol() {
