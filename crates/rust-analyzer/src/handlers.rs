@@ -1176,12 +1176,13 @@ pub(crate) fn handle_document_highlight(
         Some(refs) => refs,
     };
 
-    let decl = refs.declaration.filter(|decl| decl.nav.file_id == position.file_id).map(|decl| {
-        DocumentHighlight {
-            range: to_proto::range(&line_index, decl.nav.focus_or_full_range()),
-            kind: decl.access.map(to_proto::document_highlight_kind),
-        }
-    });
+    let decl =
+        refs.declaration.filter(|decl| decl.nav.file_id == position.file_id).and_then(|decl| {
+            Some(DocumentHighlight {
+                range: to_proto::range(&line_index, decl.nav.focus_range?),
+                kind: decl.access.map(to_proto::document_highlight_kind),
+            })
+        });
 
     let file_refs = refs.references.get(&position.file_id).map_or(&[][..], Vec::as_slice);
     let mut res = Vec::with_capacity(file_refs.len() + 1);
