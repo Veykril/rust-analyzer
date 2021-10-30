@@ -118,7 +118,6 @@ pub mod clone {
 }
 // endregion:clone
 
-
 pub mod convert {
     // region:from
     pub trait From<T>: Sized {
@@ -387,6 +386,13 @@ pub mod fmt {
     pub trait Debug {
         fn fmt(&self, f: &mut Formatter<'_>) -> Result;
     }
+
+    pub use macros::Debug;
+    pub(crate) mod macros {
+        #[rustc_builtin_macro]
+        #[allow_internal_unstable(core_intrinsics)]
+        pub macro Debug($item:item) {}
+    }
 }
 // endregion:fmt
 
@@ -620,9 +626,10 @@ pub mod prelude {
             clone::Clone,                       // :clone
             cmp::{Eq, PartialEq},               // :eq
             cmp::{Ord, PartialOrd},             // :ord
-            convert::{From, Into},              // :from
             convert::AsRef,                     // :as_ref
+            convert::{From, Into},              // :from
             default::Default,                   // :default
+            fmt::macros::Debug,                 // :fmt
             iter::{IntoIterator, Iterator},     // :iterator
             macros::builtin::derive,            // :derive
             marker::Copy,                       // :copy

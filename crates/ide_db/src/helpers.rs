@@ -31,19 +31,34 @@ pub fn item_name(db: &RootDatabase, item: ItemInNs) -> Option<Name> {
     }
 }
 
+pub fn is_derive_attr(sema: &Semantics<RootDatabase>, attr: &ast::Attr) -> bool {
+    (|| {
+        let path = attr.path()?;
+        let scope = sema.scope(attr.syntax());
+        let resolved_attr = sema.resolve_path(&path)?;
+        let derive = FamousDefs(sema, scope.krate()).core_macros_builtin_derive()?;
+        if PathResolution::Macro(derive) != resolved_attr {
+            return None;
+        }
+        Some(true)
+    })()
+    .unwrap_or_default()
+}
+
 /// Parses and returns the derive path at the cursor position in the given attribute, if it is a derive.
 /// This special case is required because the derive macro is a compiler builtin that discards the input derives.
 ///
 /// The returned path is synthesized from TokenTree tokens and as such cannot be used with the [`Semantics`].
 pub fn get_path_in_derive_attr(
-    sema: &hir::Semantics<RootDatabase>,
+    sema: &Semantics<RootDatabase>,
     attr: &ast::Attr,
     cursor: &Ident,
 ) -> Option<ast::Path> {
     let cursor = cursor.syntax();
     let path = attr.path()?;
     let tt = attr.token_tree()?;
-    if !tt.syntax().text_range().contains_range(cursor.text_range()) {
+    if !tt.syntax().text_range().contains_range(cursor.text_range()) || tt.l_paren_token().is_none()
+    {
         return None;
     }
     let scope = sema.scope(attr.syntax());

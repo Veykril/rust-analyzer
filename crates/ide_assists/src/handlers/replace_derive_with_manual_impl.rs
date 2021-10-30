@@ -1,11 +1,14 @@
 use hir::ModuleDef;
+use ide_db::helpers::get_path_in_derive_attr;
 use ide_db::helpers::{import_assets::NameToImport, mod_path_to_ast};
 use ide_db::items_locator;
 use itertools::Itertools;
+use syntax::ast::HasModuleItem;
 use syntax::{
     ast::{self, make, AstNode, HasName},
     SyntaxKind::{IDENT, WHITESPACE},
 };
+use syntax::{ted, AstToken, Direction, SyntaxElement, T};
 
 use crate::{
     assist_context::{AssistBuilder, AssistContext, Assists},
@@ -42,63 +45,53 @@ pub(crate) fn replace_derive_with_manual_impl(
     ctx: &AssistContext,
 ) -> Option<()> {
     let attr = ctx.find_node_at_offset::<ast::Attr>()?;
-    let (name, args) = attr.as_simple_call()?;
-    if name != "derive" {
+    let tt = attr.token_tree()?;
+    let trait_token = attr.syntax().token_at_offset(ctx.offset()).find_map(ast::Ident::cast)?;
+    let path = get_path_in_derive_attr(&ctx.sema, &attr, &trait_token)?;
+    if path.parent_path().is_some() {
         return None;
     }
 
-    if !args.syntax().text_range().contains(ctx.offset()) {
-        cov_mark::hit!(outside_of_attr_args);
-        return None;
-    }
+    let idx = trait_token
+        .syntax()
+        .siblings_with_tokens(Direction::Prev)
+        .take_while(|tok| tok.kind() != T!['('])
+        .filter(|t| t.kind() == T![,])
+        .count();
 
-    let trait_token = args.syntax().token_at_offset(ctx.offset()).find(|t| t.kind() == IDENT)?;
-    let trait_name = trait_token.text();
+    let trait_ = ctx
+        .sema
+        .expand_derive_macro(&attr)?
+        .get(idx)
+        .cloned()
+        .and_then(ast::MacroItems::cast)
+        .and_then(|it| {
+            it.items()
+                .filter_map(|item| match item {
+                    ast::Item::Impl(it) => Some(it),
+                    _ => None,
+                })
+                .find_map(|impl_| impl_.trait_())
+        })?;
+    let trait_ = match trait_ {
+        ast::Type::PathType(it) => it.path()?,
+        _ => return None,
+    };
+    let trait_ = match ctx.sema.resolve_path(&trait_)? {
+        hir::PathResolution::Def(ModuleDef::Trait(trait_)) => trait_,
+        _ => return None,
+    };
 
     let adt = attr.syntax().parent().and_then(ast::Adt::cast)?;
 
     let current_module = ctx.sema.scope(adt.syntax()).module()?;
     let current_crate = current_module.krate();
 
-    let found_traits = items_locator::items_with_name(
-        &ctx.sema,
-        current_crate,
-        NameToImport::Exact(trait_name.to_string()),
-        items_locator::AssocItemSearch::Exclude,
-        Some(items_locator::DEFAULT_QUERY_SEARCH_LIMIT.inner()),
-    )
-    .filter_map(|item| match item.as_module_def()? {
-        ModuleDef::Trait(trait_) => Some(trait_),
-        _ => None,
-    })
-    .flat_map(|trait_| {
-        current_module
-            .find_use_path(ctx.sema.db, hir::ModuleDef::Trait(trait_))
-            .as_ref()
-            .map(mod_path_to_ast)
-            .zip(Some(trait_))
-    });
+    let trait_path = current_module
+        .find_use_path(ctx.sema.db, hir::ModuleDef::Trait(trait_))
+        .as_ref()
+        .map(mod_path_to_ast)?;
 
-    let mut no_traits_found = true;
-    for (trait_path, trait_) in found_traits.inspect(|_| no_traits_found = false) {
-        add_assist(acc, ctx, &attr, &args, &trait_path, Some(trait_), &adt)?;
-    }
-    if no_traits_found {
-        let trait_path = make::ext::ident_path(trait_name);
-        add_assist(acc, ctx, &attr, &args, &trait_path, None, &adt)?;
-    }
-    Some(())
-}
-
-fn add_assist(
-    acc: &mut Assists,
-    ctx: &AssistContext,
-    attr: &ast::Attr,
-    input: &ast::TokenTree,
-    trait_path: &ast::Path,
-    trait_: Option<hir::Trait>,
-    adt: &ast::Adt,
-) -> Option<()> {
     let target = attr.syntax().text_range();
     let annotated_name = adt.name()?;
     let label = format!("Convert to manual `impl {} for {}`", trait_path, annotated_name);
@@ -111,17 +104,30 @@ fn add_assist(
         |builder| {
             let insert_pos = adt.syntax().text_range().end();
             let impl_def_with_items =
-                impl_def_from_trait(&ctx.sema, adt, &annotated_name, trait_, trait_path);
-            update_attribute(builder, input, &trait_name, attr);
+                impl_def_from_trait(&ctx.sema, &adt, &annotated_name, Some(trait_), &trait_path);
+            let tt = builder.make_syntax_mut(tt.syntax().clone());
+            let mut i = 0;
+            let tokens = tt
+                .descendants_with_tokens()
+                .filter_map(SyntaxElement::into_token)
+                .map(|it| {
+                    i += (it.kind() == T![,]) as usize;
+                    (it, i)
+                })
+                .skip_while(|&(_, i)| i < idx)
+                .take_while(|(it, _)| it.kind() != T![,] || it.kind() != T![')'])
+                .map(|(it, _)| it.into());
+            ted::remove_all_iter(tokens);
+
             let trait_path = format!("{}", trait_path);
             match (ctx.config.snippet_cap, impl_def_with_items) {
                 (None, _) => {
-                    builder.insert(insert_pos, generate_trait_impl_text(adt, &trait_path, ""))
+                    builder.insert(insert_pos, generate_trait_impl_text(&adt, &trait_path, ""))
                 }
                 (Some(cap), None) => builder.insert_snippet(
                     cap,
                     insert_pos,
-                    generate_trait_impl_text(adt, &trait_path, "    $0"),
+                    generate_trait_impl_text(&adt, &trait_path, "    $0"),
                 ),
                 (Some(cap), Some((impl_def, first_assoc_item))) => {
                     let mut cursor = Cursor::Before(first_assoc_item.syntax());
