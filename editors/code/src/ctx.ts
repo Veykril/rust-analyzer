@@ -2,10 +2,12 @@ import * as vscode from "vscode";
 import * as lc from "vscode-languageclient/node";
 import * as ra from "./lsp_ext";
 
-import { Config } from "./config";
-import { createClient } from "./client";
-import { isRustEditor, RustEditor } from "./util";
-import { ServerStatusParams } from "./lsp_ext";
+import { Config } from './config';
+import { createClient } from './client';
+import { isRustEditor, RustEditor } from './util';
+import { ServerStatusParams } from './lsp_ext';
+import { Dependency, DependencyFile, RustDependenciesProvider, DependencyId } from './dependencies_provider';
+import { execRevealDependency } from './commands';
 
 export type Workspace =
     | {
@@ -22,8 +24,10 @@ export class Ctx {
         private readonly extCtx: vscode.ExtensionContext,
         readonly client: lc.LanguageClient,
         readonly serverPath: string,
-        readonly statusBar: vscode.StatusBarItem
-    ) {}
+        readonly statusBar: vscode.StatusBarItem,
+        readonly dependencies: RustDependenciesProvider,
+        readonly treeView: vscode.TreeView<Dependency | DependencyFile | DependencyId>
+    ) { }
 
     static async create(
         config: Config,
@@ -40,7 +44,24 @@ export class Ctx {
         statusBar.command = "rust-analyzer.analyzerStatus";
         statusBar.show();
 
-        const res = new Ctx(config, extCtx, client, serverPath, statusBar);
+        const rootPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+
+        const dependenciesProvider = new RustDependenciesProvider(rootPath);
+        const treeView = vscode.window.createTreeView('rustDependencies', {
+            treeDataProvider: dependenciesProvider,
+            showCollapseAll: true
+        });
+
+        const res = new Ctx(config, extCtx, client, serverPath, statusBar, dependenciesProvider, treeView);
+        res.pushCleanup(treeView);
+
+        vscode.window.onDidChangeActiveTextEditor(e => {
+            if (e && isRustEditor(e)) {
+                execRevealDependency(e).catch(reason => {
+                    void vscode.window.showErrorMessage(`Dependency error: ${reason}`);
+                });
+            }
+        });
 
         await client.start();
         client.onNotification(ra.serverStatus, (params) => res.setServerStatus(params));
@@ -84,6 +105,7 @@ export class Ctx {
                 statusBar.command = undefined;
                 statusBar.color = undefined;
                 statusBar.backgroundColor = undefined;
+                this.dependencies.refresh();
                 break;
             case "warning":
                 statusBar.tooltip =

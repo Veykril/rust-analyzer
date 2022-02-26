@@ -235,6 +235,14 @@
                 "command": "rust-analyzer.moveItemDown",
                 "title": "Move item down",
                 "category": "Rust Analyzer"
+            },
+            {
+                "command": "rust-analyzer.openFile",
+                "title": "Open File"
+            },
+            {
+                "command": "rust-analyzer.revealDependency",
+                "title": "Reveal File"
             }
         ],
         "keybindings": [
@@ -1598,6 +1606,14 @@
                     "command": "rust-analyzer.peekTests",
                     "when": "inRustProject",
                     "group": "navigation@1000"
+                }
+            ]
+        },
+        "views": {
+            "explorer": [
+                {
+                    "id": "rustDependencies",
+                    "name": "Rust Dependencies"
                 }
             ]
         }
