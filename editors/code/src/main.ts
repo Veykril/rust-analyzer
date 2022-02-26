@@ -128,6 +128,7 @@ function createCommands(): Record<string, CommandFactory> {
         cancelFlycheck: { enabled: commands.cancelFlycheck },
         ssr: { enabled: commands.ssr },
         serverVersion: { enabled: commands.serverVersion },
+        revealDependency: { enabled: commands.revealDependency },
         // Internal commands which are invoked by the server.
         applyActionGroup: { enabled: commands.applyActionGroup },
         applySnippetWorkspaceEdit: { enabled: commands.applySnippetWorkspaceEditCommand },

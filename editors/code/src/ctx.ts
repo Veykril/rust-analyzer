@@ -8,6 +8,13 @@ import { isRustDocument, isRustEditor, log, RustEditor } from "./util";
 import { ServerStatusParams } from "./lsp_ext";
 import { PersistentState } from "./persistent_state";
 import { bootstrap } from "./bootstrap";
+import {
+    Dependency,
+    DependencyFile,
+    RustDependenciesProvider,
+    DependencyId,
+} from "./dependencies_provider";
+import { execRevealDependency } from "./commands";
 
 // We only support local folders, not eg. Live Share (`vlsl:` scheme), so don't activate if
 // only those are in use. We use "Empty" to represent these scenarios
@@ -64,6 +71,9 @@ export class Ctx {
     private commandFactories: Record<string, CommandFactory>;
     private commandDisposables: Disposable[];
 
+    readonly dependenciesProvider: RustDependenciesProvider;
+    readonly treeView: vscode.TreeView<Dependency | DependencyFile | DependencyId>;
+
     get client() {
         return this._client;
     }
@@ -88,11 +98,27 @@ export class Ctx {
         this.setServerStatus({
             health: "stopped",
         });
+        const rootPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
+
+        this.dependenciesProvider = new RustDependenciesProvider(rootPath);
+        this.treeView = vscode.window.createTreeView("rustDependencies", {
+            treeDataProvider: this.dependenciesProvider,
+            showCollapseAll: true,
+        });
+
+        vscode.window.onDidChangeActiveTextEditor((e) => {
+            if (e && isRustEditor(e)) {
+                execRevealDependency(e).catch((reason) => {
+                    void vscode.window.showErrorMessage(`Dependency error: ${reason}`);
+                });
+            }
+        });
     }
 
     dispose() {
         this.config.dispose();
         this.statusBar.dispose();
+        this.treeView.dispose();
         void this.disposeClient();
         this.commandDisposables.forEach((disposable) => disposable.dispose());
     }
@@ -286,6 +312,7 @@ export class Ctx {
                 statusBar.command = "rust-analyzer.stopServer";
                 statusBar.color = undefined;
                 statusBar.backgroundColor = undefined;
+                this.dependenciesProvider.refresh();
                 break;
             case "warning":
                 statusBar.tooltip =

@@ -246,6 +246,16 @@
                 "command": "rust-analyzer.cancelFlycheck",
                 "title": "Cancel running flychecks",
                 "category": "rust-analyzer"
+            },
+            {
+                "command": "rust-analyzer.openFile",
+                "title": "Open File",
+                "category": "rust-analyzer"
+            },
+            {
+                "command": "rust-analyzer.revealDependency",
+                "title": "Reveal File",
+                "category": "rust-analyzer"
             }
         ],
         "keybindings": [
@@ -1746,6 +1756,14 @@
                     "command": "rust-analyzer.peekTests",
                     "when": "inRustProject",
                     "group": "navigation@1000"
+                }
+            ]
+        },
+        "views": {
+            "explorer": [
+                {
+                    "id": "rustDependencies",
+                    "name": "Rust Dependencies"
                 }
             ]
         }
