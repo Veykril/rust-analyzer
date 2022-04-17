@@ -30,4 +30,4 @@ debug = 0
 
 # ungrammar = { path = "../ungrammar" }
 
-# salsa = { path = "../salsa" }
+salsa = { git = "https://github.com/salsa-rs/salsa", rev = "ae4960e1f086e62f960ab6e7caef1c3c1d26bca1" }

@@ -6,6 +6,7 @@ use std::{
     fmt::{Display, Write},
 };
 
+use base_db::salsa::Cycle;
 use chalk_ir::{BoundVar, DebruijnIndex, GenericArgData, IntTy, Scalar};
 use hir_def::{
     expr::{ArithOp, BinaryOp, Expr, ExprId, Literal, Pat, PatId},
@@ -421,7 +422,7 @@ pub fn usize_const(value: Option<u64>) -> Const {
 
 pub(crate) fn const_eval_recover(
     _: &dyn HirDatabase,
-    _: &[String],
+    _: &Cycle,
     _: &ConstId,
 ) -> Result<ComputedExpr, ConstEvalError> {
     Err(ConstEvalError::Loop)
