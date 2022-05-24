@@ -338,7 +338,7 @@ config_data! {
 
         /// Expand attribute macros. Requires `#rust-analyzer.procMacro.enable#` to be set.
         procMacro_attributes_enable: bool = "true",
-        /// Enable support for procedural macros, implies `#rust-analyzer.cargo.buildScripts.enable#`.
+        /// Enable support for procedural macros, requires `#rust-analyzer.cargo.buildScripts.enable#`.
         procMacro_enable: bool                     = "true",
         /// These proc-macros will be ignored when trying to expand them.
         ///
@@ -860,7 +860,7 @@ impl Config {
     }
 
     pub fn proc_macro_srv(&self) -> Option<(AbsPathBuf, Vec<OsString>)> {
-        if !self.data.procMacro_enable {
+        if !self.data.procMacro_enable || !self.data.cargo_buildScripts_enable {
             return None;
         }
         let path = match &self.data.procMacro_server {
@@ -900,7 +900,7 @@ impl Config {
     }
 
     pub fn run_build_scripts(&self) -> bool {
-        self.data.cargo_buildScripts_enable || self.data.procMacro_enable
+        self.data.cargo_buildScripts_enable
     }
 
     pub fn cargo(&self) -> CargoConfig {
