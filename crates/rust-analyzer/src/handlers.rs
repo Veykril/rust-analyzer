@@ -107,6 +107,13 @@ pub(crate) fn handle_memory_usage(state: &mut GlobalState, _: ()) -> Result<Stri
     Ok(out)
 }
 
+pub(crate) fn fetch_dependency_graph(
+    state: &mut GlobalState,
+    params: lsp_ext::FetchDependencyGraphParams,
+) -> Result<lsp_ext::FetchDependencyGraphResult> {
+    todo!()
+}
+
 pub(crate) fn handle_shuffle_crate_graph(state: &mut GlobalState, _: ()) -> Result<()> {
     state.analysis_host.shuffle_crate_graph();
     Ok(())
