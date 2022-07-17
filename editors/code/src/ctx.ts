@@ -2,12 +2,17 @@ import * as vscode from "vscode";
 import * as lc from "vscode-languageclient/node";
 import * as ra from "./lsp_ext";
 
-import { Config } from './config';
-import { createClient } from './client';
-import { isRustEditor, RustEditor } from './util';
-import { ServerStatusParams } from './lsp_ext';
-import { Dependency, DependencyFile, RustDependenciesProvider, DependencyId } from './dependencies_provider';
-import { execRevealDependency } from './commands';
+import { Config } from "./config";
+import { createClient } from "./client";
+import { isRustEditor, RustEditor } from "./util";
+import { ServerStatusParams } from "./lsp_ext";
+import {
+    Dependency,
+    DependencyFile,
+    RustDependenciesProvider,
+    DependencyId,
+} from "./dependencies_provider";
+import { execRevealDependency } from "./commands";
 
 export type Workspace =
     | {
@@ -27,7 +32,7 @@ export class Ctx {
         readonly statusBar: vscode.StatusBarItem,
         readonly dependencies: RustDependenciesProvider,
         readonly treeView: vscode.TreeView<Dependency | DependencyFile | DependencyId>
-    ) { }
+    ) {}
 
     static async create(
         config: Config,
@@ -47,17 +52,25 @@ export class Ctx {
         const rootPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
 
         const dependenciesProvider = new RustDependenciesProvider(rootPath);
-        const treeView = vscode.window.createTreeView('rustDependencies', {
+        const treeView = vscode.window.createTreeView("rustDependencies", {
             treeDataProvider: dependenciesProvider,
-            showCollapseAll: true
+            showCollapseAll: true,
         });
 
-        const res = new Ctx(config, extCtx, client, serverPath, statusBar, dependenciesProvider, treeView);
+        const res = new Ctx(
+            config,
+            extCtx,
+            client,
+            serverPath,
+            statusBar,
+            dependenciesProvider,
+            treeView
+        );
         res.pushCleanup(treeView);
 
-        vscode.window.onDidChangeActiveTextEditor(e => {
+        vscode.window.onDidChangeActiveTextEditor((e) => {
             if (e && isRustEditor(e)) {
-                execRevealDependency(e).catch(reason => {
+                execRevealDependency(e).catch((reason) => {
                     void vscode.window.showErrorMessage(`Dependency error: ${reason}`);
                 });
             }
