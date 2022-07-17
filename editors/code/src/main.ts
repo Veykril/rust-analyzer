@@ -161,7 +161,6 @@ async function initCommonContext(context: vscode.ExtensionContext, ctx: Ctx) {
     ctx.registerCommand("peekTests", commands.peekTests);
     ctx.registerCommand("moveItemUp", commands.moveItemUp);
     ctx.registerCommand("moveItemDown", commands.moveItemDown);
-    ctx.registerCommand("openFile", commands.openFile);
     ctx.registerCommand("revealDependency", commands.revealDependency);
 
     defaultOnEnter.dispose();

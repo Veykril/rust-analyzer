@@ -257,16 +257,6 @@ export function openCargoToml(ctx: Ctx): Cmd {
     };
 }
 
-export function openFile(_ctx: Ctx): Cmd {
-    return async (uri: vscode.Uri) => {
-        try {
-            await vscode.window.showTextDocument(uri);
-        } catch (err) {
-            await vscode.window.showErrorMessage(err.message);
-        }
-    };
-}
-
 export function revealDependency(ctx: Ctx): Cmd {
     return async (editor: RustEditor) => {
         const rootPath = vscode.workspace.workspaceFolders![0].uri.fsPath;
