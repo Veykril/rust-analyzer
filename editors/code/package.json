@@ -248,11 +248,6 @@
                 "category": "rust-analyzer"
             },
             {
-                "command": "rust-analyzer.openFile",
-                "title": "Open File",
-                "category": "rust-analyzer"
-            },
-            {
                 "command": "rust-analyzer.revealDependency",
                 "title": "Reveal File",
                 "category": "rust-analyzer"
