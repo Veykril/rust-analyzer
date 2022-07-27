@@ -806,21 +806,41 @@ impl ast::GenericParamList {
     }
 }
 
-impl ast::HasLoopBody for ast::ForExpr {
-    fn loop_body(&self) -> Option<ast::BlockExpr> {
+impl ast::ForExpr {
+    pub fn iterable(&self) -> Option<ast::Expr> {
+        // If the iterable is a BlockExpr, check if the body is missing.
+        // If it is assume the iterable is the expression that is missing instead.
         let mut exprs = support::children(self.syntax());
         let first = exprs.next();
-        let second = exprs.next();
-        second.or(first)
+        match first {
+            Some(ast::Expr::BlockExpr(_)) => exprs.next().and(first),
+            first => first,
+        }
+    }
+}
+
+impl ast::HasLoopBody for ast::ForExpr {
+    fn loop_body(&self) -> Option<ast::BlockExpr> {
+        support::child(self.syntax())
+    }
+}
+
+impl ast::WhileExpr {
+    pub fn condition(&self) -> Option<ast::Expr> {
+        // If the condition is a BlockExpr, check if the body is missing.
+        // If it is assume the condition is the expression that is missing instead.
+        let mut exprs = support::children(self.syntax());
+        let first = exprs.next();
+        match first {
+            Some(ast::Expr::BlockExpr(_)) => exprs.next().and(first),
+            first => first,
+        }
     }
 }
 
 impl ast::HasLoopBody for ast::WhileExpr {
     fn loop_body(&self) -> Option<ast::BlockExpr> {
-        let mut exprs = support::children(self.syntax());
-        let first = exprs.next();
-        let second = exprs.next();
-        second.or(first)
+        support::child(self.syntax())
     }
 }
 
@@ -833,5 +853,17 @@ impl From<ast::Adt> for ast::Item {
             ast::Adt::Struct(it) => ast::Item::Struct(it),
             ast::Adt::Union(it) => ast::Item::Union(it),
         }
+    }
+}
+
+impl ast::IfExpr {
+    pub fn condition(&self) -> Option<ast::Expr> {
+        support::child(&self.syntax)
+    }
+}
+
+impl ast::MatchGuard {
+    pub fn condition(&self) -> Option<ast::Expr> {
+        support::child(&self.syntax)
     }
 }
