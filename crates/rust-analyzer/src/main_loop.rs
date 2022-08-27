@@ -639,6 +639,8 @@ impl GlobalState {
             .on::<lsp_types::request::Formatting>(handlers::handle_formatting)
             .on::<lsp_types::request::RangeFormatting>(handlers::handle_range_formatting)
             .on::<lsp_types::request::DocumentHighlightRequest>(handlers::handle_document_highlight)
+            .on::<lsp_types::request::DocumentColor>(handlers::handle_document_color)
+            .on::<lsp_types::request::ColorPresentationRequest>(handlers::handle_color_presentation)
             .on::<lsp_types::request::CallHierarchyPrepare>(handlers::handle_call_hierarchy_prepare)
             .on::<lsp_types::request::CallHierarchyIncomingCalls>(
                 handlers::handle_call_hierarchy_incoming,

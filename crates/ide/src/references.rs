@@ -51,11 +51,12 @@ pub struct Declaration {
 //
 // image::https://user-images.githubusercontent.com/48062697/113020670-b7c34f00-917a-11eb-8003-370ac5f2b3cb.gif[]
 pub(crate) fn find_all_refs(
-    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
     position: FilePosition,
     search_scope: Option<SearchScope>,
 ) -> Option<Vec<ReferenceSearchResult>> {
     let _p = profile::span("find_all_refs");
+    let sema = &Semantics::new(db);
     let syntax = sema.parse(position.file_id).syntax().clone();
     let make_searcher = |literal_search: bool| {
         move |def: Definition| {

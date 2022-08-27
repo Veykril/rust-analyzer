@@ -10,7 +10,7 @@ use pulldown_cmark_to_cmark::{cmark_resume_with_options, Options as CMarkOptions
 use stdx::format_to;
 use url::Url;
 
-use hir::{db::HirDatabase, Adt, AsAssocItem, AssocItem, AssocItemContainer, HasAttrs};
+use hir::{db::HirDatabase, Adt, AsAssocItem, AssocItem, AssocItemContainer, HasAttrs, Semantics};
 use ide_db::{
     base_db::{CrateOrigin, LangCrateOrigin, SourceDatabase},
     defs::{Definition, NameClass, NameRefClass},
@@ -26,7 +26,7 @@ use syntax::{
 
 use crate::{
     doc_links::intra_doc_links::{parse_intra_doc_link, strip_prefixes_suffixes},
-    FilePosition, Semantics,
+    FilePosition,
 };
 
 /// Weblink to an item's documentation.

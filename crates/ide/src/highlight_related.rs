@@ -44,11 +44,13 @@ pub struct HighlightRelatedConfig {
 //
 // Note: `?` and `->` do not currently trigger this behavior in the VSCode editor.
 pub(crate) fn highlight_related(
-    sema: &Semantics<'_, RootDatabase>,
+    db: &RootDatabase,
     config: HighlightRelatedConfig,
     FilePosition { offset, file_id }: FilePosition,
 ) -> Option<Vec<HighlightedRange>> {
     let _p = profile::span("highlight_related");
+    let sema = &Semantics::new(db);
+
     let syntax = sema.parse(file_id).syntax().clone();
 
     let token = pick_best_token(syntax.token_at_offset(offset), |kind| match kind {

@@ -27,6 +27,7 @@ mod annotations;
 mod call_hierarchy;
 mod signature_help;
 mod doc_links;
+mod document_color;
 mod highlight_related;
 mod expand_macro;
 mod extend_selection;
@@ -71,7 +72,10 @@ use ide_db::{
 };
 use syntax::SourceFile;
 
-use crate::navigation_target::{ToNav, TryToNav};
+use crate::{
+    document_color::{ColorPresentation, DocumentColor},
+    navigation_target::{ToNav, TryToNav},
+};
 
 pub use crate::{
     annotations::{Annotation, AnnotationConfig, AnnotationKind},
@@ -101,7 +105,6 @@ pub use crate::{
         HighlightConfig, HlRange,
     },
 };
-pub use hir::{Documentation, Semantics};
 pub use ide_assists::{
     Assist, AssistConfig, AssistId, AssistKind, AssistResolveStrategy, SingleResolve,
 };
@@ -426,7 +429,7 @@ impl Analysis {
         position: FilePosition,
         search_scope: Option<SearchScope>,
     ) -> Cancellable<Option<Vec<ReferenceSearchResult>>> {
-        self.with_db(|db| references::find_all_refs(&Semantics::new(db), position, search_scope))
+        self.with_db(|db| references::find_all_refs(db, position, search_scope))
     }
 
     /// Finds all methods and free functions for the file. Does not return tests!
@@ -531,9 +534,21 @@ impl Analysis {
         config: HighlightRelatedConfig,
         position: FilePosition,
     ) -> Cancellable<Option<Vec<HighlightedRange>>> {
-        self.with_db(|db| {
-            highlight_related::highlight_related(&Semantics::new(db), config, position)
-        })
+        self.with_db(|db| highlight_related::highlight_related(db, config, position))
+    }
+
+    /// Computes all ranges to highlight for a given item in a file.
+    pub fn document_colors(&self, file_id: FileId) -> Cancellable<Option<Vec<DocumentColor>>> {
+        self.with_db(|db| document_color::document_color(db, file_id))
+    }
+
+    /// Computes all ranges to highlight for a given item in a file.
+    pub fn color_presentation(
+        &self,
+        pos: FileRange,
+        color: [f32; 4],
+    ) -> Cancellable<Option<Vec<ColorPresentation>>> {
+        self.with_db(|db| document_color::color_presentation(db, pos, color))
     }
 
     /// Computes syntax highlighting for the given file range.

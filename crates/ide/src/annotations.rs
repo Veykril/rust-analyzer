@@ -154,20 +154,19 @@ pub(crate) fn resolve_annotation(db: &RootDatabase, mut annotation: Annotation) 
                     .map(|range| range.info);
         }
         AnnotationKind::HasReferences { file_id, ref mut data } => {
-            *data = find_all_refs(
-                &Semantics::new(db),
-                FilePosition { file_id, offset: annotation.range.start() },
-                None,
-            )
-            .map(|result| {
-                result
-                    .into_iter()
-                    .flat_map(|res| res.references)
-                    .flat_map(|(file_id, access)| {
-                        access.into_iter().map(move |(range, _)| FileRange { file_id, range })
-                    })
-                    .collect()
-            });
+            *data =
+                find_all_refs(db, FilePosition { file_id, offset: annotation.range.start() }, None)
+                    .map(|result| {
+                        result
+                            .into_iter()
+                            .flat_map(|res| res.references)
+                            .flat_map(|(file_id, access)| {
+                                access
+                                    .into_iter()
+                                    .map(move |(range, _)| FileRange { file_id, range })
+                            })
+                            .collect()
+                    });
         }
         _ => {}
     };

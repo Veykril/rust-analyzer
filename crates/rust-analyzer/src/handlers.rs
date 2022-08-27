@@ -1289,6 +1289,58 @@ pub(crate) fn handle_document_highlight(
     Ok(Some(res))
 }
 
+pub(crate) fn handle_document_color(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::DocumentColorParams,
+) -> Result<Vec<lsp_types::ColorInformation>> {
+    let _p = profile::span("handle_document_color");
+    let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
+    let line_index = snap.file_line_index(file_id)?;
+
+    let colors = match snap.analysis.document_colors(file_id)? {
+        None => return Ok(vec![]),
+        Some(colors) => colors,
+    };
+
+    Ok(colors
+        .into_iter()
+        .map(|color| lsp_types::ColorInformation {
+            range: to_proto::range(&line_index, color.range),
+            color: lsp_types::Color {
+                red: color.color[0],
+                green: color.color[1],
+                blue: color.color[2],
+                alpha: color.color[3],
+            },
+        })
+        .collect())
+}
+
+pub(crate) fn handle_color_presentation(
+    snap: GlobalStateSnapshot,
+    params: lsp_types::ColorPresentationParams,
+) -> Result<Vec<lsp_types::ColorPresentation>> {
+    let _p = profile::span("handle_document_color");
+    let pos = from_proto::file_range(&snap, params.text_document, params.range)?;
+
+    let colors = match snap.analysis.color_presentation(
+        pos,
+        [params.color.red, params.color.green, params.color.blue, params.color.alpha],
+    )? {
+        None => return Ok(vec![]),
+        Some(colors) => colors,
+    };
+
+    Ok(colors
+        .into_iter()
+        .map(|it| lsp_types::ColorPresentation {
+            label: it.label,
+            text_edit: None,
+            additional_text_edits: None,
+        })
+        .collect())
+}
+
 pub(crate) fn handle_ssr(
     snap: GlobalStateSnapshot,
     params: lsp_ext::SsrParams,

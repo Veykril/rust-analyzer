@@ -1,7 +1,7 @@
 //! Advertises the capabilities of the LSP Server.
 use lsp_types::{
     CallHierarchyServerCapability, ClientCapabilities, CodeActionKind, CodeActionOptions,
-    CodeActionProviderCapability, CodeLensOptions, CompletionOptions,
+    CodeActionProviderCapability, CodeLensOptions, ColorProviderCapability, CompletionOptions,
     CompletionOptionsCompletionItem, DeclarationCapability, DocumentOnTypeFormattingOptions,
     FileOperationFilter, FileOperationPattern, FileOperationPatternKind,
     FileOperationRegistrationOptions, FoldingRangeProviderCapability, HoverProviderCapability,
@@ -71,7 +71,7 @@ pub fn server_capabilities(config: &Config) -> ServerCapabilities {
         })),
         linked_editing_range_provider: None,
         document_link_provider: None,
-        color_provider: None,
+        color_provider: Some(ColorProviderCapability::Simple(true)),
         execute_command_provider: None,
         workspace: Some(WorkspaceServerCapabilities {
             workspace_folders: None,

@@ -7,10 +7,10 @@ use std::{
 
 use ide::{
     Annotation, AnnotationKind, Assist, AssistKind, Cancellable, CompletionItem,
-    CompletionItemKind, CompletionRelevance, Documentation, FileId, FileRange, FileSystemEdit,
-    Fold, FoldKind, Highlight, HlMod, HlOperator, HlPunct, HlRange, HlTag, Indel, InlayHint,
-    InlayKind, Markup, NavigationTarget, ReferenceCategory, RenameError, Runnable, Severity,
-    SignatureHelp, SourceChange, StructureNodeKind, SymbolKind, TextEdit, TextRange, TextSize,
+    CompletionItemKind, CompletionRelevance, FileId, FileRange, FileSystemEdit, Fold, FoldKind,
+    Highlight, HlMod, HlOperator, HlPunct, HlRange, HlTag, Indel, InlayHint, InlayKind, Markup,
+    NavigationTarget, ReferenceCategory, RenameError, Runnable, Severity, SignatureHelp,
+    SourceChange, StructureNodeKind, SymbolKind, TextEdit, TextRange, TextSize,
 };
 use itertools::Itertools;
 use serde_json::to_value;
@@ -96,7 +96,7 @@ pub(crate) fn diagnostic_severity(severity: Severity) -> lsp_types::DiagnosticSe
     }
 }
 
-pub(crate) fn documentation(documentation: Documentation) -> lsp_types::Documentation {
+pub(crate) fn documentation(documentation: hir::Documentation) -> lsp_types::Documentation {
     let value = crate::markdown::format_docs(documentation.as_str());
     let markup_content = lsp_types::MarkupContent { kind: lsp_types::MarkupKind::Markdown, value };
     lsp_types::Documentation::MarkupContent(markup_content)
