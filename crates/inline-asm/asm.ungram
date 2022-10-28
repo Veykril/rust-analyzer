@@ -1,0 +1,50 @@
+// Rust Asm Un-Grammar.
+//
+// This grammar specifies the structure of Rust's asm! and global_asm! macro inputs.
+// It does not specify parsing rules (ambiguities, precedence, etc are out of scope).
+// Tokens are processed
+//
+// Legend:
+//
+//   //          -- comment
+//   Name =      -- non-terminal definition
+//   'ident'     -- token (terminal)
+//   A B         -- sequence
+//   A | B       -- alternation
+//   A*          -- zero or more repetition
+//   A?          -- zero or one repetition
+//   (A)         -- same as A
+//   label:A     -- suggested name for field of AST node
+
+Asm =
+  FormatString (',' FormatString)* (',' ('<ident>' '=')? Operand)* (',' ClobberAbi)* (',' Options)* ','? ')'
+
+GlobalAsm =
+  FormatString (',' FormatString)* (',' ('<ident>' '=')? Operand)*  (',' Options)* ','? ')'
+
+FormatString =
+  '<string>' | '<raw_string>'
+
+DirSpec =
+  'in' | 'out' | 'lateout' | 'inout' | 'inlateout'
+
+RegSpec =
+  '<register_class>' | '"' '<explicit_register>' '"'
+
+OperandExpr =
+  Expr | '_' | Expr '=>' Expr | Expr '=>' '_'
+
+RegOperand =
+  DirSpec '(' RegSpec ')' OperandExpr
+
+Operand =
+  RegOperand
+
+ClobberAbi =
+  'clobber_abi' '(' ('<abi>' (',' '<abi>')* ','?)? ')'
+
+Option =
+  'pure' | 'nomem' | 'readonly' | 'preserves_flags' | 'noreturn' | 'nostack' | 'att_syntax' | 'raw'
+
+Options =
+  'options' '(' (Option (',' Option)* ','?)? ')'
