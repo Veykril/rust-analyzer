@@ -23,6 +23,8 @@ impl From<proc_macro::bridge::PanicMessage> for PanicMessage {
     }
 }
 
+pub struct SyntaxContext(u32);
+
 impl Abi {
     pub unsafe fn from_lib(lib: &Library, symbol_name: String) -> Result<Abi, libloading::Error> {
         let macros: libloading::Symbol<'_, &&[proc_macro::bridge::client::ProcMacro]> =
@@ -42,6 +44,16 @@ impl Abi {
             ra_server::TokenStream::with_subtree(attr.clone())
         });
 
+        let mk_server = || ra_server::RustAnalyzer {
+            token_id_c: 0,
+            span_data: vec![(), (), ()],
+            call_site: SyntaxContext(0),
+            mixed_site: SyntaxContext(1),
+            def_site: SyntaxContext(2),
+            tracked_env: Default::default(),
+            tracked_path: Default::default(),
+        };
+
         for proc_macro in &self.exported_macros {
             match proc_macro {
                 proc_macro::bridge::client::ProcMacro::CustomDerive {
@@ -49,7 +61,7 @@ impl Abi {
                 } if *trait_name == macro_name => {
                     let res = client.run(
                         &proc_macro::bridge::server::SameThread,
-                        ra_server::RustAnalyzer::default(),
+                        mk_server(),
                         parsed_body,
                         true,
                     );
@@ -60,7 +72,7 @@ impl Abi {
                 {
                     let res = client.run(
                         &proc_macro::bridge::server::SameThread,
-                        ra_server::RustAnalyzer::default(),
+                        mk_server(),
                         parsed_body,
                         true,
                     );
@@ -71,7 +83,7 @@ impl Abi {
                 {
                     let res = client.run(
                         &proc_macro::bridge::server::SameThread,
-                        ra_server::RustAnalyzer::default(),
+                        mk_server(),
                         parsed_attributes,
                         parsed_body,
                         true,

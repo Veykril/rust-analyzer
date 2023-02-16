@@ -9,14 +9,11 @@ use syntax::{
     SyntaxNode, SyntaxToken, SyntaxTreeBuilder, TextRange, TextSize, WalkEvent, T,
 };
 
-use crate::{
-    to_parser_input::to_parser_input,
-    tt::{
-        self,
-        buffer::{Cursor, TokenBuffer},
-    },
-    tt_iter::TtIter,
-    TokenMap,
+use crate::{to_parser_input::to_parser_input, tt_iter::TtIter, TokenMap};
+use tt::{
+    self,
+    buffer::{Cursor, TokenBuffer},
+    TokenId,
 };
 
 #[cfg(test)]
@@ -24,7 +21,7 @@ mod tests;
 
 /// Convert the syntax node to a `TokenTree` (what macro
 /// will consume).
-pub fn syntax_node_to_token_tree(node: &SyntaxNode) -> (tt::Subtree, TokenMap) {
+pub fn syntax_node_to_token_tree(node: &SyntaxNode) -> tt::Subtree<TokenId> {
     let (subtree, token_map, _) = syntax_node_to_token_tree_with_modifications(
         node,
         Default::default(),
@@ -32,7 +29,7 @@ pub fn syntax_node_to_token_tree(node: &SyntaxNode) -> (tt::Subtree, TokenMap) {
         Default::default(),
         Default::default(),
     );
-    (subtree, token_map)
+    subtree
 }
 
 /// Convert the syntax node to a `TokenTree` (what macro will consume)
@@ -43,7 +40,7 @@ pub fn syntax_node_to_token_tree_with_modifications(
     next_id: u32,
     replace: FxHashMap<SyntaxElement, Vec<SyntheticToken>>,
     append: FxHashMap<SyntaxElement, Vec<SyntheticToken>>,
-) -> (tt::Subtree, TokenMap, u32) {
+) -> (tt::Subtree<TokenId>, TokenMap, u32) {
     let global_offset = node.text_range().start();
     let mut c = Converter::new(node, global_offset, existing_token_map, next_id, replace, append);
     let subtree = convert_tokens(&mut c);
@@ -64,6 +61,11 @@ pub struct SyntheticToken {
     pub id: SyntheticTokenId,
 }
 
+#[derive(Default)]
+pub struct SpanMap<Span> {
+    map: FxHashMap<TextRange, Span>,
+}
+
 // The following items are what `rustc` macro can be parsed into :
 // link: https://github.com/rust-lang/rust/blob/9ebf47851a357faa4cd97f4b1dc7835f6376e639/src/libsyntax/ext/expand.rs#L141
 // * Expr(P<ast::Expr>)                     -> token_tree_to_expr
@@ -76,10 +78,10 @@ pub struct SyntheticToken {
 // * AssocItems(SmallVec<[ast::AssocItem; 1]>)
 // * ForeignItems(SmallVec<[ast::ForeignItem; 1]>
 
-pub fn token_tree_to_syntax_node(
-    tt: &tt::Subtree,
+pub fn token_tree_to_syntax_node<Span>(
+    tt: &tt::Subtree<Span>,
     entry_point: parser::TopEntryPoint,
-) -> (Parse<SyntaxNode>, TokenMap) {
+) -> (Parse<SyntaxNode>, SpanMap<Span>) {
     let buffer = match tt {
         tt::Subtree {
             delimiter: tt::Delimiter { kind: tt::DelimiterKind::Invisible, .. },
@@ -107,7 +109,7 @@ pub fn token_tree_to_syntax_node(
 }
 
 /// Convert a string to a `TokenTree`
-pub fn parse_to_token_tree(text: &str) -> Option<(tt::Subtree, TokenMap)> {
+pub fn parse_to_token_tree(text: &str) -> Option<(tt::Subtree<TokenId>, TokenMap)> {
     let lexed = parser::LexedStr::new(text);
     if lexed.errors().next().is_some() {
         return None;
@@ -128,7 +130,10 @@ pub fn parse_to_token_tree(text: &str) -> Option<(tt::Subtree, TokenMap)> {
 }
 
 /// Split token tree with separate expr: $($e:expr)SEP*
-pub fn parse_exprs_with_sep(tt: &tt::Subtree, sep: char) -> Vec<tt::Subtree> {
+pub fn parse_exprs_with_sep<Span: Clone + Default>(
+    tt: &tt::Subtree<Span>,
+    sep: char,
+) -> Vec<tt::Subtree<Span>> {
     if tt.token_trees.is_empty() {
         return Vec::new();
     }
@@ -142,7 +147,7 @@ pub fn parse_exprs_with_sep(tt: &tt::Subtree, sep: char) -> Vec<tt::Subtree> {
         res.push(match expanded.value {
             None => break,
             Some(tt @ tt::TokenTree::Leaf(_)) => {
-                tt::Subtree { delimiter: tt::Delimiter::unspecified(), token_trees: vec![tt] }
+                tt::Subtree { delimiter: tt::Delimiter::default(), token_trees: vec![tt] }
             }
             Some(tt::TokenTree::Subtree(tt)) => tt,
         });
@@ -156,7 +161,7 @@ pub fn parse_exprs_with_sep(tt: &tt::Subtree, sep: char) -> Vec<tt::Subtree> {
 
     if iter.peek_n(0).is_some() {
         res.push(tt::Subtree {
-            delimiter: tt::Delimiter::unspecified(),
+            delimiter: tt::Delimiter::default(),
             token_trees: iter.cloned().collect(),
         });
     }
@@ -164,15 +169,15 @@ pub fn parse_exprs_with_sep(tt: &tt::Subtree, sep: char) -> Vec<tt::Subtree> {
     res
 }
 
-fn convert_tokens<C: TokenConverter>(conv: &mut C) -> tt::Subtree {
-    struct StackEntry {
-        subtree: tt::Subtree,
+fn convert_tokens<C: TokenConverter, Span: Clone + Default>(conv: &mut C) -> tt::Subtree<Span> {
+    struct StackEntry<Span> {
+        subtree: tt::Subtree<Span>,
         idx: usize,
         open_range: TextRange,
     }
 
     let entry = StackEntry {
-        subtree: tt::Subtree { delimiter: tt::Delimiter::unspecified(), token_trees: vec![] },
+        subtree: tt::Subtree { delimiter: tt::Delimiter::default(), token_trees: vec![] },
         // never used (delimiter is `None`)
         idx: !0,
         open_range: TextRange::empty(TextSize::of('.')),
@@ -239,7 +244,7 @@ fn convert_tokens<C: TokenConverter>(conv: &mut C) -> tt::Subtree {
             if let Some(kind) = delim {
                 let (id, idx) = conv.id_alloc().open_delim(range, synth_id);
                 let subtree = tt::Subtree {
-                    delimiter: tt::Delimiter { open: id, close: tt::TokenId::UNSPECIFIED, kind },
+                    delimiter: tt::Delimiter { open: id, close: Span::default(), kind },
                     token_trees: vec![],
                 };
                 stack.push(StackEntry { subtree, idx, open_range: range });
@@ -759,30 +764,30 @@ impl TokenConverter for Converter {
     }
 }
 
-struct TtTreeSink<'a> {
+struct TtTreeSink<'a, Span> {
     buf: String,
-    cursor: Cursor<'a>,
+    cursor: Cursor<'a, Span>,
     open_delims: FxHashMap<tt::TokenId, TextSize>,
     text_pos: TextSize,
     inner: SyntaxTreeBuilder,
-    token_map: TokenMap,
+    span_map: TokenMap,
 }
 
-impl<'a> TtTreeSink<'a> {
-    fn new(cursor: Cursor<'a>) -> Self {
+impl<'a, Span> TtTreeSink<'a, Span> {
+    fn new(cursor: Cursor<'a, Span>) -> Self {
         TtTreeSink {
             buf: String::new(),
             cursor,
             open_delims: FxHashMap::default(),
             text_pos: 0.into(),
             inner: SyntaxTreeBuilder::default(),
-            token_map: TokenMap::default(),
+            span_map: SpanMap::default(),
         }
     }
 
-    fn finish(mut self) -> (Parse<SyntaxNode>, TokenMap) {
-        self.token_map.shrink_to_fit();
-        (self.inner.finish(), self.token_map)
+    fn finish(mut self) -> (Parse<SyntaxNode>, SpanMap<Span>) {
+        self.span_map.shrink_to_fit();
+        (self.inner.finish(), self.span_map)
     }
 }
 
@@ -798,7 +803,7 @@ fn delim_to_str(d: tt::DelimiterKind, closing: bool) -> Option<&'static str> {
     Some(&texts[idx..texts.len() - (1 - idx)])
 }
 
-impl<'a> TtTreeSink<'a> {
+impl<'a, Span> TtTreeSink<'a, Span> {
     /// Parses a float literal as if it was a one to two name ref nodes with a dot inbetween.
     /// This occurs when a float literal is used as a field access.
     fn float_split(&mut self, has_pseudo_dot: bool) {
@@ -852,7 +857,7 @@ impl<'a> TtTreeSink<'a> {
                 break match self.cursor.token_tree() {
                     Some(tt::buffer::TokenTreeRef::Leaf(leaf, _)) => {
                         // Mark the range if needed
-                        let (text, id) = match leaf {
+                        let (text, span) = match leaf {
                             tt::Leaf::Ident(ident) => (ident.text.as_str(), ident.span),
                             tt::Leaf::Punct(punct) => {
                                 assert!(punct.char.is_ascii());
@@ -865,7 +870,7 @@ impl<'a> TtTreeSink<'a> {
                             tt::Leaf::Literal(lit) => (lit.text.as_str(), lit.span),
                         };
                         let range = TextRange::at(self.text_pos, TextSize::of(text));
-                        self.token_map.insert(id, range);
+                        self.span_map.insert(range, span);
                         self.cursor = self.cursor.bump();
                         text
                     }
@@ -890,7 +895,7 @@ impl<'a> TtTreeSink<'a> {
                                     let open_range = TextRange::at(*open_delim, TextSize::of('('));
                                     let close_range =
                                         TextRange::at(self.text_pos, TextSize::of('('));
-                                    self.token_map.insert_delim(
+                                    self.span_map.insert_delim(
                                         parent.delimiter.open,
                                         open_range,
                                         close_range,

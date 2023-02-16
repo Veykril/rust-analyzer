@@ -7,7 +7,6 @@ use std::sync::Arc;
 use base_db::CrateId;
 use db::TokenExpander;
 use either::Either;
-use mbe::Origin;
 use syntax::{
     ast::{self, HasDocComments},
     AstNode, SyntaxKind, SyntaxNode, TextRange, TextSize,
@@ -15,9 +14,8 @@ use syntax::{
 
 use crate::{
     db::{self, AstDatabase},
-    fixup,
     name::{AsName, Name},
-    HirFileId, InFile, MacroCallKind, MacroCallLoc, MacroDefKind, MacroFile,
+    HirFileId, InFile, MacroCallKind, MacroCallLoc, MacroDefKind, MacroFile, SpanMap,
 };
 
 #[derive(Clone, Debug)]
@@ -94,30 +92,31 @@ impl HygieneFrames {
     }
 
     fn root_crate(&self, db: &dyn AstDatabase, node: &SyntaxNode) -> Option<CrateId> {
-        let mut token = node.first_token()?.text_range();
-        let mut result = self.0.krate;
-        let mut current = self.0.clone();
+        // let mut token = node.first_token()?.text_range();
+        // let mut result = self.0.krate;
+        // let mut current = self.0.clone();
 
-        while let Some((mapped, origin)) =
-            current.expansion.as_ref().and_then(|it| it.map_ident_up(db, token))
-        {
-            result = current.krate;
+        // while let Some((mapped, origin)) =
+        //     current.expansion.as_ref().and_then(|it| it.map_ident_up(db, token))
+        // {
+        //     result = current.krate;
 
-            let site = match origin {
-                Origin::Def => &current.def_site,
-                Origin::Call => &current.call_site,
-            };
+        //     let site = match origin {
+        //         Origin::Def => &current.def_site,
+        //         Origin::Call => &current.call_site,
+        //     };
 
-            let site = match site {
-                None => break,
-                Some(it) => it,
-            };
+        //     let site = match site {
+        //         None => break,
+        //         Some(it) => it,
+        //     };
 
-            current = site.clone();
-            token = mapped.value;
-        }
+        //     current = site.clone();
+        //     token = mapped.value;
+        // }
 
-        result
+        // result
+        None
     }
 }
 
@@ -128,49 +127,45 @@ struct HygieneInfo {
     attr_input_or_mac_def_start: Option<InFile<TextSize>>,
 
     macro_def: Arc<TokenExpander>,
-    macro_arg: Arc<(crate::tt::Subtree, mbe::TokenMap, fixup::SyntaxFixupUndoInfo)>,
-    macro_arg_shift: mbe::Shift,
-    exp_map: Arc<mbe::TokenMap>,
+    macro_arg: Arc<crate::tt::Subtree>,
+    exp_map: Arc<SpanMap>,
 }
 
 impl HygieneInfo {
-    fn map_ident_up(
-        &self,
-        db: &dyn AstDatabase,
-        token: TextRange,
-    ) -> Option<(InFile<TextRange>, Origin)> {
-        let token_id = self.exp_map.token_by_range(token)?;
-        let (mut token_id, origin) = self.macro_def.map_id_up(token_id);
+    fn map_ident_up(&self, db: &dyn AstDatabase, token: TextRange) -> Option<InFile<TextRange>> {
+        // let token_id = self.exp_map.token_by_range(token)?;
+        // let (mut token_id, origin) = self.macro_def.map_id_up(token_id);
 
-        let loc = db.lookup_intern_macro_call(self.file.macro_call_id);
+        // let loc = db.lookup_intern_macro_call(self.file.macro_call_id);
 
-        let (token_map, tt) = match &loc.kind {
-            MacroCallKind::Attr { attr_args, .. } => match self.macro_arg_shift.unshift(token_id) {
-                Some(unshifted) => {
-                    token_id = unshifted;
-                    (&attr_args.1, self.attr_input_or_mac_def_start?)
-                }
-                None => (
-                    &self.macro_arg.1,
-                    InFile::new(loc.kind.file_id(), loc.kind.arg(db)?.text_range().start()),
-                ),
-            },
-            _ => match origin {
-                mbe::Origin::Call => (
-                    &self.macro_arg.1,
-                    InFile::new(loc.kind.file_id(), loc.kind.arg(db)?.text_range().start()),
-                ),
-                mbe::Origin::Def => match (&*self.macro_def, &self.attr_input_or_mac_def_start) {
-                    (TokenExpander::DeclarativeMacro { def_site_token_map, .. }, Some(tt)) => {
-                        (def_site_token_map, *tt)
-                    }
-                    _ => panic!("`Origin::Def` used with non-`macro_rules!` macro"),
-                },
-            },
-        };
+        // let (token_map, tt) = match &loc.kind {
+        //     MacroCallKind::Attr { attr_args, .. } => match self.macro_arg_shift.unshift(token_id) {
+        //         Some(unshifted) => {
+        //             token_id = unshifted;
+        //             (&attr_args.1, self.attr_input_or_mac_def_start?)
+        //         }
+        //         None => (
+        //             &self.macro_arg.1,
+        //             InFile::new(loc.kind.file_id(), loc.kind.arg(db)?.text_range().start()),
+        //         ),
+        //     },
+        //     _ => match origin {
+        //         mbe::Origin::Call => (
+        //             &self.macro_arg.1,
+        //             InFile::new(loc.kind.file_id(), loc.kind.arg(db)?.text_range().start()),
+        //         ),
+        //         mbe::Origin::Def => match (&*self.macro_def, &self.attr_input_or_mac_def_start) {
+        //             (TokenExpander::DeclarativeMacro { def_site_token_map, .. }, Some(tt)) => {
+        //                 (def_site_token_map, *tt)
+        //             }
+        //             _ => panic!("`Origin::Def` used with non-`macro_rules!` macro"),
+        //         },
+        //     },
+        // };
 
-        let range = token_map.first_range_by_token(token_id, SyntaxKind::IDENT)?;
-        Some((tt.with_value(range + tt.value), origin))
+        // let range = token_map.first_range_by_token(token_id, SyntaxKind::IDENT)?;
+        // Some((tt.with_value(range + tt.value), origin))
+        None
     }
 }
 
@@ -207,7 +202,6 @@ fn make_hygiene_info(
         file: macro_file,
         attr_input_or_mac_def_start: attr_input_or_mac_def
             .map(|it| it.map(|tt| tt.syntax().text_range().start())),
-        macro_arg_shift: mbe::Shift::new(&macro_arg.0),
         macro_arg,
         macro_def,
         exp_map,

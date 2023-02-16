@@ -34,4 +34,5 @@ expect-test = "1.4.0"
 proc-macro-test.workspace = true
 
 [features]
+default = ["sysroot-abi"]
 sysroot-abi = []

@@ -107,7 +107,6 @@ impl_from!(Literal<Span>, Punct<Span>, Ident<Span> for Leaf);
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct Subtree<Span> {
-    // FIXME, this should not be Option
     pub delimiter: Delimiter<Span>,
     pub token_trees: Vec<TokenTree<Span>>,
 }
@@ -117,6 +116,12 @@ pub struct Delimiter<Span> {
     pub open: Span,
     pub close: Span,
     pub kind: DelimiterKind,
+}
+
+impl<Span: Default> Default for Delimiter<Span> {
+    fn default() -> Self {
+        Self { open: Default::default(), close: Default::default(), kind: DelimiterKind::Invisible }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -146,8 +151,8 @@ pub enum Spacing {
     Joint,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 /// Identifier or keyword. Unlike rustc, we keep "r#" prefix when it represents a raw identifier.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ident<Span> {
     pub text: SmolStr,
     pub span: Span,

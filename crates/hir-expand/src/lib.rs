@@ -18,9 +18,10 @@ pub mod quote;
 pub mod eager;
 pub mod mod_path;
 pub mod attrs;
-mod fixup;
+// mod fixup;
 
-pub use mbe::{Origin, ValueResult};
+pub use mbe::ValueResult;
+use rustc_hash::FxHashMap;
 
 use ::tt::token_id as tt;
 
@@ -35,7 +36,7 @@ use either::Either;
 use syntax::{
     algo::{self, skip_trivia_token},
     ast::{self, AstNode, HasDocComments},
-    Direction, SyntaxNode, SyntaxToken,
+    Direction, SyntaxNode, SyntaxToken, TextRange,
 };
 
 use crate::{
@@ -76,6 +77,12 @@ impl fmt::Display for ExpandError {
             ExpandError::Other(it) => f.write_str(it),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+pub struct HirFileRange {
+    pub file_id: HirFileId,
+    pub range: TextRange,
 }
 
 /// Input to the analyzer is a set of files, where each file is identified by
@@ -160,7 +167,7 @@ pub enum MacroCallKind {
     },
     Attr {
         ast_id: AstId<ast::Item>,
-        attr_args: Arc<(tt::Subtree, mbe::TokenMap)>,
+        attr_args: Arc<tt::Subtree>,
         /// Syntactical index of the invoking `#[attribute]`.
         ///
         /// Outer attributes are counted first, then inner attributes. This does not support
@@ -255,7 +262,7 @@ impl HirFileId {
         let arg_tt = loc.kind.arg(db)?;
 
         let macro_def = db.macro_def(loc.def).ok()?;
-        let (parse, exp_map) = db.parse_macro_expansion(macro_file).value?;
+        let (parse, span_map) = db.parse_macro_expansion(macro_file).value?;
         let macro_arg = db.macro_arg(macro_file.macro_call_id)?;
 
         let def = loc.def.ast_id().left().and_then(|id| {
@@ -284,12 +291,9 @@ impl HirFileId {
 
         Some(ExpansionInfo {
             expanded: InFile::new(self, parse.syntax_node()),
-            arg: InFile::new(loc.kind.file_id(), arg_tt),
-            attr_input_or_mac_def,
-            macro_arg_shift: mbe::Shift::new(&macro_arg.0),
-            macro_arg,
-            macro_def,
-            exp_map,
+            arg_or_item: InFile::new(loc.kind.file_id(), arg_tt),
+            mac_def_or_attr_arg: attr_input_or_mac_def,
+            exp_map: span_map,
         })
     }
 
@@ -558,18 +562,44 @@ impl MacroCallId {
 /// ExpansionInfo mainly describes how to map text range between src and expanded macro
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpansionInfo {
+    /// The syntax tree of the expansion.
     expanded: InFile<SyntaxNode>,
     /// The argument TokenTree or item for attributes
-    arg: InFile<SyntaxNode>,
+    arg_or_item: InFile<SyntaxNode>,
     /// The `macro_rules!` or attribute input.
-    attr_input_or_mac_def: Option<InFile<ast::TokenTree>>,
+    mac_def_or_attr_arg: Option<InFile<ast::TokenTree>>,
 
-    macro_def: Arc<TokenExpander>,
-    macro_arg: Arc<(tt::Subtree, mbe::TokenMap, fixup::SyntaxFixupUndoInfo)>,
-    /// A shift built from `macro_arg`'s subtree, relevant for attributes as the item is the macro arg
-    /// and as such we need to shift tokens if they are part of an attributes input instead of their item.
-    macro_arg_shift: mbe::Shift,
-    exp_map: Arc<mbe::TokenMap>,
+    // things needed for mapping token ids
+    exp_map: Arc<SpanMap>,
+}
+
+struct SpanData {
+    file_id: HirFileId,
+    range: TextRange,
+}
+
+impl SpanMap {
+    fn span_data_for(&self, range: TextRange) -> Option<&SpanData> {
+        // technically infallible assuming range is the range of a token
+        self.map.get(&range)
+    }
+
+    /// Fetches all the ranges that map up to a range containing the given range.
+    /// The returned text ranges belong to the expansion site.
+    fn input_ranges_for(
+        &self,
+        range: TextRange,
+        file_id: HirFileId,
+    ) -> impl Iterator<Item = TextRange> {
+        self.map
+            .iter()
+            .filter(|(r, data)| data.file_id == file_id && r.contains_range(range))
+            .map(|(r, _)| *r)
+    }
+}
+#[derive(Hash, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SpanMap {
+    map: FxHashMap<TextRange, SpanData>,
 }
 
 impl ExpansionInfo {
@@ -578,7 +608,7 @@ impl ExpansionInfo {
     }
 
     pub fn call_node(&self) -> Option<InFile<SyntaxNode>> {
-        Some(self.arg.with_value(self.arg.value.parent()?))
+        Some(self.arg_or_item.with_value(self.arg_or_item.value.parent()?))
     }
 
     /// Map a token down from macro input into the macro expansion.
@@ -601,64 +631,12 @@ impl ExpansionInfo {
         item: Option<ast::Item>,
         token: InFile<&SyntaxToken>,
     ) -> Option<impl Iterator<Item = InFile<SyntaxToken>> + '_> {
-        assert_eq!(token.file_id, self.arg.file_id);
-        let token_id_in_attr_input = if let Some(item) = item {
-            // check if we are mapping down in an attribute input
-            // this is a special case as attributes can have two inputs
-            let call_id = self.expanded.file_id.macro_file()?.macro_call_id;
-            let loc = db.lookup_intern_macro_call(call_id);
-
-            let token_range = token.value.text_range();
-            match &loc.kind {
-                MacroCallKind::Attr { attr_args, invoc_attr_index, is_derive, .. } => {
-                    // FIXME: handle `cfg_attr`
-                    let attr = item
-                        .doc_comments_and_attrs()
-                        .nth(invoc_attr_index.ast_index())
-                        .and_then(Either::left)?;
-                    match attr.token_tree() {
-                        Some(token_tree)
-                            if token_tree.syntax().text_range().contains_range(token_range) =>
-                        {
-                            let attr_input_start =
-                                token_tree.left_delimiter_token()?.text_range().start();
-                            let relative_range =
-                                token.value.text_range().checked_sub(attr_input_start)?;
-                            // shift by the item's tree's max id
-                            let token_id = attr_args.1.token_by_range(relative_range)?;
-                            let token_id = if *is_derive {
-                                // we do not shift for `#[derive]`, as we only need to downmap the derive attribute tokens
-                                token_id
-                            } else {
-                                self.macro_arg_shift.shift(token_id)
-                            };
-                            Some(token_id)
-                        }
-                        _ => None,
-                    }
-                }
-                _ => None,
-            }
-        } else {
-            None
-        };
-
-        let token_id = match token_id_in_attr_input {
-            Some(token_id) => token_id,
-            // the token is not inside an attribute's input so do the lookup in the macro_arg as usual
-            None => {
-                let relative_range =
-                    token.value.text_range().checked_sub(self.arg.value.text_range().start())?;
-                let token_id = self.macro_arg.1.token_by_range(relative_range)?;
-                // conditionally shift the id by a declaratives macro definition
-                self.macro_def.map_id_down(token_id)
-            }
-        };
-
+        assert_eq!(token.file_id, self.arg_or_item.file_id);
+        // note this won't find spans from other expansions mapping to this span, would be nice to fix though...
         let tokens = self
             .exp_map
-            .ranges_by_token(token_id, token.value.kind())
-            .flat_map(move |range| self.expanded.value.covering_element(range).into_token());
+            .input_ranges_for(token.value.text_range(), token.file_id)
+            .filter_map(move |range| self.expanded.value.covering_element(range).into_token());
 
         Some(tokens.map(move |token| self.expanded.with_value(token)))
     }
@@ -668,46 +646,15 @@ impl ExpansionInfo {
         &self,
         db: &dyn db::AstDatabase,
         token: InFile<&SyntaxToken>,
-    ) -> Option<(InFile<SyntaxToken>, Origin)> {
-        // Fetch the id through its text range,
-        let token_id = self.exp_map.token_by_range(token.value.text_range())?;
-        // conditionally unshifting the id to accommodate for macro-rules def site
-        let (mut token_id, origin) = self.macro_def.map_id_up(token_id);
-
-        let call_id = self.expanded.file_id.macro_file()?.macro_call_id;
-        let loc = db.lookup_intern_macro_call(call_id);
-
-        // Attributes are a bit special for us, they have two inputs, the input tokentree and the annotated item.
-        let (token_map, tt) = match &loc.kind {
-            MacroCallKind::Attr { attr_args, is_derive: true, .. } => {
-                (&attr_args.1, self.attr_input_or_mac_def.clone()?.syntax().cloned())
-            }
-            MacroCallKind::Attr { attr_args, .. } => {
-                // try unshifting the the token id, if unshifting fails, the token resides in the non-item attribute input
-                // note that the `TokenExpander::map_id_up` earlier only unshifts for declarative macros, so we don't double unshift with this
-                match self.macro_arg_shift.unshift(token_id) {
-                    Some(unshifted) => {
-                        token_id = unshifted;
-                        (&attr_args.1, self.attr_input_or_mac_def.clone()?.syntax().cloned())
-                    }
-                    None => (&self.macro_arg.1, self.arg.clone()),
-                }
-            }
-            _ => match origin {
-                mbe::Origin::Call => (&self.macro_arg.1, self.arg.clone()),
-                mbe::Origin::Def => match (&*self.macro_def, &self.attr_input_or_mac_def) {
-                    (TokenExpander::DeclarativeMacro { def_site_token_map, .. }, Some(tt)) => {
-                        (def_site_token_map, tt.syntax().cloned())
-                    }
-                    _ => panic!("`Origin::Def` used with non-`macro_rules!` macro"),
-                },
-            },
-        };
-
-        let range = token_map.first_range_by_token(token_id, token.value.kind())?;
-        let token =
-            tt.value.covering_element(range + tt.value.text_range().start()).into_token()?;
-        Some((tt.with_value(token), origin))
+    ) -> Option<InFile<SyntaxToken>> {
+        assert_eq!(token.file_id, self.expanded.file_id);
+        let data: &SpanData = self.exp_map.span_data_for(token.value.text_range())?;
+        let range = data.range;
+        let file_id = data.file_id;
+        Some(InFile::new(
+            file_id,
+            db.parse_or_expand(file_id)?.covering_element(range).into_token()?,
+        ))
     }
 }
 
@@ -939,10 +886,10 @@ fn ascend_call_token(
     token: InFile<SyntaxToken>,
 ) -> Option<InFile<SyntaxToken>> {
     let mut mapping = expansion.map_token_up(db, token.as_ref())?;
-    while let (mapped, Origin::Call) = mapping {
-        match mapped.file_id.expansion_info(db) {
-            Some(info) => mapping = info.map_token_up(db, mapped.as_ref())?,
-            None => return Some(mapped),
+    loop {
+        match mapping.file_id.expansion_info(db) {
+            Some(info) => mapping = info.map_token_up(db, mapping.as_ref())?,
+            None => return Some(mapping),
         }
     }
     None

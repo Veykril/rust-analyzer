@@ -4,15 +4,15 @@
 use smallvec::{smallvec, SmallVec};
 use syntax::SyntaxKind;
 
-use crate::{to_parser_input::to_parser_input, tt, ExpandError, ExpandResult};
+use crate::{to_parser_input::to_parser_input, ExpandError, ExpandResult};
 
 #[derive(Debug, Clone)]
-pub(crate) struct TtIter<'a> {
-    pub(crate) inner: std::slice::Iter<'a, tt::TokenTree>,
+pub(crate) struct TtIter<'a, Span> {
+    pub(crate) inner: std::slice::Iter<'a, tt::TokenTree<Span>>,
 }
 
-impl<'a> TtIter<'a> {
-    pub(crate) fn new(subtree: &'a tt::Subtree) -> TtIter<'a> {
+impl<'a, Span: Clone + Default> TtIter<'a, Span> {
+    pub(crate) fn new(subtree: &'a tt::Subtree<Span>) -> TtIter<'a, Span> {
         TtIter { inner: subtree.token_trees.iter() }
     }
 
@@ -36,35 +36,35 @@ impl<'a> TtIter<'a> {
         }
     }
 
-    pub(crate) fn expect_subtree(&mut self) -> Result<&'a tt::Subtree, ()> {
+    pub(crate) fn expect_subtree(&mut self) -> Result<&'a tt::Subtree<Span>, ()> {
         match self.next() {
             Some(tt::TokenTree::Subtree(it)) => Ok(it),
             _ => Err(()),
         }
     }
 
-    pub(crate) fn expect_leaf(&mut self) -> Result<&'a tt::Leaf, ()> {
+    pub(crate) fn expect_leaf(&mut self) -> Result<&'a tt::Leaf<Span>, ()> {
         match self.next() {
             Some(tt::TokenTree::Leaf(it)) => Ok(it),
             _ => Err(()),
         }
     }
 
-    pub(crate) fn expect_ident(&mut self) -> Result<&'a tt::Ident, ()> {
+    pub(crate) fn expect_ident(&mut self) -> Result<&'a tt::Ident<Span>, ()> {
         match self.expect_leaf()? {
             tt::Leaf::Ident(it) if it.text != "_" => Ok(it),
             _ => Err(()),
         }
     }
 
-    pub(crate) fn expect_ident_or_underscore(&mut self) -> Result<&'a tt::Ident, ()> {
+    pub(crate) fn expect_ident_or_underscore(&mut self) -> Result<&'a tt::Ident<Span>, ()> {
         match self.expect_leaf()? {
             tt::Leaf::Ident(it) => Ok(it),
             _ => Err(()),
         }
     }
 
-    pub(crate) fn expect_literal(&mut self) -> Result<&'a tt::Leaf, ()> {
+    pub(crate) fn expect_literal(&mut self) -> Result<&'a tt::Leaf<Span>, ()> {
         let it = self.expect_leaf()?;
         match it {
             tt::Leaf::Literal(_) => Ok(it),
@@ -80,7 +80,7 @@ impl<'a> TtIter<'a> {
         }
     }
 
-    pub(crate) fn expect_single_punct(&mut self) -> Result<&'a tt::Punct, ()> {
+    pub(crate) fn expect_single_punct(&mut self) -> Result<&'a tt::Punct<Span>, ()> {
         match self.expect_leaf()? {
             tt::Leaf::Punct(it) => Ok(it),
             _ => Err(()),
@@ -91,7 +91,7 @@ impl<'a> TtIter<'a> {
     ///
     /// This method currently may return a single quotation, which is part of lifetime ident and
     /// conceptually not a punct in the context of mbe. Callers should handle this.
-    pub(crate) fn expect_glued_punct(&mut self) -> Result<SmallVec<[tt::Punct; 3]>, ()> {
+    pub(crate) fn expect_glued_punct(&mut self) -> Result<SmallVec<[tt::Punct<Span>; 3]>, ()> {
         let tt::TokenTree::Leaf(tt::Leaf::Punct(first)) = self.next().ok_or(())?.clone() else {
             return Err(());
         };
@@ -133,7 +133,7 @@ impl<'a> TtIter<'a> {
     pub(crate) fn expect_fragment(
         &mut self,
         entry_point: parser::PrefixEntryPoint,
-    ) -> ExpandResult<Option<tt::TokenTree>> {
+    ) -> ExpandResult<Option<tt::TokenTree<Span>>> {
         let buffer = tt::buffer::TokenBuffer::from_tokens(self.inner.as_slice());
         let parser_input = to_parser_input(&buffer);
         let tree_traversal = entry_point.parse(&parser_input);
@@ -181,20 +181,20 @@ impl<'a> TtIter<'a> {
         let res = match res.len() {
             0 | 1 => res.pop(),
             _ => Some(tt::TokenTree::Subtree(tt::Subtree {
-                delimiter: tt::Delimiter::unspecified(),
-                token_trees: res,
+                delimiter: tt::Delimiter::default(),
+                token_trees: res.into_iter().map(|it| it.cloned()).collect(),
             })),
         };
         ExpandResult { value: res, err }
     }
 
-    pub(crate) fn peek_n(&self, n: usize) -> Option<&'a tt::TokenTree> {
+    pub(crate) fn peek_n(&self, n: usize) -> Option<&'a tt::TokenTree<Span>> {
         self.inner.as_slice().get(n)
     }
 }
 
-impl<'a> Iterator for TtIter<'a> {
-    type Item = &'a tt::TokenTree;
+impl<'a, Span> Iterator for TtIter<'a, Span> {
+    type Item = &'a tt::TokenTree<Span>;
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next()
     }
@@ -204,4 +204,4 @@ impl<'a> Iterator for TtIter<'a> {
     }
 }
 
-impl<'a> std::iter::ExactSizeIterator for TtIter<'a> {}
+impl<'a, Span> std::iter::ExactSizeIterator for TtIter<'a, Span> {}

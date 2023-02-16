@@ -31,14 +31,13 @@ use crate::{
 pub use self::tt::{Delimiter, DelimiterKind, Punct};
 pub use ::parser::TopEntryPoint;
 
-pub use crate::{
-    syntax_bridge::{
-        parse_exprs_with_sep, parse_to_token_tree, syntax_node_to_token_tree,
-        syntax_node_to_token_tree_with_modifications, token_tree_to_syntax_node, SyntheticToken,
-        SyntheticTokenId,
-    },
-    token_map::TokenMap,
+pub use crate::syntax_bridge::{
+    parse_exprs_with_sep, parse_to_token_tree, syntax_node_to_token_tree,
+    syntax_node_to_token_tree_with_modifications, token_tree_to_syntax_node, SyntheticToken,
+    SyntheticTokenId,
 };
+
+use crate::token_map::TokenMap;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParseError {
@@ -182,12 +181,6 @@ impl Shift {
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
-pub enum Origin {
-    Def,
-    Call,
-}
-
 impl DeclarativeMacro {
     /// The old, `macro_rules! m {}` flavor.
     pub fn parse_macro_rules(tt: &tt::Subtree) -> Result<DeclarativeMacro, ParseError> {
@@ -249,27 +242,41 @@ impl DeclarativeMacro {
 
     pub fn expand(&self, tt: &tt::Subtree) -> ExpandResult<tt::Subtree> {
         // apply shift
-        let mut tt = tt.clone();
-        self.shift.shift_all(&mut tt);
+        let tt = tt.clone();
+        // self.shift.shift_all(&mut tt);
         expander::expand_rules(&self.rules, &tt)
-    }
-
-    pub fn map_id_down(&self, id: tt::TokenId) -> tt::TokenId {
-        self.shift.shift(id)
-    }
-
-    pub fn map_id_up(&self, id: tt::TokenId) -> (tt::TokenId, Origin) {
-        match self.shift.unshift(id) {
-            Some(id) => (id, Origin::Call),
-            None => (id, Origin::Def),
-        }
-    }
-
-    pub fn shift(&self) -> Shift {
-        self.shift
     }
 }
 
+struct SpanData {
+    file_id: HirFileId,
+    range: TextRange,
+}
+
+#[derive(Hash, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SpanMap {
+    map: FxHashMap<TextRange, SpanData>,
+}
+
+impl SpanMap {
+    fn span_data_for(&self, range: TextRange) -> Option<&SpanData> {
+        // technically infallible assuming range is the range of a token
+        self.map.get(&range)
+    }
+
+    /// Fetches all the ranges that map up to a range containing the given range.
+    /// The returned text ranges belong to the expansion site.
+    fn input_ranges_for(
+        &self,
+        range: TextRange,
+        file_id: HirFileId,
+    ) -> impl Iterator<Item = TextRange> {
+        self.map
+            .iter()
+            .filter(|(r, data)| data.file_id == file_id && r.contains_range(range))
+            .map(|(r, _)| *r)
+    }
+}
 impl Rule {
     fn parse(src: &mut TtIter<'_>, expect_arrow: bool) -> Result<Self, ParseError> {
         let lhs = src.expect_subtree().map_err(|()| ParseError::expected("expected subtree"))?;

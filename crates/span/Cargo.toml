@@ -1,7 +1,6 @@
 [package]
-name = "tt"
+name = "span"
 version = "0.0.0"
-description = "TBD"
 
 authors.workspace = true
 edition.workspace = true
@@ -13,6 +12,6 @@ doctest = false
 
 [dependencies]
 smol_str = "0.1.23"
+text-size = "*"
 
 stdx.workspace = true
-span.workspace = true

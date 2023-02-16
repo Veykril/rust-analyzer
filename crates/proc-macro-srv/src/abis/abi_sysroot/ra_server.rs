@@ -20,17 +20,16 @@ use token_stream::TokenStreamBuilder;
 mod symbol;
 pub use symbol::*;
 
-use std::ops::Bound;
+use std::{collections::HashMap, ops::Bound};
 
-use crate::tt;
+use crate::tt::{self, TokenId};
 
 type Group = tt::Subtree;
 type TokenTree = tt::TokenTree;
 type Punct = tt::Punct;
 type Spacing = tt::Spacing;
 type Literal = tt::Literal;
-type Span = tt::TokenId;
-
+type Span = (TokenId, SyntaxContext);
 #[derive(Clone)]
 pub struct SourceFile {
     // FIXME stub
@@ -41,9 +40,34 @@ type LineColumn = super::proc_macro::LineColumn;
 
 pub struct FreeFunctions;
 
-#[derive(Default)]
+// Span/TokenId, is the identifier that is a unique id for a token, which also points to a non-unique SpanId, which contains more data like hygiene
+
+pub type SyntaxContextData = ();
+
+use super::SyntaxContext;
+
 pub struct RustAnalyzer {
-    // FIXME: store span information here.
+    pub token_id_c: u32,
+    pub span_data: Vec<SyntaxContextData>,
+    pub call_site: SyntaxContext,
+    pub mixed_site: SyntaxContext,
+    pub def_site: SyntaxContext,
+    pub tracked_env: Vec<(Box<str>, Option<Box<str>>)>,
+    pub tracked_path: Vec<Box<str>>,
+}
+
+impl RustAnalyzer {
+    fn new_token_id(&mut self, data: SyntaxContext) -> (TokenId, SyntaxContext) {
+        let tid = TokenId(self.token_id_c);
+
+        self.token_id_c += 1;
+        (tid, data)
+    }
+
+    // Generates a fresh token id, associated with the call site span
+    fn fresh_call_site(&mut self) -> (TokenId, SyntaxContext) {
+        self.new_token_id(self.call_site)
+    }
 }
 
 impl server::Types for RustAnalyzer {
@@ -55,11 +79,12 @@ impl server::Types for RustAnalyzer {
 }
 
 impl server::FreeFunctions for RustAnalyzer {
-    fn track_env_var(&mut self, _var: &str, _value: Option<&str>) {
-        // FIXME: track env var accesses
-        // https://github.com/rust-lang/rust/pull/71858
+    fn track_env_var(&mut self, var: &str, value: Option<&str>) {
+        self.tracked_env.push((var.into(), value.map(Into::into)));
     }
-    fn track_path(&mut self, _path: &str) {}
+    fn track_path(&mut self, path: &str) {
+        self.tracked_path.push(path.into());
+    }
 
     fn literal_from_str(
         &mut self,
@@ -70,7 +95,7 @@ impl server::FreeFunctions for RustAnalyzer {
             kind: bridge::LitKind::Err,
             symbol: Symbol::intern(s),
             suffix: None,
-            span: tt::TokenId::unspecified(),
+            span: self.fresh_call_site(),
         })
     }
 
@@ -86,20 +111,35 @@ impl server::TokenStream for RustAnalyzer {
     fn from_str(&mut self, src: &str) -> Self::TokenStream {
         use std::str::FromStr;
 
+        // FIXME: use call_site span as override here
         Self::TokenStream::from_str(src).expect("cannot parse string")
     }
     fn to_string(&mut self, stream: &Self::TokenStream) -> String {
         stream.to_string()
+    }
+    fn expand_expr(&mut self, self_: &Self::TokenStream) -> Result<Self::TokenStream, ()> {
+        // FIXME
+        Ok(self_.clone())
     }
     fn from_token_tree(
         &mut self,
         tree: bridge::TokenTree<Self::TokenStream, Self::Span, Self::Symbol>,
     ) -> Self::TokenStream {
         match tree {
-            bridge::TokenTree::Group(group) => {
+            bridge::TokenTree::Group(bridge::Group { delimiter, stream, span }) => {
                 let group = Group {
-                    delimiter: delim_to_internal(group.delimiter),
-                    token_trees: match group.stream {
+                    delimiter: {
+                        let kind = match delimiter {
+                            proc_macro::Delimiter::Parenthesis => {
+                                Some(tt::DelimiterKind::Parenthesis)
+                            }
+                            proc_macro::Delimiter::Brace => Some(tt::DelimiterKind::Brace),
+                            proc_macro::Delimiter::Bracket => Some(tt::DelimiterKind::Bracket),
+                            proc_macro::Delimiter::None => None,
+                        };
+                        kind.map(|kind| tt::Delimiter { open: span.open, close: span.close, kind })
+                    },
+                    token_trees: match stream {
                         Some(stream) => stream.into_iter().collect(),
                         None => Vec::new(),
                     },
@@ -140,10 +180,6 @@ impl server::TokenStream for RustAnalyzer {
                 Self::TokenStream::from_iter(vec![tree])
             }
         }
-    }
-
-    fn expand_expr(&mut self, self_: &Self::TokenStream) -> Result<Self::TokenStream, ()> {
-        Ok(self_.clone())
     }
 
     fn concat_trees(
@@ -208,7 +244,16 @@ impl server::TokenStream for RustAnalyzer {
                     })
                 }
                 tt::TokenTree::Subtree(subtree) => bridge::TokenTree::Group(bridge::Group {
-                    delimiter: delim_to_external(subtree.delimiter),
+                    delimiter: {
+                        match subtree.delimiter.map(|it| it.kind) {
+                            Some(tt::DelimiterKind::Parenthesis) => {
+                                proc_macro::Delimiter::Parenthesis
+                            }
+                            Some(tt::DelimiterKind::Brace) => proc_macro::Delimiter::Brace,
+                            Some(tt::DelimiterKind::Bracket) => proc_macro::Delimiter::Bracket,
+                            None => proc_macro::Delimiter::None,
+                        }
+                    },
                     stream: if subtree.token_trees.is_empty() {
                         None
                     } else {
@@ -269,46 +314,62 @@ impl server::SourceFile for RustAnalyzer {
 
 impl server::Span for RustAnalyzer {
     fn debug(&mut self, span: Self::Span) -> String {
-        format!("{:?}", span.0)
+        format!("{:?}", span)
     }
+    /// The original source file into which this span points.
     fn source_file(&mut self, _span: Self::Span) -> Self::SourceFile {
         SourceFile {}
     }
-    fn save_span(&mut self, _span: Self::Span) -> usize {
-        // FIXME stub
-        0
-    }
-    fn recover_proc_macro_span(&mut self, _id: usize) -> Self::Span {
-        // FIXME stub
-        tt::TokenId::unspecified()
-    }
-    /// Recent feature, not yet in the proc_macro
+    /// Returns the source text behind a span. This preserves the original source
+    /// code, including spaces and comments. It only returns a result if the span
+    /// corresponds to real source code.
     ///
-    /// See PR:
-    /// https://github.com/rust-lang/rust/pull/55780
+    /// Note: The observable result of a macro should only rely on the tokens and
+    /// not on this source text. The result of this function is a best effort to
+    /// be used for diagnostics only.
     fn source_text(&mut self, _span: Self::Span) -> Option<String> {
         None
     }
 
+    /// The `Span` for the tokens in the previous macro expansion from which
+    /// `self` was generated from, if any.
     fn parent(&mut self, _span: Self::Span) -> Option<Self::Span> {
-        // FIXME handle span
+        // FIXME needs database access
         None
     }
+    /// The span for the origin source code that `self` was generated from. If
+    /// this `Span` wasn't generated from other macro expansions then the return
+    /// value is the same as `*self`.
     fn source(&mut self, span: Self::Span) -> Self::Span {
         // FIXME handle span
         span
     }
+    /// Gets the starting line/column in the source file for this span.
     fn start(&mut self, _span: Self::Span) -> LineColumn {
         // FIXME handle span
         LineColumn { line: 0, column: 0 }
     }
+    /// Gets the ending line/column in the source file for this span.
     fn end(&mut self, _span: Self::Span) -> LineColumn {
         // FIXME handle span
         LineColumn { line: 0, column: 0 }
     }
-    fn join(&mut self, first: Self::Span, _second: Self::Span) -> Option<Self::Span> {
+
+    /// Creates a new span encompassing `self` and `other`.
+    ///
+    /// Returns `None` if `self` and `other` are from different files.
+    fn join(&mut self, first: Self::Span, second: Self::Span) -> Option<Self::Span> {
         // Just return the first span again, because some macros will unwrap the result.
-        Some(first)
+        let first_span = self.token_id_to_span_id(first);
+        let second_span = self.token_id_to_span_id(second);
+        if first_span == second_span {
+            Some(first)
+        } else {
+            todo!()
+            // Some(self.new_token_id())
+        }
+
+        // how do we handle spans from the file but, but different macro expansions?
     }
     fn subspan(
         &mut self,
@@ -319,17 +380,30 @@ impl server::Span for RustAnalyzer {
         // Just return the span again, because some macros will unwrap the result.
         Some(span)
     }
-    fn resolved_at(&mut self, _span: Self::Span, _at: Self::Span) -> Self::Span {
-        // FIXME handle span
-        tt::TokenId::unspecified()
+    /// Creates a new span with the same line/column information as `self` but
+    /// that resolves symbols as though it were at `other`.
+    fn resolved_at(&mut self, span: Self::Span, at: Self::Span) -> Self::Span {
+        (span.0, span.1)
     }
 
-    fn after(&mut self, _self_: Self::Span) -> Self::Span {
-        tt::TokenId::unspecified()
+    /// Creates an empty span pointing to directly after this span.
+    fn after(&mut self, span: Self::Span) -> Self::Span {
+        self.new_token_id(span.1)
     }
 
+    /// Creates an empty span pointing to directly before this span.
     fn before(&mut self, _self_: Self::Span) -> Self::Span {
-        tt::TokenId::unspecified()
+        TokenId::unspecified()
+    }
+    // Used by the implementation of `Span::quote`
+    fn save_span(&mut self, _span: Self::Span) -> usize {
+        // This should only be called by a proc-macro crate that is being compiled, so no relevant to us.
+        0
+    }
+    // Used by the implementation of `Span::quote`
+    fn recover_proc_macro_span(&mut self, _id: usize) -> Self::Span {
+        // This should only be called by a proc-macro crate that is being compiled, so no relevant to us.
+        (TokenId::unspecified(), self.call_site)
     }
 }
 
@@ -343,9 +417,9 @@ impl server::Symbol for RustAnalyzer {
 impl server::Server for RustAnalyzer {
     fn globals(&mut self) -> bridge::ExpnGlobals<Self::Span> {
         bridge::ExpnGlobals {
-            def_site: Span::unspecified(),
-            call_site: Span::unspecified(),
-            mixed_site: Span::unspecified(),
+            def_site: (TokenId::UNSPECIFIED, self.def_site),
+            call_site: (TokenId::UNSPECIFIED, self.call_site),
+            mixed_site: (TokenId::UNSPECIFIED, self.mixed_site),
         }
     }
 
@@ -358,7 +432,7 @@ impl server::Server for RustAnalyzer {
     }
 }
 
-struct LiteralFormatter(bridge::Literal<tt::TokenId, Symbol>);
+struct LiteralFormatter(bridge::Literal<Span, Symbol>);
 
 impl LiteralFormatter {
     /// Invokes the callback with a `&[&str]` consisting of each part of the

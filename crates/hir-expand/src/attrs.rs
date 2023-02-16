@@ -185,7 +185,7 @@ pub enum AttrInput {
     /// `#[attr = "string"]`
     Literal(SmolStr),
     /// `#[attr(subtree)]`
-    TokenTree(tt::Subtree, mbe::TokenMap),
+    TokenTree(tt::Subtree),
 }
 
 impl fmt::Display for AttrInput {
@@ -212,8 +212,8 @@ impl Attr {
             };
             Some(Interned::new(AttrInput::Literal(value)))
         } else if let Some(tt) = ast.token_tree() {
-            let (tree, map) = syntax_node_to_token_tree(tt.syntax());
-            Some(Interned::new(AttrInput::TokenTree(tree, map)))
+            let tree = syntax_node_to_token_tree(tt.syntax());
+            Some(Interned::new(AttrInput::TokenTree(tree)))
         } else {
             None
         };
