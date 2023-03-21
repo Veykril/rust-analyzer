@@ -5,6 +5,7 @@ use std::fmt::{self, Write};
 use crate::{
     generics::{TypeOrConstParamData, WherePredicate, WherePredicateTypeTarget},
     pretty::{print_path, print_type_bounds, print_type_ref},
+    type_ref::LifetimeRef,
     visibility::RawVisibility,
 };
 
@@ -538,7 +539,10 @@ impl<'a> Printer<'a> {
                 let (target, bound) = match pred {
                     WherePredicate::TypeBound { target, bound } => (target, bound),
                     WherePredicate::Lifetime { target, bound } => {
-                        wln!(this, "{}: {},", target.name, bound.name);
+                        this.print_lifetime_ref(target);
+                        w!(this, ": ,");
+                        this.print_lifetime_ref(bound);
+                        wln!(this);
                         continue;
                     }
                     WherePredicate::ForLifetime { lifetimes, target, bound } => {
@@ -568,6 +572,20 @@ impl<'a> Printer<'a> {
             }
         });
         true
+    }
+
+    fn print_lifetime_ref(&mut self, lt: &LifetimeRef) {
+        w!(
+            self,
+            "{}",
+            match lt {
+                LifetimeRef::Param(p) => return w!(self, "{p}"),
+                LifetimeRef::ImplicitObjectLifetimeDefault => "'<dyn-default>",
+                LifetimeRef::Error => "'<error>",
+                LifetimeRef::Infer => "'_",
+                LifetimeRef::Static => "'static",
+            }
+        );
     }
 }
 

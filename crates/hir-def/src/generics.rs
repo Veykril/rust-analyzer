@@ -253,11 +253,11 @@ impl GenericParams {
             }
         }
         for lifetime_param in params.lifetime_params() {
-            let name =
-                lifetime_param.lifetime().map_or_else(Name::missing, |lt| Name::new_lifetime(&lt));
+            let lifetime = lifetime_param.lifetime();
+            let name = lifetime.as_ref().map_or_else(Name::missing, Name::new_lifetime);
             let param = LifetimeParamData { name: name.clone() };
             self.lifetimes.alloc(param);
-            let lifetime_ref = LifetimeRef::new_name(name);
+            let lifetime_ref = LifetimeRef::new_def(lifetime);
             self.fill_bounds(
                 lower_ctx,
                 lifetime_param.type_bound_list(),
@@ -271,7 +271,7 @@ impl GenericParams {
             let target = if let Some(type_ref) = pred.ty() {
                 Either::Left(TypeRef::from_ast(lower_ctx, type_ref))
             } else if let Some(lifetime) = pred.lifetime() {
-                Either::Right(LifetimeRef::new(&lifetime))
+                Either::Right(LifetimeRef::new_ref(Some(lifetime)))
             } else {
                 continue;
             };

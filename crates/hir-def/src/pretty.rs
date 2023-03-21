@@ -8,7 +8,7 @@ use itertools::Itertools;
 
 use crate::{
     path::{GenericArg, GenericArgs, Path},
-    type_ref::{Mutability, TraitBoundModifier, TypeBound, TypeRef},
+    type_ref::{LifetimeRef, Mutability, TraitBoundModifier, TypeBound, TypeRef},
 };
 
 pub(crate) fn print_path(path: &Path, buf: &mut dyn Write) -> fmt::Result {
@@ -93,8 +93,22 @@ pub(crate) fn print_generic_arg(arg: &GenericArg, buf: &mut dyn Write) -> fmt::R
     match arg {
         GenericArg::Type(ty) => print_type_ref(ty, buf),
         GenericArg::Const(c) => write!(buf, "{c}"),
-        GenericArg::Lifetime(lt) => write!(buf, "{}", lt.name),
+        GenericArg::Lifetime(lt) => print_lifetime_ref(buf, lt),
     }
+}
+
+fn print_lifetime_ref(buf: &mut dyn Write, lt: &LifetimeRef) -> Result<(), fmt::Error> {
+    write!(
+        buf,
+        "{}",
+        match lt {
+            LifetimeRef::Param(p) => return write!(buf, "{p}"),
+            LifetimeRef::ImplicitObjectLifetimeDefault => "'<dyn-default>",
+            LifetimeRef::Error => "'<error>",
+            LifetimeRef::Infer => "'_",
+            LifetimeRef::Static => "'static",
+        }
+    )
 }
 
 pub(crate) fn print_type_ref(type_ref: &TypeRef, buf: &mut dyn Write) -> fmt::Result {
@@ -127,10 +141,8 @@ pub(crate) fn print_type_ref(type_ref: &TypeRef, buf: &mut dyn Write) -> fmt::Re
                 Mutability::Mut => "mut ",
             };
             write!(buf, "&")?;
-            if let Some(lt) = lt {
-                write!(buf, "{} ", lt.name)?;
-            }
-            write!(buf, "{mtbl}")?;
+            print_lifetime_ref(buf, &lt)?;
+            write!(buf, " {mtbl}")?;
             print_type_ref(pointee, buf)?;
         }
         TypeRef::Array(elem, len) => {
@@ -203,7 +215,7 @@ pub(crate) fn print_type_bounds(
                 write!(buf, "for<{}> ", lifetimes.iter().format(", "))?;
                 print_path(path, buf)?;
             }
-            TypeBound::Lifetime(lt) => write!(buf, "{}", lt.name)?,
+            TypeBound::Lifetime(lt) => print_lifetime_ref(buf, lt)?,
             TypeBound::Error => write!(buf, "{{unknown}}")?,
         }
     }

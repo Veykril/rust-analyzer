@@ -113,7 +113,7 @@ pub enum TypeRef {
     Tuple(Vec<TypeRef>),
     Path(Path),
     RawPtr(Box<TypeRef>, Mutability),
-    Reference(Box<TypeRef>, Option<LifetimeRef>, Mutability),
+    Reference(Box<TypeRef>, LifetimeRef, Mutability),
     // FIXME: for full const generics, the latter element (length) here is going to have to be an
     // expression that is further lowered later in hir_ty.
     Array(Box<TypeRef>, ConstRefOrPath),
@@ -127,21 +127,73 @@ pub enum TypeRef {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct LifetimeRef {
-    pub name: Name,
+pub enum LifetimeRef {
+    /// User-given names or fresh (synthetic) names.
+    Param(Name),
+    /// Implicit lifetime in a context like `dyn Foo`. This is
+    /// distinguished from implicit lifetimes elsewhere because the
+    /// lifetime that they default to must appear elsewhere within the
+    /// enclosing type. This means that, in an `impl Trait` context, we
+    /// don't have to create a parameter for them. That is, `impl
+    /// Trait<Item = &u32>` expands to an opaque type like `type
+    /// Foo<'a> = impl Trait<Item = &'a u32>`, but `impl Trait<item =
+    /// dyn Bar>` expands to `type Foo = impl Trait<Item = dyn Bar +
+    /// 'static>`. The latter uses `ImplicitObjectLifetimeDefault` so
+    /// that surrounding code knows not to create a lifetime
+    /// parameter.
+    ImplicitObjectLifetimeDefault,
+
+    /// Indicates an error during lowering (usually `'_` in wrong place)
+    Error,
+
+    /// User wrote an anonymous lifetime, either `'_` or nothing.
+    /// The semantics of this lifetime should be inferred by typechecking code.
+    Infer,
+
+    /// User wrote `'static`.
+    Static,
 }
 
 impl LifetimeRef {
-    pub(crate) fn new_name(name: Name) -> Self {
-        LifetimeRef { name }
+    pub(crate) fn new(lifetime: &ast::Lifetime) -> Self {
+        let text = lifetime.text();
+        if text == "'static" {
+            LifetimeRef::Static
+        } else if text == "'_" {
+            LifetimeRef::Infer
+        } else {
+            LifetimeRef::Param(Name::new_lifetime(lifetime))
+        }
     }
 
-    pub(crate) fn new(lifetime: &ast::Lifetime) -> Self {
-        LifetimeRef { name: Name::new_lifetime(lifetime) }
+    pub(crate) fn new_def(lifetime: Option<ast::Lifetime>) -> Self {
+        let Some(lifetime) = lifetime else { return LifetimeRef::Error };
+        let text = lifetime.text();
+        if text == "'static" || text == "'_" {
+            LifetimeRef::Error
+        } else {
+            LifetimeRef::Param(Name::new_lifetime(&lifetime))
+        }
+    }
+
+    pub(crate) fn new_ref(lifetime: Option<ast::Lifetime>) -> Self {
+        let Some(lifetime) = lifetime else { return LifetimeRef::Infer };
+        let text = lifetime.text();
+        if text == "'static" {
+            LifetimeRef::Static
+        } else if text == "'_" {
+            LifetimeRef::Error
+        } else {
+            LifetimeRef::Param(Name::new_lifetime(&lifetime))
+        }
     }
 
     pub fn missing() -> LifetimeRef {
-        LifetimeRef { name: Name::missing() }
+        LifetimeRef::Infer
+    }
+
+    pub fn is_elided(&self) -> bool {
+        matches!(self, LifetimeRef::ImplicitObjectLifetimeDefault | LifetimeRef::Infer)
     }
 }
 
@@ -196,7 +248,7 @@ impl TypeRef {
             }
             ast::Type::RefType(inner) => {
                 let inner_ty = TypeRef::from_ast_opt(ctx, inner.ty());
-                let lifetime = inner.lifetime().map(|lt| LifetimeRef::new(&lt));
+                let lifetime = LifetimeRef::new_ref(inner.lifetime());
                 let mutability = Mutability::from_mutable(inner.mut_token().is_some());
                 TypeRef::Reference(Box::new(inner_ty), lifetime, mutability)
             }
@@ -234,10 +286,10 @@ impl TypeRef {
             // for types are close enough for our purposes to the inner type for now...
             ast::Type::ForType(inner) => TypeRef::from_ast_opt(ctx, inner.ty()),
             ast::Type::ImplTraitType(inner) => {
-                TypeRef::ImplTrait(type_bounds_from_ast(ctx, inner.type_bound_list()))
+                TypeRef::ImplTrait(type_bounds_from_ast::<false>(ctx, inner.type_bound_list()))
             }
             ast::Type::DynTraitType(inner) => {
-                TypeRef::DynTrait(type_bounds_from_ast(ctx, inner.type_bound_list()))
+                TypeRef::DynTrait(type_bounds_from_ast::<true>(ctx, inner.type_bound_list()))
             }
             ast::Type::MacroType(mt) => match mt.macro_call() {
                 Some(mc) => ctx.ast_id(&mc).map(TypeRef::Macro).unwrap_or(TypeRef::Error),
@@ -320,12 +372,30 @@ impl TypeRef {
     }
 }
 
-pub(crate) fn type_bounds_from_ast(
+pub(crate) fn type_bounds_from_ast<const IS_TRAIT_OBJECT: bool>(
     lower_ctx: &LowerCtx<'_>,
     type_bounds_opt: Option<ast::TypeBoundList>,
 ) -> Vec<Interned<TypeBound>> {
     if let Some(type_bounds) = type_bounds_opt {
-        type_bounds.bounds().map(|it| Interned::new(TypeBound::from_ast(lower_ctx, it))).collect()
+        if IS_TRAIT_OBJECT {
+            let mut has_lifetime = false;
+            let mut bounds: Vec<_> = type_bounds
+                .bounds()
+                .map(|it| Interned::new(TypeBound::from_ast(lower_ctx, it)))
+                .inspect(|b| has_lifetime |= matches!(&**b, TypeBound::Lifetime(_)))
+                .collect();
+            if !has_lifetime {
+                bounds.push(Interned::new(TypeBound::Lifetime(
+                    LifetimeRef::ImplicitObjectLifetimeDefault,
+                )));
+            }
+            bounds
+        } else {
+            type_bounds
+                .bounds()
+                .map(|it| Interned::new(TypeBound::from_ast(lower_ctx, it)))
+                .collect()
+        }
     } else {
         vec![]
     }
@@ -363,7 +433,7 @@ impl TypeBound {
                 }
             }
             ast::TypeBoundKind::Lifetime(lifetime) => {
-                TypeBound::Lifetime(LifetimeRef::new(&lifetime))
+                TypeBound::Lifetime(LifetimeRef::new_ref(Some(lifetime)))
             }
         }
     }

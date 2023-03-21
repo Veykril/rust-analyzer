@@ -165,7 +165,7 @@ trait Tr: SuperTrait + 'lifetime {
     fn method(&self);
 }
         "#,
-        expect![[r##"
+        expect![[r#"
             pub static mut ST: () = _;
 
             pub(self) const _: Anon = _;
@@ -186,10 +186,10 @@ trait Tr: SuperTrait + 'lifetime {
                 pub(self) type Assoc: AssocBound = Default;
 
                 pub(self) fn method(
-                    _: &Self,  // self
+                    _: &'_ Self,  // self
                 ) -> ();
             }
-        "##]],
+        "#]],
     );
 }
 
@@ -286,7 +286,7 @@ struct S {
                 pub(self) a: Mixed::<'a, T, Item = (), OtherItem = u8>,
                 pub(self) b: Qualified::<Self=Fully>::Syntax,
                 pub(self) c: <TypeAnchored>::Path::<'a>,
-                pub(self) d: dyn for<'a> Trait::<'a>,
+                pub(self) d: dyn for<'a> Trait::<'a> + '<dyn-default>,
             }
         "#]],
     )

@@ -15,7 +15,7 @@ use hir_def::{
     item_scope::ItemInNs,
     lang_item::{LangItem, LangItemTarget},
     path::{Path, PathKind},
-    type_ref::{TraitBoundModifier, TypeBound, TypeRef},
+    type_ref::{LifetimeRef, TraitBoundModifier, TypeBound, TypeRef},
     visibility::Visibility,
     HasModule, ItemContainerId, LocalFieldId, Lookup, ModuleDefId, ModuleId, TraitId,
 };
@@ -1286,6 +1286,24 @@ fn fmt_trait_ref(
     Ok(())
 }
 
+pub fn write_lifetime_ref<const SWALLOW_INFER: bool>(
+    f: &mut HirFormatter<'_>,
+    lifetime: &LifetimeRef,
+) -> Result<(), HirDisplayError> {
+    write!(
+        f,
+        "{}",
+        match lifetime {
+            LifetimeRef::Param(p) => return write!(f, "{p}"),
+            LifetimeRef::ImplicitObjectLifetimeDefault => "'<dyn-default>",
+            LifetimeRef::Error => "'<error>",
+            LifetimeRef::Infer if SWALLOW_INFER => return Ok(()),
+            LifetimeRef::Infer => "'_",
+            LifetimeRef::Static => "'static",
+        }
+    )
+}
+
 impl HirDisplay for TraitRef {
     fn hir_fmt(&self, f: &mut HirFormatter<'_>) -> Result<(), HirDisplayError> {
         fmt_trait_ref(f, self, false)
@@ -1419,8 +1437,9 @@ impl HirDisplay for TypeRef {
                     hir_def::type_ref::Mutability::Mut => "mut ",
                 };
                 write!(f, "&")?;
-                if let Some(lifetime) = lifetime {
-                    write!(f, "{} ", lifetime.name)?;
+                write_lifetime_ref::<true>(f, lifetime)?;
+                if *lifetime != LifetimeRef::Infer {
+                    write!(f, " ")?;
                 }
                 write!(f, "{mutability}")?;
                 inner.hir_fmt(f)?;
@@ -1503,7 +1522,7 @@ impl HirDisplay for TypeBound {
                 }
                 path.hir_fmt(f)
             }
-            TypeBound::Lifetime(lifetime) => write!(f, "{}", lifetime.name),
+            TypeBound::Lifetime(lifetime) => write_lifetime_ref::<false>(f, lifetime),
             TypeBound::ForLifetime(lifetimes, path) => {
                 write!(f, "for<{}> ", lifetimes.iter().format(", "))?;
                 path.hir_fmt(f)
@@ -1622,7 +1641,9 @@ impl HirDisplay for hir_def::path::GenericArg {
         match self {
             hir_def::path::GenericArg::Type(ty) => ty.hir_fmt(f),
             hir_def::path::GenericArg::Const(c) => write!(f, "{c}"),
-            hir_def::path::GenericArg::Lifetime(lifetime) => write!(f, "{}", lifetime.name),
+            hir_def::path::GenericArg::Lifetime(lifetime) => {
+                write_lifetime_ref::<false>(f, lifetime)
+            }
         }
     }
 }

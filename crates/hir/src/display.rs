@@ -5,13 +5,13 @@ use hir_def::{
         TypeOrConstParamData, TypeParamProvenance, WherePredicate, WherePredicateTypeTarget,
     },
     lang_item::LangItem,
-    type_ref::{TypeBound, TypeRef},
+    type_ref::{LifetimeRef, TypeBound, TypeRef},
     AdtId, GenericDefId,
 };
 use hir_ty::{
     display::{
-        write_bounds_like_dyn_trait_with_prefix, write_visibility, HirDisplay, HirDisplayError,
-        HirFormatter, SizedByDefault,
+        write_bounds_like_dyn_trait_with_prefix, write_lifetime_ref, write_visibility, HirDisplay,
+        HirDisplayError, HirFormatter, SizedByDefault,
     },
     Interner, TraitRefExt, WhereClause,
 };
@@ -61,8 +61,9 @@ impl HirDisplay for Function {
             TypeRef::Reference(inner, lifetime, mut_) if matches!(&**inner, TypeRef::Path(p) if p.is_self_type()) =>
             {
                 f.write_char('&')?;
-                if let Some(lifetime) = lifetime {
-                    write!(f, "{} ", lifetime.name)?;
+                write_lifetime_ref::<true>(f, lifetime)?;
+                if *lifetime != LifetimeRef::Infer {
+                    f.write_str(" ")?;
                 }
                 if let hir_def::type_ref::Mutability::Mut = mut_ {
                     f.write_str("mut ")?;
@@ -411,10 +412,13 @@ fn write_where_clause(def: GenericDefId, f: &mut HirFormatter<'_>) -> Result<(),
             WherePredicate::Lifetime { target, bound } => {
                 if matches!(prev_pred, Some(WherePredicate::Lifetime { target: target_, .. }) if target_ == target)
                 {
-                    write!(f, " + {}", bound.name)?;
+                    write!(f, " + ",)?;
+                    write_lifetime_ref::<false>(f, target)?;
                 } else {
                     new_predicate(f)?;
-                    write!(f, "{}: {}", target.name, bound.name)?;
+                    write_lifetime_ref::<false>(f, target)?;
+                    write!(f, ": ",)?;
+                    write_lifetime_ref::<false>(f, bound)?;
                 }
             }
             WherePredicate::ForLifetime { lifetimes, target, bound } => {
