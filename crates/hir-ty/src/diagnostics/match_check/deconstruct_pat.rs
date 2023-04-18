@@ -587,7 +587,7 @@ impl SplitWildcard {
                 // as though it had an "unknown" constructor to avoid exposing its emptiness. The
                 // exception is if the pattern is at the top level, because we want empty matches to be
                 // considered exhaustive.
-                let is_secretly_empty = enum_data.variants.is_empty()
+                let is_secretly_empty = enum_data.variants.iter().next().is_none()
                     && !is_exhaustive_pat_feature
                     && !pcx.is_top_level;
 
@@ -768,9 +768,9 @@ impl<'p> Fields<'p> {
 
         let visibility = cx.db.field_visibilities(variant);
         let field_ty = cx.db.field_types(variant);
-        let fields_len = variant.variant_data(cx.db.upcast()).fields().len() as u32;
 
-        (0..fields_len).map(|idx| LocalFieldId::from_raw(idx.into())).filter_map(move |fid| {
+        let variant_data = variant.variant_data(cx.db.upcast());
+        variant_data.fields().iter().filter_map(move |(fid, _)| {
             let ty = field_ty[fid].clone().substitute(Interner, substs);
             let ty = normalize(cx.db, cx.body, ty);
             let is_visible = matches!(adt, hir_def::AdtId::EnumId(..))
@@ -939,7 +939,8 @@ impl<'p> DeconstructedPat<'p> {
                             }
                         };
                         let variant = ctor.variant_id_for_adt(adt.0);
-                        let fields_len = variant.variant_data(cx.db.upcast()).fields().len();
+                        let fields_len =
+                            variant.variant_data(cx.db.upcast()).fields().iter().count();
                         // For each field in the variant, we store the relevant index into `self.fields` if any.
                         let mut field_id_to_id: Vec<Option<usize>> = vec![None; fields_len];
                         let tys = Fields::list_variant_nonhidden_fields(cx, &pat.ty, variant)

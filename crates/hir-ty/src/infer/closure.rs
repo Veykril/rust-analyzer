@@ -664,9 +664,11 @@ impl InferenceContext<'_> {
                     VariantId::StructId(s) => {
                         let vd = &*self.db.struct_data(s).variant_data;
                         let (al, ar) = args.split_at(ellipsis.unwrap_or(args.len()));
-                        let fields = vd.fields().iter();
-                        let it =
-                            al.iter().zip(fields.clone()).chain(ar.iter().rev().zip(fields.rev()));
+                        let fields = vd.fields();
+                        let it = al
+                            .iter()
+                            .zip(fields.iter())
+                            .chain(ar.iter().rev().zip(fields.iter().rev()));
                         let field_types = self.db.field_types(variant);
                         for (arg, (i, _)) in it {
                             let mut p = place.clone();

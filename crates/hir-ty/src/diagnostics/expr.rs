@@ -387,7 +387,7 @@ fn missing_match_arms<'p>(
     }
 
     let non_empty_enum = match scrut_ty.as_adt() {
-        Some((AdtId::EnumId(e), _)) => !cx.db.enum_data(e).variants.is_empty(),
+        Some((AdtId::EnumId(e), _)) => cx.db.enum_data(e).variants.iter().next().is_none(),
         _ => false,
     };
     if arms.is_empty() && !non_empty_enum {

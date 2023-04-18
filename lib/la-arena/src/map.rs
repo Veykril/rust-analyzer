@@ -82,7 +82,7 @@ impl<T, V> ArenaMap<Idx<T>, V> {
     }
 
     /// Returns an iterator over the arena indexes and values in the map.
-    pub fn iter(&self) -> impl Iterator<Item = (Idx<T>, &V)> + DoubleEndedIterator {
+    pub fn iter(&self) -> impl Iterator<Item = (Idx<T>, &V)> + DoubleEndedIterator + Clone {
         self.v.iter().enumerate().filter_map(|(idx, o)| Some((Self::from_idx(idx), o.as_ref()?)))
     }
 

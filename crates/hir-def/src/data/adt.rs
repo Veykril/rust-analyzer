@@ -12,7 +12,7 @@ use hir_expand::{
     HirFileId, InFile,
 };
 use intern::Interned;
-use la_arena::{Arena, ArenaMap};
+use la_arena::{ArenaMap, Idx, RawIdx};
 use rustc_abi::{Align, Integer, IntegerType, ReprFlags, ReprOptions};
 use syntax::ast::{self, HasName, HasVisibility};
 
@@ -26,7 +26,7 @@ use crate::{
     nameres::diagnostics::DefDiagnostic,
     src::HasChildSource,
     src::HasSource,
-    trace::Trace,
+    trace::{Trace, TraceMap},
     tt::{Delimiter, DelimiterKind, Leaf, Subtree, TokenTree},
     type_ref::TypeRef,
     visibility::RawVisibility,
@@ -66,7 +66,7 @@ bitflags! {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnumData {
     pub name: Name,
-    pub variants: Arena<EnumVariantData>,
+    pub variants: ArenaMap<LocalEnumVariantId, EnumVariantData>,
     pub repr: Option<ReprOptions>,
     pub visibility: RawVisibility,
     pub rustc_has_incoherent_inherent_impls: bool,
@@ -80,8 +80,8 @@ pub struct EnumVariantData {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VariantData {
-    Record(Arena<FieldData>),
-    Tuple(Arena<FieldData>),
+    Record(ArenaMap<LocalFieldId, FieldData>),
+    Tuple(ArenaMap<LocalFieldId, FieldData>),
     Unit,
 }
 
@@ -304,7 +304,7 @@ impl EnumData {
             .exists();
 
         let enum_ = &item_tree[loc.id.value];
-        let mut variants = Arena::new();
+        let mut variants = ArenaMap::new();
         let mut diagnostics = Vec::new();
         for tree_id in enum_.variants.clone() {
             let attrs = item_tree.attrs(db, krate, tree_id.into());
@@ -322,10 +322,10 @@ impl EnumData {
                 );
                 diagnostics.extend(field_diagnostics);
 
-                variants.alloc(EnumVariantData {
-                    name: var.name.clone(),
-                    variant_data: Arc::new(var_data),
-                });
+                variants.insert(
+                    LocalEnumVariantId::from_raw(tree_id.into_raw()),
+                    EnumVariantData { name: var.name.clone(), variant_data: Arc::new(var_data) },
+                );
             } else {
                 diagnostics.push(DefDiagnostic::unconfigured_code(
                     loc.container.local_id,
@@ -368,9 +368,9 @@ impl HasChildSource<LocalEnumVariantId> for EnumId {
         db: &dyn DefDatabase,
     ) -> InFile<ArenaMap<LocalEnumVariantId, Self::Value>> {
         let src = self.lookup(db).source(db);
-        let mut trace = Trace::new_for_map();
+        let mut trace = Trace::new_for_value();
         lower_enum(db, &mut trace, &src, self.lookup(db).container);
-        src.with_value(trace.into_map())
+        src.with_value(trace.into_value())
     }
 }
 
@@ -401,16 +401,16 @@ fn lower_enum(
 impl VariantData {
     fn new(db: &dyn DefDatabase, flavor: InFile<ast::StructKind>, module_id: ModuleId) -> Self {
         let mut expander = CfgExpander::new(db, flavor.file_id, module_id.krate);
-        let mut trace = Trace::new_for_arena();
+        let mut trace = TraceMap::new_for_data();
         match lower_struct(db, &mut expander, &mut trace, &flavor) {
-            StructKind::Tuple => VariantData::Tuple(trace.into_arena()),
-            StructKind::Record => VariantData::Record(trace.into_arena()),
+            StructKind::Tuple => VariantData::Tuple(trace.into_data()),
+            StructKind::Record => VariantData::Record(trace.into_data()),
             StructKind::Unit => VariantData::Unit,
         }
     }
 
-    pub fn fields(&self) -> &Arena<FieldData> {
-        const EMPTY: &Arena<FieldData> = &Arena::new();
+    pub fn fields(&self) -> &ArenaMap<LocalFieldId, FieldData> {
+        const EMPTY: &ArenaMap<LocalFieldId, FieldData> = &ArenaMap::new();
         match &self {
             VariantData::Record(fields) | VariantData::Tuple(fields) => fields,
             _ => EMPTY,
@@ -454,9 +454,9 @@ impl HasChildSource<LocalFieldId> for VariantId {
             ),
         };
         let mut expander = CfgExpander::new(db, src.file_id, module_id.krate);
-        let mut trace = Trace::new_for_map();
+        let mut trace = TraceMap::new_for_value();
         lower_struct(db, &mut expander, &mut trace, &src);
-        src.with_value(trace.into_map())
+        src.with_value(trace.into_value())
     }
 }
 
@@ -470,7 +470,7 @@ pub enum StructKind {
 fn lower_struct(
     db: &dyn DefDatabase,
     expander: &mut CfgExpander,
-    trace: &mut Trace<FieldData, Either<ast::TupleField, ast::RecordField>>,
+    trace: &mut TraceMap<FieldData, Either<ast::TupleField, ast::RecordField>>,
     ast: &InFile<ast::StructKind>,
 ) -> StructKind {
     let ctx = LowerCtx::new(db, &expander.hygiene(), ast.file_id);
@@ -484,27 +484,43 @@ fn lower_struct(
 
                 trace.alloc(
                     || Either::Left(fd.clone()),
-                    || FieldData {
-                        name: Name::new_tuple_field(i),
-                        type_ref: Interned::new(TypeRef::from_ast_opt(&ctx, fd.ty())),
-                        visibility: RawVisibility::from_ast(db, ast.with_value(fd.visibility())),
+                    || {
+                        (
+                            Idx::from_raw(RawIdx::from(i as u32)),
+                            FieldData {
+                                name: Name::new_tuple_field(i),
+                                type_ref: Interned::new(TypeRef::from_ast_opt(&ctx, fd.ty())),
+                                visibility: RawVisibility::from_ast(
+                                    db,
+                                    ast.with_value(fd.visibility()),
+                                ),
+                            },
+                        )
                     },
                 );
             }
             StructKind::Tuple
         }
         ast::StructKind::Record(fl) => {
-            for fd in fl.fields() {
+            for (i, fd) in fl.fields().enumerate() {
                 if !expander.is_cfg_enabled(db, &fd) {
                     continue;
                 }
 
                 trace.alloc(
                     || Either::Right(fd.clone()),
-                    || FieldData {
-                        name: fd.name().map(|n| n.as_name()).unwrap_or_else(Name::missing),
-                        type_ref: Interned::new(TypeRef::from_ast_opt(&ctx, fd.ty())),
-                        visibility: RawVisibility::from_ast(db, ast.with_value(fd.visibility())),
+                    || {
+                        (
+                            Idx::from_raw(RawIdx::from(i as u32)),
+                            FieldData {
+                                name: fd.name().map(|n| n.as_name()).unwrap_or_else(Name::missing),
+                                type_ref: Interned::new(TypeRef::from_ast_opt(&ctx, fd.ty())),
+                                visibility: RawVisibility::from_ast(
+                                    db,
+                                    ast.with_value(fd.visibility()),
+                                ),
+                            },
+                        )
                     },
                 );
             }
@@ -527,12 +543,15 @@ fn lower_fields(
     let mut diagnostics = Vec::new();
     match fields {
         Fields::Record(flds) => {
-            let mut arena = Arena::new();
+            let mut arena = ArenaMap::new();
             for field_id in flds.clone() {
                 let attrs = item_tree.attrs(db, krate, field_id.into());
                 let field = &item_tree[field_id];
                 if attrs.is_cfg_enabled(cfg_options) {
-                    arena.alloc(lower_field(item_tree, field, override_visibility));
+                    arena.insert(
+                        Idx::from_raw(field_id.into_raw()),
+                        lower_field(item_tree, field, override_visibility),
+                    );
                 } else {
                     diagnostics.push(DefDiagnostic::unconfigured_code(
                         container,
@@ -551,12 +570,15 @@ fn lower_fields(
             (VariantData::Record(arena), diagnostics)
         }
         Fields::Tuple(flds) => {
-            let mut arena = Arena::new();
+            let mut arena = ArenaMap::new();
             for field_id in flds.clone() {
                 let attrs = item_tree.attrs(db, krate, field_id.into());
                 let field = &item_tree[field_id];
                 if attrs.is_cfg_enabled(cfg_options) {
-                    arena.alloc(lower_field(item_tree, field, override_visibility));
+                    arena.insert(
+                        Idx::from_raw(field_id.into_raw()),
+                        lower_field(item_tree, field, override_visibility),
+                    );
                 } else {
                     diagnostics.push(DefDiagnostic::unconfigured_code(
                         container,

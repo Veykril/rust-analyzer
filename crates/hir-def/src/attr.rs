@@ -15,7 +15,7 @@ use hir_expand::{
     HirFileId, InFile,
 };
 use itertools::Itertools;
-use la_arena::{ArenaMap, Idx, RawIdx};
+use la_arena::{ArenaMap, Idx};
 use mbe::DelimiterKind;
 use syntax::{
     ast::{self, HasAttrs, IsString},
@@ -23,8 +23,9 @@ use syntax::{
 };
 
 use crate::{
+    data::adt::VariantData,
     db::DefDatabase,
-    item_tree::{AttrOwner, Fields, ItemTreeId, ItemTreeNode},
+    item_tree::{AttrOwner, Field, ItemTreeId, ItemTreeNode, Variant},
     lang_item::LangItem,
     nameres::{ModuleOrigin, ModuleSource},
     src::{HasChildSource, HasSource},
@@ -95,23 +96,17 @@ impl Attrs {
         e: EnumId,
     ) -> Arc<ArenaMap<LocalEnumVariantId, Attrs>> {
         let _p = profile::span("variants_attrs_query");
-        // FIXME: There should be some proper form of mapping between item tree enum variant ids and hir enum variant ids
         let mut res = ArenaMap::default();
 
         let loc = e.lookup(db);
         let krate = loc.container.krate;
         let item_tree = loc.id.item_tree(db);
-        let enum_ = &item_tree[loc.id.value];
-        let crate_graph = db.crate_graph();
-        let cfg_options = &crate_graph[krate].cfg_options;
 
-        let mut idx = 0;
-        for variant in enum_.variants.clone() {
-            let attrs = item_tree.attrs(db, krate, variant.into());
-            if attrs.is_cfg_enabled(cfg_options) {
-                res.insert(Idx::from_raw(RawIdx::from(idx)), attrs);
-                idx += 1;
-            }
+        for (variant, _) in db.enum_data(e).variants.iter() {
+            res.insert(
+                variant,
+                item_tree.attrs(db, krate, Idx::<Variant>::from_raw(variant.into_raw()).into()),
+            );
         }
 
         Arc::new(res)
@@ -122,63 +117,42 @@ impl Attrs {
         v: VariantId,
     ) -> Arc<ArenaMap<LocalFieldId, Attrs>> {
         let _p = profile::span("fields_attrs_query");
-        // FIXME: There should be some proper form of mapping between item tree field ids and hir field ids
         let mut res = ArenaMap::default();
 
-        let crate_graph = db.crate_graph();
         let (fields, item_tree, krate) = match v {
             VariantId::EnumVariantId(it) => {
                 let e = it.parent;
                 let loc = e.lookup(db);
                 let krate = loc.container.krate;
                 let item_tree = loc.id.item_tree(db);
-                let enum_ = &item_tree[loc.id.value];
 
-                let cfg_options = &crate_graph[krate].cfg_options;
-
-                let Some(variant) = enum_.variants.clone().filter(|variant| {
-                    let attrs = item_tree.attrs(db, krate, (*variant).into());
-                    attrs.is_cfg_enabled(cfg_options)
-                })
-                .zip(0u32..)
-                .find(|(_variant, idx)| it.local_id == Idx::from_raw(RawIdx::from(*idx)))
-                .map(|(variant, _idx)| variant)
-                else {
-                    return Arc::new(res);
-                };
-
-                (item_tree[variant].fields.clone(), item_tree, krate)
+                (db.enum_data(e).variants[it.local_id].variant_data.clone(), item_tree, krate)
             }
             VariantId::StructId(it) => {
                 let loc = it.lookup(db);
                 let krate = loc.container.krate;
                 let item_tree = loc.id.item_tree(db);
-                let struct_ = &item_tree[loc.id.value];
-                (struct_.fields.clone(), item_tree, krate)
+
+                (db.struct_data(it).variant_data.clone(), item_tree, krate)
             }
             VariantId::UnionId(it) => {
                 let loc = it.lookup(db);
                 let krate = loc.container.krate;
                 let item_tree = loc.id.item_tree(db);
-                let union_ = &item_tree[loc.id.value];
-                (union_.fields.clone(), item_tree, krate)
+                (db.union_data(it).variant_data.clone(), item_tree, krate)
             }
         };
 
-        let fields = match fields {
-            Fields::Record(fields) | Fields::Tuple(fields) => fields,
-            Fields::Unit => return Arc::new(res),
+        let fields = match &*fields {
+            VariantData::Record(fields) | VariantData::Tuple(fields) => fields,
+            VariantData::Unit => return Arc::new(res),
         };
 
-        let cfg_options = &crate_graph[krate].cfg_options;
-
-        let mut idx = 0;
-        for field in fields {
-            let attrs = item_tree.attrs(db, krate, field.into());
-            if attrs.is_cfg_enabled(cfg_options) {
-                res.insert(Idx::from_raw(RawIdx::from(idx)), attrs);
-                idx += 1;
-            }
+        for (field, _) in fields.iter() {
+            res.insert(
+                field,
+                item_tree.attrs(db, krate, Idx::<Field>::from_raw(field.into_raw()).into()),
+            );
         }
 
         Arc::new(res)
@@ -421,7 +395,6 @@ impl AttrsWithOwner {
             AttrDefId::EnumVariantId(it) => {
                 return db.variants_attrs(it.parent)[it.local_id].clone();
             }
-            // FIXME: DRY this up
             AttrDefId::AdtId(it) => match it {
                 AdtId::StructId(it) => attrs_from_item_tree_loc(db, it),
                 AdtId::EnumId(it) => attrs_from_item_tree_loc(db, it),

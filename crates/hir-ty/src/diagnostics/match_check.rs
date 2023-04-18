@@ -162,7 +162,8 @@ impl<'a> PatCtxt<'a> {
             }
 
             hir_def::hir::Pat::TupleStruct { ref args, ellipsis, .. } if variant.is_some() => {
-                let expected_len = variant.unwrap().variant_data(self.db.upcast()).fields().len();
+                let expected_len =
+                    variant.unwrap().variant_data(self.db.upcast()).fields().iter().count();
                 let subpatterns = self.lower_tuple_subpats(args, expected_len, ellipsis);
                 self.lower_variant_or_leaf(pat, ty, subpatterns)
             }
@@ -341,7 +342,7 @@ impl HirDisplay for Pat {
                             });
                         f.write_joined(subpats, ", ")?;
 
-                        if printed < rec_fields.len() {
+                        if printed < rec_fields.iter().count() {
                             write!(f, "{}..", if printed > 0 { ", " } else { "" })?;
                         }
 
@@ -349,8 +350,9 @@ impl HirDisplay for Pat {
                     }
                 }
 
-                let num_fields = variant
-                    .map_or(subpatterns.len(), |v| v.variant_data(f.db.upcast()).fields().len());
+                let num_fields = variant.map_or(subpatterns.len(), |v| {
+                    v.variant_data(f.db.upcast()).fields().iter().count()
+                });
                 if num_fields != 0 || variant.is_none() {
                     write!(f, "(")?;
                     let subpats = (0..num_fields).map(|i| {
