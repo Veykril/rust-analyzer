@@ -44,6 +44,7 @@ pub fn mod_path_to_ast(path: &hir::ModPath) -> ast::Path {
             segments.push(make::path_segment_crate())
         }
         hir::PathKind::Abs => is_abs = true,
+        hir::PathKind::Lang(l) => segments.push(make::path_segment_lang(l.as_str())),
     }
 
     segments.extend(

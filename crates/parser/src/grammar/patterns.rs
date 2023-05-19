@@ -216,6 +216,7 @@ fn atom_pat(p: &mut Parser<'_>, recovery_set: TokenSet) -> Option<CompletedMarke
             // (T![x]).
             T!['('] | T!['{'] | T![!] => path_or_macro_pat(p),
             T![:] if p.nth_at(1, T![::]) => path_or_macro_pat(p),
+            T![#] => path_or_macro_pat(p),
             _ => ident_pat(p, true),
         },
 

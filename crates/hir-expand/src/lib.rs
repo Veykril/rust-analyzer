@@ -6,18 +6,19 @@
 
 #![warn(rust_2018_idioms, unused_lifetimes, semicolon_in_expressions_from_macros)]
 
-pub mod db;
 pub mod ast_id_map;
-pub mod name;
-pub mod hygiene;
+pub mod attrs;
 pub mod builtin_attr_macro;
 pub mod builtin_derive_macro;
 pub mod builtin_fn_macro;
+pub mod db;
+pub mod eager;
+pub mod hygiene;
+pub mod lang_item;
+pub mod mod_path;
+pub mod name;
 pub mod proc_macro;
 pub mod quote;
-pub mod eager;
-pub mod mod_path;
-pub mod attrs;
 mod fixup;
 
 use mbe::TokenMap;

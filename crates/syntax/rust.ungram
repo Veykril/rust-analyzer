@@ -34,7 +34,7 @@ Path =
 
 PathSegment =
   '::'? NameRef
-| NameRef GenericArgList?
+| (('builtin' | 'lang') '#')? NameRef GenericArgList?
 | NameRef ParamList RetType?
 | '<' PathType ('as' PathType)? '>'
 

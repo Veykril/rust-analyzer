@@ -100,6 +100,15 @@ impl Path {
         lower::lower_path(path, ctx)
     }
 
+    pub fn lang_item(
+        db: &dyn crate::db::DefDatabase,
+        start_crate: base_db::CrateId,
+        item: hir_expand::lang_item::LangItem,
+    ) -> Option<Path> {
+        let t = db.lang_item(start_crate, item)?;
+        Some(Path::LangItem(t))
+    }
+
     /// Converts a known mod path to `Path`.
     pub fn from_known_path(
         path: ModPath,

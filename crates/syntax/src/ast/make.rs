@@ -248,6 +248,10 @@ pub fn path_segment_self() -> ast::PathSegment {
     ast_from_text("use self;")
 }
 
+pub fn path_segment_lang(l: &str) -> ast::PathSegment {
+    ast_from_text(&format!("use lang # {l};"))
+}
+
 pub fn path_segment_super() -> ast::PathSegment {
     ast_from_text("use super;")
 }

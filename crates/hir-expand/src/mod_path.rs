@@ -8,6 +8,7 @@ use std::{
 use crate::{
     db::ExpandDatabase,
     hygiene::Hygiene,
+    lang_item::LangItem,
     name::{known, Name},
 };
 use base_db::CrateId;
@@ -32,6 +33,7 @@ pub enum PathKind {
     Crate,
     /// Absolute path (::foo)
     Abs,
+    Lang(LangItem),
     /// `$crate` from macro expansion
     DollarCrate(CrateId),
 }
@@ -72,10 +74,9 @@ impl ModPath {
     pub fn len(&self) -> usize {
         self.segments.len()
             + match self.kind {
-                PathKind::Plain => 0,
+                PathKind::Plain | PathKind::Lang(_) | PathKind::Abs => 0,
                 PathKind::Super(i) => i as usize,
                 PathKind::Crate => 1,
-                PathKind::Abs => 0,
                 PathKind::DollarCrate(_) => 1,
             }
     }
@@ -131,6 +132,7 @@ impl ModPath {
             PathKind::Crate => add_segment("crate")?,
             PathKind::Abs => add_segment("")?,
             PathKind::DollarCrate(_) => add_segment("$crate")?,
+            PathKind::Lang(_) => f.write_str("lang#")?,
         }
         for segment in &self.segments {
             if !first_segment {
@@ -165,6 +167,7 @@ impl From<Name> for ModPath {
     }
 }
 
+// this is very inefficient
 fn convert_path(
     db: &dyn ExpandDatabase,
     prefix: Option<ModPath>,
@@ -229,6 +232,11 @@ fn convert_path(
             // not allowed in imports
             return None;
         }
+        ast::PathSegmentKind::Lang(lang) => {
+            ModPath::from_segments(PathKind::Lang(LangItem::from_str(&lang.text())?), iter::empty())
+        }
+        // FIXME: Handle if it becomes relevant
+        ast::PathSegmentKind::Builtin(_) => return None,
     };
 
     // handle local_inner_macros :

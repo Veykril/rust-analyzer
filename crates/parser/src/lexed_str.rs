@@ -221,6 +221,10 @@ impl<'a> Converter<'a> {
                 rustc_lexer::TokenKind::Caret => T![^],
                 rustc_lexer::TokenKind::Percent => T![%],
                 rustc_lexer::TokenKind::Unknown => ERROR,
+                // lang #  for allowing macros to expand to lang items
+                rustc_lexer::TokenKind::UnknownPrefix if token_text == "lang" => IDENT,
+                // builtin #  is an upstream proposal, so let's just eat that for now
+                rustc_lexer::TokenKind::UnknownPrefix if token_text == "builtin" => IDENT,
                 rustc_lexer::TokenKind::UnknownPrefix => {
                     err = "unknown literal prefix";
                     IDENT

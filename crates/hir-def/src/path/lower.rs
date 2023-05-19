@@ -5,7 +5,10 @@ use std::iter;
 use crate::{lower::LowerCtx, type_ref::ConstRefOrPath};
 
 use either::Either;
-use hir_expand::name::{name, AsName};
+use hir_expand::{
+    lang_item::LangItem,
+    name::{name, AsName},
+};
 use intern::Interned;
 use syntax::ast::{self, AstNode, HasTypeBounds};
 
@@ -127,6 +130,11 @@ pub(super) fn lower_path(mut path: ast::Path, ctx: &LowerCtx<'_>) -> Option<Path
             ast::PathSegmentKind::SuperKw => {
                 let nested_super_count = if let PathKind::Super(n) = kind { n } else { 0 };
                 kind = PathKind::Super(nested_super_count + 1);
+            }
+            ast::PathSegmentKind::Builtin(_) => return None,
+            ast::PathSegmentKind::Lang(lang) => {
+                kind = PathKind::Lang(LangItem::from_str(&lang.text())?);
+                break;
             }
         }
         path = match qualifier(&path) {

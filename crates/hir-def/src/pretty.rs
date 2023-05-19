@@ -36,6 +36,7 @@ pub(crate) fn print_path(path: &Path, buf: &mut dyn Write) -> fmt::Result {
             PathKind::Crate => write!(buf, "crate")?,
             PathKind::Abs => {}
             PathKind::DollarCrate(_) => write!(buf, "$crate")?,
+            PathKind::Lang(l) => write!(buf, "lang#{}", l.as_str())?,
         },
     }
 

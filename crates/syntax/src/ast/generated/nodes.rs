@@ -55,6 +55,9 @@ pub struct PathSegment {
 impl PathSegment {
     pub fn coloncolon_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![::]) }
     pub fn name_ref(&self) -> Option<NameRef> { support::child(&self.syntax) }
+    pub fn builtin_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![builtin]) }
+    pub fn lang_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![lang]) }
+    pub fn pound_token(&self) -> Option<SyntaxToken> { support::token(&self.syntax, T![#]) }
     pub fn generic_arg_list(&self) -> Option<GenericArgList> { support::child(&self.syntax) }
     pub fn param_list(&self) -> Option<ParamList> { support::child(&self.syntax) }
     pub fn ret_type(&self) -> Option<RetType> { support::child(&self.syntax) }

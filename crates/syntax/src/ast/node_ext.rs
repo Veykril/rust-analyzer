@@ -191,6 +191,8 @@ pub enum PathSegmentKind {
     SelfKw,
     SuperKw,
     CrateKw,
+    Builtin(ast::NameRef),
+    Lang(ast::NameRef),
 }
 
 impl ast::PathSegment {
@@ -224,6 +226,12 @@ impl ast::PathSegment {
                 T![self] => PathSegmentKind::SelfKw,
                 T![super] => PathSegmentKind::SuperKw,
                 T![crate] => PathSegmentKind::CrateKw,
+                T![builtin] => PathSegmentKind::Builtin(
+                    self.syntax().children().filter_map(ast::NameRef::cast).nth(1)?,
+                ),
+                T![lang] => PathSegmentKind::Lang(
+                    self.syntax().children().filter_map(ast::NameRef::cast).nth(1)?,
+                ),
                 _ => PathSegmentKind::Name(name_ref),
             }
         } else {

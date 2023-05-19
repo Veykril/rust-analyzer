@@ -246,8 +246,10 @@ impl ImportGroup {
                 _ => ImportGroup::ExternCrate,
             },
             // these aren't valid use paths, so fall back to something random
-            PathSegmentKind::SelfTypeKw => ImportGroup::ExternCrate,
-            PathSegmentKind::Type { .. } => ImportGroup::ExternCrate,
+            PathSegmentKind::SelfTypeKw
+            | PathSegmentKind::Type { .. }
+            | PathSegmentKind::Builtin(_)
+            | PathSegmentKind::Lang(_) => ImportGroup::ExternCrate,
         }
     }
 }

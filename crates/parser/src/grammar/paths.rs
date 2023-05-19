@@ -101,6 +101,16 @@ fn path_segment(p: &mut Parser<'_>, mode: Mode, first: bool) {
         };
         match p.current() {
             IDENT => {
+                // test builtin_hashtag
+                // use builtin # foo ::baz;
+                // fn foo(builtin # foo: <builtin # foo> ::baz) { builtin # foo }
+                if p.at_contextual_kw(T![builtin]) && p.nth_at(1, T![#]) {
+                    p.bump_remap(T![builtin]);
+                    p.bump_any();
+                } else if p.at_contextual_kw(T![lang]) && p.nth_at(1, T![#]) {
+                    p.bump_remap(T![lang]);
+                    p.bump_any();
+                }
                 name_ref(p);
                 opt_path_type_args(p, mode);
             }

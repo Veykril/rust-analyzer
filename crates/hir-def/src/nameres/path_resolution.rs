@@ -20,7 +20,7 @@ use crate::{
     path::{ModPath, PathKind},
     per_ns::PerNs,
     visibility::{RawVisibility, Visibility},
-    AdtId, CrateId, EnumVariantId, LocalModuleId, ModuleDefId, ModuleId,
+    AdtId, CrateId, EnumVariantId, LocalModuleId, Lookup, ModuleDefId, ModuleId,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,6 +248,37 @@ impl DefMap {
                     expected_macro_subns,
                 )
             }
+            PathKind::Lang(lang) => match db.lang_item(self.krate, lang) {
+                Some(lang) => {
+                    let def: ModuleDefId = match lang {
+                        crate::lang_item::LangItemTarget::EnumId(it) => it.into(),
+                        crate::lang_item::LangItemTarget::Function(it) => it.into(),
+                        crate::lang_item::LangItemTarget::ImplDef(_) => {
+                            return ResolvePathResult::empty(ReachedFixedPoint::Yes)
+                        }
+                        crate::lang_item::LangItemTarget::Static(it) => it.into(),
+                        crate::lang_item::LangItemTarget::Struct(it) => it.into(),
+                        crate::lang_item::LangItemTarget::Union(it) => it.into(),
+                        crate::lang_item::LangItemTarget::TypeAlias(it) => it.into(),
+                        crate::lang_item::LangItemTarget::Trait(it) => it.into(),
+                        crate::lang_item::LangItemTarget::EnumVariant(it) => it.into(),
+                    };
+                    let has_constructor = {
+                        match lang {
+                            crate::lang_item::LangItemTarget::Struct(it) => {
+                                let l = it.lookup(db);
+                                !matches!(
+                                    l.id.item_tree(db)[l.id.value].fields,
+                                    crate::item_tree::Fields::Record(_)
+                                )
+                            }
+                            _ => false,
+                        }
+                    };
+                    PerNs::from_def(def, Visibility::Public, has_constructor)
+                }
+                None => return ResolvePathResult::empty(ReachedFixedPoint::Yes),
+            },
             PathKind::Super(lvl) => {
                 let mut module = original_module;
                 for i in 0..lvl {

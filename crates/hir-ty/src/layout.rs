@@ -83,7 +83,7 @@ pub fn layout_of_ty(db: &dyn HirDatabase, ty: &Ty, krate: CrateId) -> Result<Lay
     let dl = &*cx.current_data_layout();
     let trait_env = Arc::new(TraitEnvironment::empty(krate));
     let ty = normalize(db, trait_env, ty.clone());
-    Ok(match ty.kind(Interner) {
+    let layout = match ty.kind(Interner) {
         TyKind::Adt(AdtId(def), subst) => db.layout_of_adt(*def, subst.clone(), krate)?,
         TyKind::Scalar(s) => match s {
             chalk_ir::Scalar::Bool => Layout::scalar(
@@ -283,7 +283,8 @@ pub fn layout_of_ty(db: &dyn HirDatabase, ty: &Ty, krate: CrateId) -> Result<Lay
         | TyKind::Placeholder(_)
         | TyKind::BoundVar(_)
         | TyKind::InferenceVar(_, _) => return Err(LayoutError::HasPlaceholder),
-    })
+    };
+    Ok(layout)
 }
 
 fn layout_of_unit(cx: &LayoutCx<'_>, dl: &TargetDataLayout) -> Result<Layout, LayoutError> {

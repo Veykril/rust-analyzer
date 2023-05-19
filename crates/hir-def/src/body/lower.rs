@@ -661,7 +661,7 @@ impl ExprCollector<'_> {
     /// `try { <stmts>; }` into `'<new_label>: { <stmts>; ::std::ops::Try::from_output(()) }`
     /// and save the `<new_label>` to use it as a break target for desugaring of the `?` operator.
     fn desugar_try_block(&mut self, e: BlockExpr) -> ExprId {
-        let Some(try_from_output) = LangItem::TryTraitFromOutput.path(self.db, self.krate) else {
+        let Some(try_from_output) = Path::lang_item(self.db, self.krate,LangItem::TryTraitFromOutput) else {
             return self.collect_block(e);
         };
         let label = self.alloc_label_desugared(Label { name: Name::generate_new_name() });
@@ -716,11 +716,16 @@ impl ExprCollector<'_> {
     /// ```
     fn collect_try_operator(&mut self, syntax_ptr: AstPtr<ast::Expr>, e: ast::TryExpr) -> ExprId {
         let (try_branch, cf_continue, cf_break, try_from_residual) = 'if_chain: {
-            if let Some(try_branch) = LangItem::TryTraitBranch.path(self.db, self.krate) {
-                if let Some(cf_continue) = LangItem::ControlFlowContinue.path(self.db, self.krate) {
-                    if let Some(cf_break) = LangItem::ControlFlowBreak.path(self.db, self.krate) {
+            if let Some(try_branch) = Path::lang_item(self.db, self.krate, LangItem::TryTraitBranch)
+            {
+                if let Some(cf_continue) =
+                    Path::lang_item(self.db, self.krate, LangItem::ControlFlowContinue)
+                {
+                    if let Some(cf_break) =
+                        Path::lang_item(self.db, self.krate, LangItem::ControlFlowBreak)
+                    {
                         if let Some(try_from_residual) =
-                            LangItem::TryTraitFromResidual.path(self.db, self.krate)
+                            Path::lang_item(self.db, self.krate, LangItem::TryTraitFromResidual)
                         {
                             break 'if_chain (try_branch, cf_continue, cf_break, try_from_residual);
                         }
