@@ -1146,18 +1146,34 @@ impl DefCollector<'_> {
                         );
                         // Record its helper attributes.
                         if def_id.krate != self.def_map.krate {
-                            if let MacroId::ProcMacroId(id) = macro_id {
-                                if let Some(helpers) = id.lookup(self.db).derive_helpers {
-                                    self.def_map
-                                        .derive_helpers_in_scope
-                                        .entry(ast_id.ast_id.map(|it| it.upcast()))
-                                        .or_default()
-                                        .extend(izip!(
-                                            helpers.iter().cloned(),
-                                            iter::repeat(macro_id),
-                                            iter::repeat(call_id),
-                                        ));
+                            match macro_id {
+                                MacroId::ProcMacroId(id) => {
+                                    if let Some(helpers) = id.lookup(self.db).derive_helpers {
+                                        self.def_map
+                                            .derive_helpers_in_scope
+                                            .entry(ast_id.ast_id.map(|it| it.upcast()))
+                                            .or_default()
+                                            .extend(izip!(
+                                                helpers.iter().cloned(),
+                                                iter::repeat(macro_id),
+                                                iter::repeat(call_id),
+                                            ));
+                                    }
                                 }
+                                MacroId::Macro2Id(id) => {
+                                    if let Some(helpers) = id.lookup(self.db).derive_helpers {
+                                        self.def_map
+                                            .derive_helpers_in_scope
+                                            .entry(ast_id.ast_id.map(|it| it.upcast()))
+                                            .or_default()
+                                            .extend(izip!(
+                                                helpers.iter().cloned(),
+                                                iter::repeat(macro_id),
+                                                iter::repeat(call_id),
+                                            ));
+                                    }
+                                }
+                                _ => (),
                             }
                         }
 
