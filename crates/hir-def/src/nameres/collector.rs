@@ -52,7 +52,7 @@ use crate::{
     tt,
     visibility::{RawVisibility, Visibility},
     AdtId, AstId, AstIdWithPath, ConstLoc, EnumLoc, EnumVariantId, ExternBlockLoc, FunctionId,
-    FunctionLoc, ImplLoc, Intern, ItemContainerId, LocalModuleId, Macro2Id, Macro2Loc,
+    FunctionLoc, ImplLoc, Intern, ItemContainerId, LocalModuleId, Lookup, Macro2Id, Macro2Loc,
     MacroExpander, MacroId, MacroRulesId, MacroRulesLoc, ModuleDefId, ModuleId, ProcMacroId,
     ProcMacroLoc, StaticLoc, StructLoc, TraitAliasLoc, TraitLoc, TypeAliasLoc, UnionLoc,
     UnresolvedMacro,
@@ -600,15 +600,15 @@ impl DefCollector<'_> {
             Some(&(_, expander)) => (expander, kind),
             None => (ProcMacroExpander::dummy(), kind),
         };
-
+        let derive_helpers = match def.kind {
+            ProcMacroKind::CustomDerive { helpers } => Some(helpers),
+            _ => None,
+        };
         let proc_macro_id =
-            ProcMacroLoc { container: module_id, id, expander, kind }.intern(self.db);
+            ProcMacroLoc { container: module_id, id, expander, kind, derive_helpers }
+                .intern(self.db);
         self.define_proc_macro(def.name.clone(), proc_macro_id);
-        if let ProcMacroKind::CustomDerive { helpers } = def.kind {
-            self.def_map
-                .exported_derives
-                .insert(macro_id_to_def_id(self.db, proc_macro_id.into()), helpers);
-        }
+
         self.def_map.fn_proc_macro_mapping.insert(fn_id, proc_macro_id);
     }
 
@@ -1146,17 +1146,18 @@ impl DefCollector<'_> {
                         );
                         // Record its helper attributes.
                         if def_id.krate != self.def_map.krate {
-                            let def_map = self.db.crate_def_map(def_id.krate);
-                            if let Some(helpers) = def_map.exported_derives.get(&def_id) {
-                                self.def_map
-                                    .derive_helpers_in_scope
-                                    .entry(ast_id.ast_id.map(|it| it.upcast()))
-                                    .or_default()
-                                    .extend(izip!(
-                                        helpers.iter().cloned(),
-                                        iter::repeat(macro_id),
-                                        iter::repeat(call_id),
-                                    ));
+                            if let MacroId::ProcMacroId(id) = macro_id {
+                                if let Some(helpers) = id.lookup(self.db).derive_helpers {
+                                    self.def_map
+                                        .derive_helpers_in_scope
+                                        .entry(ast_id.ast_id.map(|it| it.upcast()))
+                                        .or_default()
+                                        .extend(izip!(
+                                            helpers.iter().cloned(),
+                                            iter::repeat(macro_id),
+                                            iter::repeat(call_id),
+                                        ));
+                                }
                             }
                         }
 
@@ -2146,6 +2147,7 @@ impl ModCollector<'_, '_> {
             id: ItemTreeId::new(self.tree_id, id),
             expander,
             allow_internal_unsafe,
+            derive_helpers: helpers_opt,
         }
         .intern(self.def_collector.db);
         self.def_collector.define_macro_def(
@@ -2154,12 +2156,6 @@ impl ModCollector<'_, '_> {
             macro_id,
             &self.item_tree[mac.visibility],
         );
-        if let Some(helpers) = helpers_opt {
-            self.def_collector
-                .def_map
-                .exported_derives
-                .insert(macro_id_to_def_id(self.def_collector.db, macro_id.into()), helpers);
-        }
     }
 
     fn collect_macro_call(&mut self, mac: &MacroCall, container: ItemContainerId) {

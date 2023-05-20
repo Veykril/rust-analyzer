@@ -1,3 +1,5 @@
+use crate::Lookup;
+
 use super::*;
 use itertools::Itertools;
 
@@ -1080,7 +1082,7 @@ macro_rules! mbe {
 
 #[test]
 fn collects_derive_helpers() {
-    let def_map = compute_crate_def_map(
+    let db = TestDB::with_files(
         r#"
 #![crate_type="proc-macro"]
 struct TokenStream;
@@ -1091,11 +1093,16 @@ pub fn derive_macro_2(_item: TokenStream) -> TokenStream {
 }
 "#,
     );
+    let krate = db.crate_graph().iter().next().unwrap();
+    let def_map = db.crate_def_map(krate);
 
-    assert_eq!(def_map.exported_derives.len(), 1);
-    match def_map.exported_derives.values().next() {
-        Some(helpers) => match &**helpers {
-            [attr] => assert_eq!(attr.to_string(), "helper_attr"),
+    assert_eq!(def_map.fn_proc_macro_mapping.len(), 1);
+    match def_map.fn_proc_macro_mapping.values().next() {
+        Some(mac) => match &mac.lookup(&db).derive_helpers {
+            Some(helpers) => match &**helpers {
+                [attr] => assert_eq!(attr.to_string(), "helper_attr"),
+                _ => unreachable!(),
+            },
             _ => unreachable!(),
         },
         _ => unreachable!(),
