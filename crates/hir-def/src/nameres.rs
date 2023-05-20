@@ -60,7 +60,7 @@ mod tests;
 use std::{cmp::Ord, ops::Deref};
 
 use base_db::{CrateId, Edition, FileId, ProcMacroKind};
-use hir_expand::{name::Name, InFile, MacroCallId, MacroDefId};
+use hir_expand::{name::Name, InFile, MacroCallId};
 use itertools::Itertools;
 use la_arena::Arena;
 use profile::Count;
@@ -111,7 +111,6 @@ pub struct DefMap {
     macro_use_prelude: FxHashMap<Name, MacroId>,
 
     /// Side table for resolving derive helpers.
-    exported_derives: FxHashMap<MacroDefId, Box<[Name]>>,
     fn_proc_macro_mapping: FxHashMap<FunctionId, ProcMacroId>,
     /// The error that occurred when failing to load the proc-macro dll.
     proc_macro_loading_error: Option<Box<str>>,
@@ -282,7 +281,6 @@ impl DefMap {
             recursion_limit: None,
             extern_prelude: FxHashMap::default(),
             macro_use_prelude: FxHashMap::default(),
-            exported_derives: FxHashMap::default(),
             fn_proc_macro_mapping: FxHashMap::default(),
             proc_macro_loading_error: None,
             derive_helpers_in_scope: FxHashMap::default(),
@@ -504,7 +502,6 @@ impl DefMap {
         // Exhaustive match to require handling new fields.
         let Self {
             _c: _,
-            exported_derives,
             extern_prelude,
             macro_use_prelude,
             diagnostics,
@@ -526,7 +523,6 @@ impl DefMap {
 
         extern_prelude.shrink_to_fit();
         macro_use_prelude.shrink_to_fit();
-        exported_derives.shrink_to_fit();
         diagnostics.shrink_to_fit();
         modules.shrink_to_fit();
         registered_attrs.shrink_to_fit();

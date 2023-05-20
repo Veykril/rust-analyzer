@@ -243,7 +243,7 @@ impl Crate {
     }
 
     /// Try to get the root URL of the documentation of a crate.
-    pub fn get_html_root_url(self: &Crate, db: &dyn HirDatabase) -> Option<String> {
+    pub fn get_html_root_url(&self, db: &dyn HirDatabase) -> Option<String> {
         // Look for #![doc(html_root_url = "...")]
         let attrs = db.attrs(AttrDefId::ModuleId(self.root_module(db).into()));
         let doc_url = attrs.by_key("doc").find_string_value_in_tt("html_root_url");

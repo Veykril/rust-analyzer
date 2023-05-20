@@ -73,6 +73,7 @@ use hir_expand::{
     db::ExpandDatabase,
     eager::expand_eager_macro,
     hygiene::Hygiene,
+    name::Name,
     proc_macro::ProcMacroExpander,
     AstId, ExpandError, ExpandResult, ExpandTo, HirFileId, InFile, MacroCallId, MacroCallKind,
     MacroDefId, MacroDefKind, UnresolvedMacro,
@@ -290,12 +291,14 @@ pub enum MacroExpander {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct Macro2Id(salsa::InternId);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Macro2Loc {
     pub container: ModuleId,
     pub id: ItemTreeId<MacroDef>,
     pub expander: MacroExpander,
     pub allow_internal_unsafe: bool,
+    // FIXME: thinbox
+    pub derive_helpers: Option<Box<[Name]>>,
 }
 impl_intern!(Macro2Id, Macro2Loc, intern_macro2, lookup_intern_macro2);
 
@@ -313,13 +316,14 @@ impl_intern!(MacroRulesId, MacroRulesLoc, intern_macro_rules, lookup_intern_macr
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd)]
 pub struct ProcMacroId(salsa::InternId);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProcMacroLoc {
     // FIXME: this should be a crate? or just a crate-root module
     pub container: ModuleId,
     pub id: ItemTreeId<Function>,
     pub expander: ProcMacroExpander,
     pub kind: ProcMacroKind,
+    pub derive_helpers: Option<Box<[Name]>>,
 }
 impl_intern!(ProcMacroId, ProcMacroLoc, intern_proc_macro, lookup_intern_proc_macro);
 

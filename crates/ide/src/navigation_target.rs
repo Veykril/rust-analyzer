@@ -643,6 +643,7 @@ fn foo() { enum FooInner { } }
                     focus_range: 34..42,
                     name: "FooInner",
                     kind: Enum,
+                    container_name: "foo",
                     description: "enum FooInner",
                 },
             ]
