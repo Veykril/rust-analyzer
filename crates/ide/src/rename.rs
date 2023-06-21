@@ -145,7 +145,12 @@ fn find_definitions(
                     if name
                         .syntax()
                         .parent()
-                        .map_or(false, |it| ast::Rename::can_cast(it.kind())) =>
+                        .map_or(false, |it| ast::Rename::can_cast(it.kind()))
+                        && name
+                            .syntax()
+                            .ancestors()
+                            .nth(2)
+                            .map_or(true, |it| !ast::ExternCrate::can_cast(it.kind())) =>
                 {
                     bail!("Renaming aliases is currently unsupported")
                 }
@@ -2489,5 +2494,79 @@ fn main() {
 }
 ",
         )
+    }
+
+    #[test]
+    fn extern_crate() {
+        check(
+            "bar",
+            r"
+//- /lib.rs crate:main deps:foo
+extern crate foo$0;
+
+use foo as qux;
+//- /foo.rs crate:foo
+",
+            r"
+extern crate foo as bar;
+
+use foo as qux;
+",
+        );
+    }
+
+    #[test]
+    fn extern_crate_rename() {
+        check(
+            "bar",
+            r"
+//- /lib.rs crate:main deps:foo
+extern crate foo as qux$0;
+
+use qux as frob;
+//- /foo.rs crate:foo
+",
+            r"
+extern crate foo as bar;
+
+use qux as frob;
+",
+        );
+    }
+
+    #[test]
+    fn extern_crate_self() {
+        check(
+            "bar",
+            r"
+extern crate self$0;
+
+use self as qux;
+",
+            r"
+extern crate self as bar;
+
+use self as qux;
+",
+        );
+    }
+
+    #[test]
+    fn extern_crate_self_rename() {
+        check(
+            "bar",
+            r"
+//- /lib.rs crate:main deps:foo
+extern crate self as qux$0;
+
+use qux as frob;
+//- /foo.rs crate:foo
+",
+            r"
+extern crate self as bar;
+
+use qux as frob;
+",
+        );
     }
 }

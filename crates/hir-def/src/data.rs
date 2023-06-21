@@ -480,13 +480,16 @@ impl ExternCrateDeclData {
         let item_tree = loc.id.item_tree(db);
         let extern_crate = &item_tree[loc.id.value];
         let name = extern_crate.name.clone();
-        let crate_id = db
-            .crate_def_map(loc.container.krate())
-            .extern_prelude()
-            .find(|&(prelude_name, _)| *prelude_name == name)
-            .unwrap()
-            .1
-            .krate();
+        let crate_id = if name == hir_expand::name![self] {
+            loc.container.krate()
+        } else {
+            db.crate_def_map(loc.container.krate())
+                .extern_prelude()
+                .find(|&(prelude_name, _)| *prelude_name == name)
+                .unwrap()
+                .1
+                .krate()
+        };
 
         Arc::new(Self {
             name,
