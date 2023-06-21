@@ -12,9 +12,9 @@ use hir_ty::db::HirDatabase;
 use syntax::{ast, AstNode};
 
 use crate::{
-    Adt, AssocItem, Const, ConstParam, Enum, Field, Function, GenericParam, Impl, LifetimeParam,
-    Macro, Module, ModuleDef, Static, Struct, Trait, TraitAlias, TypeAlias, TypeParam, Union,
-    Variant,
+    Adt, AssocItem, Const, ConstParam, Enum, ExternCrateDecl, Field, Function, GenericParam, Impl,
+    LifetimeParam, Macro, Module, ModuleDef, Static, Struct, Trait, TraitAlias, TypeAlias,
+    TypeParam, Union, Variant,
 };
 
 pub trait HasAttrs {
@@ -89,6 +89,39 @@ macro_rules! impl_has_attrs_enum {
 impl_has_attrs_enum![Struct, Union, Enum for Adt];
 impl_has_attrs_enum![TypeParam, ConstParam, LifetimeParam for GenericParam];
 
+impl HasAttrs for ExternCrateDecl {
+    fn attrs(self, db: &dyn HirDatabase) -> AttrsWithOwner {
+        let def = AttrDefId::ExternCrateId(self.into());
+        db.attrs_with_owner(def)
+    }
+    fn docs(self, db: &dyn HirDatabase) -> Option<Documentation> {
+        let crate_docs = self.resolved_crate(db).root_module(db).attrs(db).docs().map(String::from);
+        let def = AttrDefId::ExternCrateId(self.into());
+        let decl_docs = db.attrs(def).docs().map(String::from);
+        match (decl_docs, crate_docs) {
+            (None, None) => None,
+            (Some(decl_docs), None) => Some(decl_docs),
+            (None, Some(crate_docs)) => Some(crate_docs),
+            (Some(mut decl_docs), Some(crate_docs)) => {
+                decl_docs.push('\n');
+                decl_docs.push('\n');
+                decl_docs += &crate_docs;
+                Some(decl_docs)
+            }
+        }
+        .map(Documentation::new)
+    }
+    fn resolve_doc_path(
+        self,
+        db: &dyn HirDatabase,
+        link: &str,
+        ns: Option<Namespace>,
+    ) -> Option<ModuleDef> {
+        let def = AttrDefId::ExternCrateId(self.into());
+        resolve_doc_path(db, def, link, ns).map(ModuleDef::from)
+    }
+}
+
 impl HasAttrs for AssocItem {
     fn attrs(self, db: &dyn HirDatabase) -> AttrsWithOwner {
         match self {
@@ -142,6 +175,7 @@ fn resolve_doc_path(
         AttrDefId::ExternBlockId(it) => it.resolver(db.upcast()),
         AttrDefId::MacroId(it) => it.resolver(db.upcast()),
         AttrDefId::ExternCrateId(it) => it.resolver(db.upcast()),
+        AttrDefId::ImportId(it) => it.resolver(db.upcast()),
         AttrDefId::GenericParamId(it) => match it {
             GenericParamId::TypeParamId(it) => it.parent(),
             GenericParamId::ConstParamId(it) => it.parent(),
@@ -172,7 +206,7 @@ fn resolve_doc_path(
         Some(Namespace::Types) => resolved.take_types(),
         Some(Namespace::Values) => resolved.take_values(),
         Some(Namespace::Macros) => resolved.take_macros().map(ModuleDefId::MacroId),
-        None => resolved.iter_items().next().map(|it| match it {
+        None => resolved.iter_items().next().map(|(it, _)| match it {
             ItemInNs::Types(it) => it,
             ItemInNs::Values(it) => it,
             ItemInNs::Macros(it) => ModuleDefId::MacroId(it),

@@ -87,6 +87,7 @@ use ::tt::token_id as tt;
 use crate::{
     builtin_type::BuiltinType,
     data::adt::VariantData,
+    item_scope::UseId,
     item_tree::{
         Const, Enum, ExternCrate, Function, Impl, Import, ItemTreeId, ItemTreeNode, MacroDef,
         MacroRules, Static, Struct, Trait, TraitAlias, TypeAlias, Union,
@@ -832,6 +833,7 @@ pub enum AttrDefId {
     GenericParamId(GenericParamId),
     ExternBlockId(ExternBlockId),
     ExternCrateId(ExternCrateId),
+    ImportId(ImportId),
 }
 
 impl_from!(
@@ -844,10 +846,12 @@ impl_from!(
     FunctionId,
     TraitId,
     TypeAliasId,
+    TraitAliasId,
     MacroId(Macro2Id, MacroRulesId, ProcMacroId),
     ImplId,
     GenericParamId,
-    ExternCrateId
+    ExternCrateId,
+    ImportId
     for AttrDefId
 );
 
@@ -858,6 +862,32 @@ impl From<ItemContainerId> for AttrDefId {
             ItemContainerId::ImplId(iid) => AttrDefId::ImplId(iid),
             ItemContainerId::TraitId(tid) => AttrDefId::TraitId(tid),
             ItemContainerId::ExternBlockId(id) => AttrDefId::ExternBlockId(id),
+        }
+    }
+}
+
+impl From<UseId> for AttrDefId {
+    fn from(value: UseId) -> Self {
+        value.import.into()
+    }
+}
+
+impl TryFrom<ModuleDefId> for AttrDefId {
+    type Error = ();
+
+    fn try_from(value: ModuleDefId) -> Result<Self, Self::Error> {
+        match value {
+            ModuleDefId::ModuleId(it) => Ok(it.into()),
+            ModuleDefId::FunctionId(it) => Ok(it.into()),
+            ModuleDefId::AdtId(it) => Ok(it.into()),
+            ModuleDefId::EnumVariantId(it) => Ok(it.into()),
+            ModuleDefId::ConstId(it) => Ok(it.into()),
+            ModuleDefId::StaticId(it) => Ok(it.into()),
+            ModuleDefId::TraitId(it) => Ok(it.into()),
+            ModuleDefId::TypeAliasId(it) => Ok(it.into()),
+            ModuleDefId::TraitAliasId(id) => Ok(id.into()),
+            ModuleDefId::MacroId(id) => Ok(id.into()),
+            ModuleDefId::BuiltinType(_) => Err(()),
         }
     }
 }
@@ -1069,6 +1099,7 @@ impl AttrDefId {
             }
             AttrDefId::MacroId(it) => it.module(db).krate,
             AttrDefId::ExternCrateId(it) => it.lookup(db).container.krate,
+            AttrDefId::ImportId(it) => it.lookup(db).container.krate,
         }
     }
 }

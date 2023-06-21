@@ -81,7 +81,7 @@ pub(crate) fn complete_type_path(
             });
 
             match resolution {
-                hir::PathResolution::Def(hir::ModuleDef::Module(module)) => {
+                hir::PathResolution::Def(hir::ModuleDef::Module(module), _) => {
                     let module_scope = module.scope(ctx.db, Some(ctx.module));
                     for (name, def) in module_scope {
                         if scope_def_applicable(def) {
@@ -93,6 +93,7 @@ pub(crate) fn complete_type_path(
                     def @ (hir::ModuleDef::Adt(_)
                     | hir::ModuleDef::TypeAlias(_)
                     | hir::ModuleDef::BuiltinType(_)),
+                    _,
                 ) => {
                     let ty = match def {
                         hir::ModuleDef::Adt(adt) => adt.ty(ctx.db),
@@ -116,7 +117,7 @@ pub(crate) fn complete_type_path(
                         None::<()>
                     });
                 }
-                hir::PathResolution::Def(hir::ModuleDef::Trait(t)) => {
+                hir::PathResolution::Def(hir::ModuleDef::Trait(t), _) => {
                     // Handles `Trait::assoc` as well as `<Ty as Trait>::assoc`.
                     for item in t.items(ctx.db) {
                         add_assoc_item(acc, item);
@@ -173,9 +174,10 @@ pub(crate) fn complete_type_path(
                                 .find_map(ast::TypeBound::cast)
                                 .is_some()
                             {
-                                if let Some(hir::PathResolution::Def(hir::ModuleDef::Trait(
-                                    trait_,
-                                ))) = ctx.sema.resolve_path(&path_seg.parent_path())
+                                if let Some(hir::PathResolution::Def(
+                                    hir::ModuleDef::Trait(trait_),
+                                    _,
+                                )) = ctx.sema.resolve_path(&path_seg.parent_path())
                                 {
                                     let arg_idx = arg_list
                                         .generic_args()

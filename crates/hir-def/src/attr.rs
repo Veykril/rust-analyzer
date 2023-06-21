@@ -417,6 +417,8 @@ impl AttrsWithOwner {
                     ),
                 }
             }
+            AttrDefId::ExternCrateId(it) => attrs_from_item_tree_loc(db, it),
+            AttrDefId::ImportId(it) => attrs_from_item_tree_loc(db, it),
             AttrDefId::FieldId(it) => {
                 return db.fields_attrs(it.parent)[it.local_id].clone();
             }
@@ -462,7 +464,6 @@ impl AttrsWithOwner {
                 }
             },
             AttrDefId::ExternBlockId(it) => attrs_from_item_tree_loc(db, it),
-            AttrDefId::ExternCrateId(it) => attrs_from_item_tree_loc(db, it),
         };
 
         let attrs = raw_attrs.filter(db.upcast(), def.krate(db));
@@ -548,6 +549,7 @@ impl AttrsWithOwner {
             },
             AttrDefId::ExternBlockId(id) => any_has_attrs(db, id),
             AttrDefId::ExternCrateId(id) => any_has_attrs(db, id),
+            AttrDefId::ImportId(id) => any_has_attrs(db, id),
         };
 
         AttrSourceMap::new(owner.as_ref().map(|node| node as &dyn HasAttrs))

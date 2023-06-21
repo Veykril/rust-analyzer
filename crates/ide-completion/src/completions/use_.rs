@@ -43,7 +43,7 @@ pub(crate) fn complete_use_path(
             }
 
             match resolution {
-                hir::PathResolution::Def(hir::ModuleDef::Module(module)) => {
+                hir::PathResolution::Def(hir::ModuleDef::Module(module), _) => {
                     let module_scope = module.scope(ctx.db, Some(ctx.module));
                     let unknown_is_current = |name: &hir::Name| {
                         matches!(
@@ -79,7 +79,7 @@ pub(crate) fn complete_use_path(
                         }
                     }
                 }
-                hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e))) => {
+                hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e)), _) => {
                     cov_mark::hit!(enum_plain_qualified_use_tree);
                     acc.add_enum_variants(ctx, path_ctx, *e);
                 }

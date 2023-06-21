@@ -102,9 +102,9 @@ pub(crate) fn moniker(
         .descend_into_macros(original_token.clone())
         .into_iter()
         .filter_map(|token| {
-            IdentClass::classify_token(sema, &token).map(IdentClass::definitions_no_ops).map(|it| {
-                it.into_iter().flat_map(|def| def_to_moniker(sema.db, def, current_crate))
-            })
+            IdentClass::classify_token(sema, &token).map(|it| it.definitions_no_ops(sema)).map(
+                |it| it.into_iter().flat_map(|def| def_to_moniker(sema.db, def, current_crate)),
+            )
         })
         .flatten()
         .unique()
@@ -225,6 +225,10 @@ pub(crate) fn def_to_moniker(
         },
         Definition::Module(m) => MonikerDescriptor {
             name: m.name(db)?.display(db).to_string(),
+            desc: MonikerDescriptorKind::Namespace,
+        },
+        Definition::ExternCrateDecl(m) => MonikerDescriptor {
+            name: m.name(db).display(db).to_string(),
             desc: MonikerDescriptorKind::Namespace,
         },
         Definition::BuiltinType(b) => MonikerDescriptor {

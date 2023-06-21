@@ -269,7 +269,26 @@ fn highlight_name_ref(
 
             h
         }
-        NameRefClass::FieldShorthand { .. } => SymbolKind::Field.into(),
+        NameRefClass::FieldShorthand { field_ref, .. } => {
+            highlight_def(sema, krate, field_ref.into())
+        }
+        NameRefClass::ExternCrateShorthand { decl, krate: resolved_krate } => {
+            let mut h = HlTag::Symbol(SymbolKind::ExternCrate).into();
+
+            if resolved_krate != krate {
+                h |= HlMod::Library
+            }
+            let is_public = decl.visibility(db) == hir::Visibility::Public;
+            if is_public {
+                h |= HlMod::Public
+            }
+            let is_from_builtin_crate = resolved_krate.is_builtin(db);
+            if is_from_builtin_crate {
+                h |= HlMod::DefaultLibrary;
+            }
+            h |= HlMod::CrateRoot;
+            h
+        }
     };
 
     h.tag = match name_ref.token_kind() {
@@ -344,6 +363,14 @@ fn highlight_def(
                 h |= HlMod::CrateRoot;
             }
             h
+        }
+        Definition::ExternCrateDecl(extern_crate) => {
+            let mut highlight =
+                Highlight::new(HlTag::Symbol(SymbolKind::Module)) | HlMod::CrateRoot;
+            if extern_crate.alias(db).is_none() {
+                highlight |= HlMod::Library;
+            }
+            highlight
         }
         Definition::Function(func) => {
             let mut h = Highlight::new(HlTag::Symbol(SymbolKind::Function));

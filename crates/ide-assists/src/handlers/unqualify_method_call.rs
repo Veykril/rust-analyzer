@@ -42,7 +42,7 @@ pub(crate) fn unqualify_method_call(acc: &mut Assists, ctx: &AssistContext<'_>) 
     let method_name = path.segment()?.name_ref()?;
 
     let res = ctx.sema.resolve_path(&path)?;
-    let hir::PathResolution::Def(hir::ModuleDef::Function(fun)) = res else { return None };
+    let hir::PathResolution::Def(hir::ModuleDef::Function(fun), _) = res else { return None };
     if !fun.has_self_param(ctx.sema.db) {
         return None;
     }

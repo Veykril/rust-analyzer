@@ -350,7 +350,7 @@ fn get_type_alias(ctx: &AssistContext<'_>, path: &ast::PathType) -> Option<ast::
     // instance generics to declaration generics. The `hir::TypeAlias` doesn't
     // keep the order, so we must get the `ast::TypeAlias` from the hir
     // definition.
-    if let PathResolution::Def(hir::ModuleDef::TypeAlias(ta)) = resolved_path {
+    if let PathResolution::Def(hir::ModuleDef::TypeAlias(ta), _) = resolved_path {
         Some(ctx.sema.source(ta)?.value)
     } else {
         None

@@ -14,8 +14,9 @@ use base_db::Edition;
 use hir_expand::name::Name;
 
 use crate::{
+    data::adt::VariantData,
     db::DefDatabase,
-    item_scope::BUILTIN_SCOPE,
+    item_scope::{ImportOrExternId, BUILTIN_SCOPE},
     nameres::{sub_namespace_match, BuiltinShadowMode, DefMap, MacroSubNs},
     path::{ModPath, PathKind},
     per_ns::PerNs,
@@ -64,7 +65,7 @@ impl PerNs {
         db: &dyn DefDatabase,
         expected: Option<MacroSubNs>,
     ) -> Self {
-        self.macros = self.macros.filter(|&(id, _)| {
+        self.macros = self.macros.filter(|&(id, _, _)| {
             let this = MacroSubNs::from_id(db, id);
             sub_namespace_match(Some(this), expected)
         });
@@ -193,15 +194,15 @@ impl DefMap {
             PathKind::DollarCrate(krate) => {
                 if krate == self.krate {
                     cov_mark::hit!(macro_dollar_crate_self);
-                    PerNs::types(self.crate_root().into(), Visibility::Public)
+                    PerNs::types(self.crate_root().into(), Visibility::Public, None)
                 } else {
                     let def_map = db.crate_def_map(krate);
                     let module = def_map.module_id(Self::ROOT);
                     cov_mark::hit!(macro_dollar_crate_other);
-                    PerNs::types(module.into(), Visibility::Public)
+                    PerNs::types(module.into(), Visibility::Public, None)
                 }
             }
-            PathKind::Crate => PerNs::types(self.crate_root().into(), Visibility::Public),
+            PathKind::Crate => PerNs::types(self.crate_root().into(), Visibility::Public, None),
             // plain import or absolute path in 2015: crate-relative with
             // fallback to extern prelude (with the simplification in
             // rust-lang/rust#57745)
@@ -282,7 +283,11 @@ impl DefMap {
                     if def_map.block.is_some() {
                         None // keep ascending
                     } else {
-                        Some(PerNs::types(def_map.module_id(module).into(), Visibility::Public))
+                        Some(PerNs::types(
+                            def_map.module_id(module).into(),
+                            Visibility::Public,
+                            None,
+                        ))
                     }
                 })
                 .expect("block DefMap not rooted in crate DefMap")
@@ -293,9 +298,13 @@ impl DefMap {
                     Some((_, segment)) => segment,
                     None => return ResolvePathResult::empty(ReachedFixedPoint::Yes),
                 };
-                if let Some(&def) = self.data.extern_prelude.get(segment) {
+                if let Some(&(def, id)) = self.data.extern_prelude.get(segment) {
                     tracing::debug!("absolute path {:?} resolved to crate {:?}", path, def);
-                    PerNs::types(def.into(), Visibility::Public)
+                    PerNs::types(
+                        def.into(),
+                        Visibility::Public,
+                        id.map(ImportOrExternId::ExternCrateId),
+                    )
                 } else {
                     return ResolvePathResult::empty(ReachedFixedPoint::No); // extern crate declarations can add to the extern prelude
                 }
@@ -303,7 +312,7 @@ impl DefMap {
         };
 
         for (i, segment) in segments {
-            let (curr, vis) = match curr_per_ns.take_types_vis() {
+            let (curr, vis, import) = match curr_per_ns.take_types_all() {
                 Some(r) => r,
                 None => {
                     // we still have path segments left, but the path so far
@@ -358,18 +367,20 @@ impl DefMap {
                         Some(local_id) => {
                             let variant = EnumVariantId { parent: e, local_id };
                             match &*enum_data.variants[local_id].variant_data {
-                                crate::data::adt::VariantData::Record(_) => {
-                                    PerNs::types(variant.into(), Visibility::Public)
+                                VariantData::Record(_) => {
+                                    PerNs::types(variant.into(), Visibility::Public, None)
                                 }
-                                crate::data::adt::VariantData::Tuple(_)
-                                | crate::data::adt::VariantData::Unit => {
-                                    PerNs::both(variant.into(), variant.into(), Visibility::Public)
-                                }
+                                VariantData::Tuple(_) | VariantData::Unit => PerNs::both(
+                                    variant.into(),
+                                    variant.into(),
+                                    Visibility::Public,
+                                    None,
+                                ),
                             }
                         }
                         None => {
                             return ResolvePathResult::with(
-                                PerNs::types(e.into(), vis),
+                                PerNs::types(e.into(), vis, None),
                                 ReachedFixedPoint::Yes,
                                 Some(i),
                                 Some(self.krate),
@@ -387,7 +398,7 @@ impl DefMap {
                     );
 
                     return ResolvePathResult::with(
-                        PerNs::types(s, vis),
+                        PerNs::types(s, vis, import),
                         ReachedFixedPoint::Yes,
                         Some(i),
                         Some(self.krate),
@@ -424,7 +435,7 @@ impl DefMap {
             .filter(|&id| {
                 sub_namespace_match(Some(MacroSubNs::from_id(db, id)), expected_macro_subns)
             })
-            .map_or_else(PerNs::none, |m| PerNs::macros(m, Visibility::Public));
+            .map_or_else(PerNs::none, |m| PerNs::macros(m, Visibility::Public, None));
         let from_scope = self[module].scope.get(name).filter_macro(db, expected_macro_subns);
         let from_builtin = match self.block {
             Some(_) => {
@@ -446,15 +457,14 @@ impl DefMap {
                 // Don't resolve extern prelude in block `DefMap`s.
                 return PerNs::none();
             }
-            self.data
-                .extern_prelude
-                .get(name)
-                .map_or(PerNs::none(), |&it| PerNs::types(it.into(), Visibility::Public))
+            self.data.extern_prelude.get(name).map_or(PerNs::none(), |&(it, id)| {
+                PerNs::types(it.into(), Visibility::Public, id.map(ImportOrExternId::ExternCrateId))
+            })
         };
         let macro_use_prelude = || {
-            self.macro_use_prelude
-                .get(name)
-                .map_or(PerNs::none(), |&it| PerNs::macros(it.into(), Visibility::Public))
+            self.macro_use_prelude.get(name).map_or(PerNs::none(), |&(it, _)| {
+                PerNs::macros(it.into(), Visibility::Public, None)
+            })
         };
         let prelude = || self.resolve_in_prelude(db, name);
 
@@ -482,18 +492,16 @@ impl DefMap {
                 // Don't resolve extern prelude in block `DefMap`s.
                 return PerNs::none();
             }
-            self.data
-                .extern_prelude
-                .get(name)
-                .copied()
-                .map_or(PerNs::none(), |it| PerNs::types(it.into(), Visibility::Public))
+            self.data.extern_prelude.get(name).copied().map_or(PerNs::none(), |(it, id)| {
+                PerNs::types(it.into(), Visibility::Public, id.map(ImportOrExternId::ExternCrateId))
+            })
         };
 
         from_crate_root.or_else(from_extern_prelude)
     }
 
     fn resolve_in_prelude(&self, db: &dyn DefDatabase, name: &Name) -> PerNs {
-        if let Some(prelude) = self.prelude {
+        if let Some((prelude, _source)) = self.prelude {
             let keep;
             let def_map = if prelude.krate == self.krate {
                 self

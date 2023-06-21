@@ -89,7 +89,7 @@ fn compute_fields_ranks(
     ctx: &AssistContext<'_>,
 ) -> Option<FxHashMap<String, usize>> {
     let strukt = match ctx.sema.resolve_path(path) {
-        Some(hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Struct(it)))) => it,
+        Some(hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Struct(it)), _)) => it,
         _ => return None,
     };
 

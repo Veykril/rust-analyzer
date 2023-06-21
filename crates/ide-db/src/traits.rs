@@ -14,7 +14,7 @@ pub fn resolve_target_trait(
         impl_def.trait_().map(|it| it.syntax().clone()).and_then(ast::PathType::cast)?.path()?;
 
     match sema.resolve_path(&ast_path) {
-        Some(hir::PathResolution::Def(hir::ModuleDef::Trait(def))) => Some(def),
+        Some(hir::PathResolution::Def(hir::ModuleDef::Trait(def), _)) => Some(def),
         _ => None,
     }
 }

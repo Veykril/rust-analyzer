@@ -11,8 +11,11 @@ use rustc_hash::{FxHashSet, FxHasher};
 use triomphe::Arc;
 
 use crate::{
-    db::DefDatabase, item_scope::ItemInNs, nameres::DefMap, visibility::Visibility, AssocItemId,
-    ModuleDefId, ModuleId, TraitId,
+    db::DefDatabase,
+    item_scope::{ImportOrExternId, ItemInNs},
+    nameres::DefMap,
+    visibility::Visibility,
+    AssocItemId, ModuleDefId, ModuleId, TraitId,
 };
 
 type FxIndexMap<K, V> = IndexMap<K, V, BuildHasherDefault<FxHasher>>;
@@ -26,6 +29,7 @@ pub struct ImportInfo {
     pub container: ModuleId,
     /// Whether the import is a trait associated item or not.
     pub is_trait_assoc_item: bool,
+    pub is_doc_hidden: bool,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -112,11 +116,6 @@ impl ImportMap {
         import_map.importables = importables.iter().map(|&(&item, _)| item).collect();
 
         Arc::new(import_map)
-    }
-
-    /// Returns the `ModPath` needed to import/mention `item`, relative to this crate's root.
-    pub fn path_of(&self, item: ItemInNs) -> Option<&ImportPath> {
-        self.import_info_for(item).map(|it| &it.path)
     }
 
     pub fn import_info_for(&self, item: ItemInNs) -> Option<&ImportInfo> {
@@ -211,11 +210,28 @@ fn collect_import_map(db: &dyn DefDatabase, krate: CrateId) -> ImportMap {
                 path
             };
 
-            for item in per_ns.iter_items() {
+            for (item, import) in per_ns.iter_items() {
+                let attr_id = if let Some(import) = import {
+                    match import {
+                        ImportOrExternId::ExternCrateId(id) => Some(id.into()),
+                        ImportOrExternId::UseId(id) => Some(id.into()),
+                    }
+                } else {
+                    match item {
+                        ItemInNs::Types(id) | ItemInNs::Values(id) => id.try_into().ok(),
+                        ItemInNs::Macros(id) => Some(id.into()),
+                    }
+                };
+
                 let path = mk_path();
                 let path_len = path.len();
-                let import_info =
-                    ImportInfo { path, container: module, is_trait_assoc_item: false };
+                let import_info = ImportInfo {
+                    path,
+                    container: module,
+                    is_trait_assoc_item: false,
+                    is_doc_hidden: attr_id
+                        .map_or(false, |attr_id| db.attrs(attr_id).has_doc_hidden()),
+                };
 
                 if let Some(ModuleDefId::TraitId(tr)) = item.as_module_def_id() {
                     import_map.collect_trait_assoc_items(
@@ -227,16 +243,18 @@ fn collect_import_map(db: &dyn DefDatabase, krate: CrateId) -> ImportMap {
                 }
 
                 match import_map.map.entry(item) {
-                    Entry::Vacant(entry) => {
-                        entry.insert(import_info);
-                    }
+                    Entry::Vacant(entry) => _ = entry.insert(import_info),
                     Entry::Occupied(mut entry) => {
-                        // If the new path is shorter, prefer that one.
-                        if path_len < entry.get().path.len() {
-                            *entry.get_mut() = import_info;
-                        } else {
+                        let occupied = entry.get();
+                        // Prefer the one that is not doc(hidden),
+                        // Otherwise, if both have the same doc(hidden)-ness and the new path is shorter, prefer that one.
+                        let overwrite_entry = occupied.is_doc_hidden && !import_info.is_doc_hidden
+                            || occupied.is_doc_hidden == import_info.is_doc_hidden
+                                && path_len < occupied.path.len();
+                        if !overwrite_entry {
                             continue;
                         }
+                        *entry.get_mut() = import_info;
                     }
                 }
 
@@ -534,7 +552,11 @@ mod tests {
                 let (path, mark) = match assoc_item_path(&db, &dependency_imports, dependency) {
                     Some(assoc_item_path) => (assoc_item_path, "a"),
                     None => (
-                        dependency_imports.path_of(dependency)?.display(&db).to_string(),
+                        dependency_imports
+                            .import_info_for(dependency)?
+                            .path
+                            .display(&db)
+                            .to_string(),
                         match dependency {
                             ItemInNs::Types(ModuleDefId::FunctionId(_))
                             | ItemInNs::Values(ModuleDefId::FunctionId(_)) => "f",
@@ -587,7 +609,7 @@ mod tests {
                 })?;
             return Some(format!(
                 "{}::{}",
-                dependency_imports.path_of(trait_)?.display(db),
+                dependency_imports.import_info_for(trait_)?.path.display(db),
                 assoc_item_name.display(db.upcast())
             ));
         }

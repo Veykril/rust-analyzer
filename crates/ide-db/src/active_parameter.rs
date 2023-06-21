@@ -93,17 +93,17 @@ pub fn generic_def_for_node(
             ast::PathSegment(ps) => {
                 let res = sema.resolve_path(&ps.parent_path())?;
                 let generic_def: hir::GenericDef = match res {
-                    hir::PathResolution::Def(hir::ModuleDef::Adt(it)) => it.into(),
-                    hir::PathResolution::Def(hir::ModuleDef::Function(it)) => it.into(),
-                    hir::PathResolution::Def(hir::ModuleDef::Trait(it)) => it.into(),
-                    hir::PathResolution::Def(hir::ModuleDef::TraitAlias(it)) => it.into(),
-                    hir::PathResolution::Def(hir::ModuleDef::TypeAlias(it)) => it.into(),
-                    hir::PathResolution::Def(hir::ModuleDef::Variant(it)) => it.into(),
-                    hir::PathResolution::Def(hir::ModuleDef::BuiltinType(_))
-                    | hir::PathResolution::Def(hir::ModuleDef::Const(_))
-                    | hir::PathResolution::Def(hir::ModuleDef::Macro(_))
-                    | hir::PathResolution::Def(hir::ModuleDef::Module(_))
-                    | hir::PathResolution::Def(hir::ModuleDef::Static(_)) => return None,
+                    hir::PathResolution::Def(hir::ModuleDef::Adt(it), _) => it.into(),
+                    hir::PathResolution::Def(hir::ModuleDef::Function(it), _) => it.into(),
+                    hir::PathResolution::Def(hir::ModuleDef::Trait(it), _) => it.into(),
+                    hir::PathResolution::Def(hir::ModuleDef::TraitAlias(it), _) => it.into(),
+                    hir::PathResolution::Def(hir::ModuleDef::TypeAlias(it), _) => it.into(),
+                    hir::PathResolution::Def(hir::ModuleDef::Variant(it), _) => it.into(),
+                    hir::PathResolution::Def(hir::ModuleDef::BuiltinType(_), _)
+                    | hir::PathResolution::Def(hir::ModuleDef::Const(_), _)
+                    | hir::PathResolution::Def(hir::ModuleDef::Macro(_), _)
+                    | hir::PathResolution::Def(hir::ModuleDef::Module(_), _)
+                    | hir::PathResolution::Def(hir::ModuleDef::Static(_), _) => return None,
                     hir::PathResolution::BuiltinAttr(_)
                     | hir::PathResolution::ToolModule(_)
                     | hir::PathResolution::Local(_)

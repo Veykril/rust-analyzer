@@ -145,7 +145,12 @@ fn find_definitions(
                     if name
                         .syntax()
                         .parent()
-                        .map_or(false, |it| ast::Rename::can_cast(it.kind())) =>
+                        .map_or(false, |it| ast::Rename::can_cast(it.kind()))
+                        && name
+                            .syntax()
+                            .ancestors()
+                            .nth(2)
+                            .map_or(true, |it| !ast::ExternCrate::can_cast(it.kind())) =>
                 {
                     bail!("Renaming aliases is currently unsupported")
                 }
@@ -164,6 +169,9 @@ fn find_definitions(
                             NameRefClass::Definition(def) => def,
                             NameRefClass::FieldShorthand { local_ref, field_ref: _ } => {
                                 Definition::Local(local_ref)
+                            }
+                            NameRefClass::ExternCrateShorthand { decl, .. } => {
+                                Definition::ExternCrateDecl(decl)
                             }
                         })
                         .ok_or_else(|| format_err!("No references found at position"))
@@ -2486,5 +2494,79 @@ fn main() {
 }
 ",
         )
+    }
+
+    #[test]
+    fn extern_crate() {
+        check(
+            "bar",
+            r"
+//- /lib.rs crate:main deps:foo
+extern crate foo$0;
+
+use foo as qux;
+//- /foo.rs crate:foo
+",
+            r"
+extern crate foo as bar;
+
+use bar as qux;
+",
+        );
+    }
+
+    #[test]
+    fn extern_crate_rename() {
+        check(
+            "bar",
+            r"
+//- /lib.rs crate:main deps:foo
+extern crate foo as qux$0;
+
+use qux as frob;
+//- /foo.rs crate:foo
+",
+            r"
+extern crate foo as bar;
+
+use bar as frob;
+",
+        );
+    }
+
+    #[test]
+    fn extern_crate_self() {
+        check(
+            "bar",
+            r"
+extern crate self$0;
+
+use self as qux;
+",
+            r"
+extern crate self as bar;
+
+use self as qux;
+",
+        );
+    }
+
+    #[test]
+    fn extern_crate_self_rename() {
+        check(
+            "bar",
+            r"
+//- /lib.rs crate:main deps:foo
+extern crate self as qux$0;
+
+use qux as frob;
+//- /foo.rs crate:foo
+",
+            r"
+extern crate self as bar;
+
+use bar as frob;
+",
+        );
     }
 }

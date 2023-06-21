@@ -260,7 +260,7 @@ fn is_invalid_body(
             if let Some(ast::Expr::CallExpr(call)) = e {
                 if let Some(ast::Expr::PathExpr(p)) = call.expr() {
                     let res = p.path().and_then(|p| sema.resolve_path(&p));
-                    if let Some(hir::PathResolution::Def(hir::ModuleDef::Variant(v))) = res {
+                    if let Some(hir::PathResolution::Def(hir::ModuleDef::Variant(v), _)) = res {
                         return invalid |= v != some_variant;
                     }
                 }
@@ -278,7 +278,7 @@ fn block_is_none_variant(
 ) -> bool {
     block_as_lone_tail(block).and_then(|e| match e {
         ast::Expr::PathExpr(pat) => match sema.resolve_path(&pat.path()?)? {
-            hir::PathResolution::Def(hir::ModuleDef::Variant(v)) => Some(v),
+            hir::PathResolution::Def(hir::ModuleDef::Variant(v), _) => Some(v),
             _ => None,
         },
         _ => None,

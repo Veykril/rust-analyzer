@@ -1003,9 +1003,9 @@ impl<'a> InferenceContext<'a> {
             None => return (self.err_ty(), None),
         };
         let ctx = crate::lower::TyLoweringContext::new(self.db, &self.resolver, self.owner.into());
-        let (resolution, unresolved) = if value_ns {
+        let (resolution, unresolved, _import) = if value_ns {
             match self.resolver.resolve_path_in_value_ns(self.db.upcast(), path) {
-                Some(ResolveValueResult::ValueNs(value)) => match value {
+                Some(ResolveValueResult::ValueNs(value, _)) => match value {
                     ValueNs::EnumVariantId(var) => {
                         let substs = ctx.substs_from_path(path, var.into(), true);
                         let ty = self.db.ty(var.parent.into());
@@ -1018,10 +1018,12 @@ impl<'a> InferenceContext<'a> {
                         let ty = self.insert_type_vars(ty.substitute(Interner, &substs));
                         return (ty, Some(strukt.into()));
                     }
-                    ValueNs::ImplSelf(impl_id) => (TypeNs::SelfType(impl_id), None),
+                    ValueNs::ImplSelf(impl_id) => (TypeNs::SelfType(impl_id), None, None),
                     _ => return (self.err_ty(), None),
                 },
-                Some(ResolveValueResult::Partial(typens, unresolved)) => (typens, Some(unresolved)),
+                Some(ResolveValueResult::Partial(typens, unresolved, _)) => {
+                    (typens, Some(unresolved), None)
+                }
                 None => return (self.err_ty(), None),
             }
         } else {

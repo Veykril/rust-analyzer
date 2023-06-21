@@ -3,13 +3,19 @@
 //!
 //! `PerNs` (per namespace) captures this.
 
-use crate::{item_scope::ItemInNs, visibility::Visibility, MacroId, ModuleDefId};
+use crate::{
+    item_scope::{ImportOrExternId, ItemInNs, UseId},
+    visibility::Visibility,
+    MacroId, ModuleDefId,
+};
 
+/// A set of items belonging to the same name in different namespaces, with their visibilities
+/// and possible the imports that brought them into scope.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PerNs {
-    pub types: Option<(ModuleDefId, Visibility)>,
-    pub values: Option<(ModuleDefId, Visibility)>,
-    pub macros: Option<(MacroId, Visibility)>,
+    pub types: Option<(ModuleDefId, Visibility, Option<ImportOrExternId>)>,
+    pub values: Option<(ModuleDefId, Visibility, Option<UseId>)>,
+    pub macros: Option<(MacroId, Visibility, Option<UseId>)>,
 }
 
 impl Default for PerNs {
@@ -23,20 +29,29 @@ impl PerNs {
         PerNs { types: None, values: None, macros: None }
     }
 
-    pub fn values(t: ModuleDefId, v: Visibility) -> PerNs {
-        PerNs { types: None, values: Some((t, v)), macros: None }
+    pub fn values(t: ModuleDefId, v: Visibility, import: Option<UseId>) -> PerNs {
+        PerNs { types: None, values: Some((t, v, import)), macros: None }
     }
 
-    pub fn types(t: ModuleDefId, v: Visibility) -> PerNs {
-        PerNs { types: Some((t, v)), values: None, macros: None }
+    pub fn types(t: ModuleDefId, v: Visibility, import: Option<ImportOrExternId>) -> PerNs {
+        PerNs { types: Some((t, v, import)), values: None, macros: None }
     }
 
-    pub fn both(types: ModuleDefId, values: ModuleDefId, v: Visibility) -> PerNs {
-        PerNs { types: Some((types, v)), values: Some((values, v)), macros: None }
+    pub fn both(
+        types: ModuleDefId,
+        values: ModuleDefId,
+        v: Visibility,
+        import: Option<ImportOrExternId>,
+    ) -> PerNs {
+        PerNs {
+            types: Some((types, v, import)),
+            values: Some((values, v, import.and_then(ImportOrExternId::import))),
+            macros: None,
+        }
     }
 
-    pub fn macros(macro_: MacroId, v: Visibility) -> PerNs {
-        PerNs { types: None, values: None, macros: Some((macro_, v)) }
+    pub fn macros(macro_: MacroId, v: Visibility, import: Option<UseId>) -> PerNs {
+        PerNs { types: None, values: None, macros: Some((macro_, v, import)) }
     }
 
     pub fn is_none(&self) -> bool {
@@ -51,7 +66,7 @@ impl PerNs {
         self.types.map(|it| it.0)
     }
 
-    pub fn take_types_vis(self) -> Option<(ModuleDefId, Visibility)> {
+    pub fn take_types_all(self) -> Option<(ModuleDefId, Visibility, Option<ImportOrExternId>)> {
         self.types
     }
 
@@ -59,24 +74,46 @@ impl PerNs {
         self.values.map(|it| it.0)
     }
 
+    pub fn take_values_all(self) -> Option<(ModuleDefId, Visibility, Option<UseId>)> {
+        self.values
+    }
+
     pub fn take_macros(self) -> Option<MacroId> {
         self.macros.map(|it| it.0)
+    }
+
+    pub fn take_macros_all(self) -> Option<(MacroId, Visibility, Option<UseId>)> {
+        self.macros
+    }
+
+    pub fn types_only(mut self) -> Self {
+        self.values = None;
+        self.macros = None;
+        self
     }
 
     pub fn filter_visibility(self, mut f: impl FnMut(Visibility) -> bool) -> PerNs {
         let _p = profile::span("PerNs::filter_visibility");
         PerNs {
-            types: self.types.filter(|(_, v)| f(*v)),
-            values: self.values.filter(|(_, v)| f(*v)),
-            macros: self.macros.filter(|(_, v)| f(*v)),
+            types: self.types.filter(|(_, v, _)| f(*v)),
+            values: self.values.filter(|(_, v, _)| f(*v)),
+            macros: self.macros.filter(|(_, v, _)| f(*v)),
         }
     }
 
     pub fn with_visibility(self, vis: Visibility) -> PerNs {
         PerNs {
-            types: self.types.map(|(it, _)| (it, vis)),
-            values: self.values.map(|(it, _)| (it, vis)),
-            macros: self.macros.map(|(it, _)| (it, vis)),
+            types: self.types.map(|(it, _, import)| (it, vis, import)),
+            values: self.values.map(|(it, _, import)| (it, vis, import)),
+            macros: self.macros.map(|(it, _, import)| (it, vis, import)),
+        }
+    }
+
+    pub fn with_import(self, import: ImportOrExternId) -> PerNs {
+        PerNs {
+            types: self.types.map(|(it, vis, _)| (it, vis, Some(import))),
+            values: self.values.map(|(it, vis, _)| (it, vis, import.import())),
+            macros: self.macros.map(|(it, vis, _)| (it, vis, import.import())),
         }
     }
 
@@ -96,12 +133,20 @@ impl PerNs {
         }
     }
 
-    pub fn iter_items(self) -> impl Iterator<Item = ItemInNs> {
+    pub fn iter_items(self) -> impl Iterator<Item = (ItemInNs, Option<ImportOrExternId>)> {
         let _p = profile::span("PerNs::iter_items");
         self.types
-            .map(|it| ItemInNs::Types(it.0))
+            .map(|(it, _, import)| (ItemInNs::Types(it), import))
             .into_iter()
-            .chain(self.values.map(|it| ItemInNs::Values(it.0)).into_iter())
-            .chain(self.macros.map(|it| ItemInNs::Macros(it.0)).into_iter())
+            .chain(
+                self.values
+                    .map(|(it, _, import)| (ItemInNs::Values(it), import.map(Into::into)))
+                    .into_iter(),
+            )
+            .chain(
+                self.macros
+                    .map(|(it, _, import)| (ItemInNs::Macros(it), import.map(Into::into)))
+                    .into_iter(),
+            )
     }
 }

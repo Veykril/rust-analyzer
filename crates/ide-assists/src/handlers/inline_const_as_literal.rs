@@ -24,7 +24,7 @@ use crate::{AssistContext, AssistId, AssistKind, Assists};
 pub(crate) fn inline_const_as_literal(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<()> {
     let variable = ctx.find_node_at_offset::<ast::PathExpr>()?;
 
-    if let hir::PathResolution::Def(hir::ModuleDef::Const(konst)) =
+    if let hir::PathResolution::Def(hir::ModuleDef::Const(konst), _) =
         ctx.sema.resolve_path(&variable.path()?)?
     {
         let konst_ty = konst.ty(ctx.sema.db);

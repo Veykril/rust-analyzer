@@ -137,6 +137,9 @@ pub(crate) fn find_defs<'a>(
                             NameRefClass::FieldShorthand { local_ref, field_ref: _ } => {
                                 Definition::Local(local_ref)
                             }
+                            NameRefClass::ExternCrateShorthand { decl, .. } => {
+                                Definition::ExternCrateDecl(decl)
+                            }
                         }
                     }
                     ast::NameLike::Name(name) => match NameClass::classify(sema, &name)? {
@@ -252,7 +255,7 @@ fn is_enum_lit_name_ref(
     let path_is_variant_of_enum = |path: ast::Path| {
         matches!(
             sema.resolve_path(&path),
-            Some(PathResolution::Def(hir::ModuleDef::Variant(variant)))
+            Some(PathResolution::Def(hir::ModuleDef::Variant(variant), _))
                 if variant.parent_enum(sema.db) == enum_
         )
     };

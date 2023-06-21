@@ -25,6 +25,17 @@ pub enum ImportAlias {
     Alias(Name),
 }
 
+impl ImportAlias {
+    pub fn alias(&self) -> Option<&Name> {
+        match self {
+            ImportAlias::Underscore => None,
+            ImportAlias::Alias(name) => Some(name),
+        }
+    }
+}
+
+// FIXME: This display impl shouldn't exist,we should have a `fn() -> impl Display` function that
+// requires the database
 impl Display for ImportAlias {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

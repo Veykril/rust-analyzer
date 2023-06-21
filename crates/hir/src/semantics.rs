@@ -8,6 +8,7 @@ use base_db::{FileId, FileRange};
 use either::Either;
 use hir_def::{
     hir::Expr,
+    item_scope::ImportOrExternId,
     lower::LowerCtx,
     macro_id_to_def_id,
     nameres::MacroSubNs,
@@ -15,11 +16,7 @@ use hir_def::{
     type_ref::Mutability,
     AsMacroCall, DefWithBodyId, FieldId, FunctionId, MacroId, TraitId, VariantId,
 };
-use hir_expand::{
-    db::ExpandDatabase,
-    name::{known, AsName},
-    ExpansionInfo, MacroCallId,
-};
+use hir_expand::{db::ExpandDatabase, name::AsName, ExpansionInfo, MacroCallId};
 use itertools::Itertools;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{smallvec, SmallVec};
@@ -42,7 +39,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathResolution {
     /// An item
-    Def(ModuleDef),
+    Def(ModuleDef, Option<ImportOrExternId>),
     /// A local binding (only value namespace)
     Local(Local),
     /// A type parameter
@@ -56,32 +53,33 @@ pub enum PathResolution {
 }
 
 impl PathResolution {
-    pub(crate) fn in_type_ns(&self) -> Option<TypeNs> {
+    pub(crate) fn in_type_ns(&self) -> Option<(TypeNs, Option<ImportOrExternId>)> {
         match self {
-            PathResolution::Def(ModuleDef::Adt(adt)) => Some(TypeNs::AdtId((*adt).into())),
-            PathResolution::Def(ModuleDef::BuiltinType(builtin)) => {
-                Some(TypeNs::BuiltinType((*builtin).into()))
-            }
-            PathResolution::Def(
-                ModuleDef::Const(_)
-                | ModuleDef::Variant(_)
-                | ModuleDef::Macro(_)
-                | ModuleDef::Function(_)
-                | ModuleDef::Module(_)
-                | ModuleDef::Static(_)
-                | ModuleDef::Trait(_)
-                | ModuleDef::TraitAlias(_),
-            ) => None,
-            PathResolution::Def(ModuleDef::TypeAlias(alias)) => {
-                Some(TypeNs::TypeAliasId((*alias).into()))
-            }
+            &PathResolution::Def(def, import) => Some((
+                match def {
+                    ModuleDef::Adt(adt) => TypeNs::AdtId((adt).into()),
+                    ModuleDef::TypeAlias(alias) => TypeNs::TypeAliasId((alias).into()),
+                    ModuleDef::BuiltinType(builtin) => TypeNs::BuiltinType((builtin).into()),
+                    ModuleDef::Module(_)
+                    | ModuleDef::Function(_)
+                    | ModuleDef::Variant(_)
+                    | ModuleDef::Const(_)
+                    | ModuleDef::Static(_)
+                    | ModuleDef::Trait(_)
+                    | ModuleDef::TraitAlias(_)
+                    | ModuleDef::Macro(_) => return None,
+                },
+                import,
+            )),
             PathResolution::BuiltinAttr(_)
             | PathResolution::ToolModule(_)
             | PathResolution::Local(_)
             | PathResolution::DeriveHelper(_)
             | PathResolution::ConstParam(_) => None,
-            PathResolution::TypeParam(param) => Some(TypeNs::GenericParam((*param).into())),
-            PathResolution::SelfType(impl_def) => Some(TypeNs::SelfType((*impl_def).into())),
+            PathResolution::TypeParam(param) => Some((TypeNs::GenericParam((*param).into()), None)),
+            PathResolution::SelfType(impl_def) => {
+                Some((TypeNs::SelfType((*impl_def).into()), None))
+            }
         }
     }
 }
@@ -439,10 +437,6 @@ impl<'db, DB: HirDatabase> Semantics<'db, DB> {
         self.imp.resolve_path(path)
     }
 
-    pub fn resolve_extern_crate(&self, extern_crate: &ast::ExternCrate) -> Option<Crate> {
-        self.imp.resolve_extern_crate(extern_crate)
-    }
-
     pub fn resolve_variant(&self, record_lit: ast::RecordExpr) -> Option<VariantDef> {
         self.imp.resolve_variant(record_lit).map(VariantDef::from)
     }
@@ -614,7 +608,7 @@ impl<'db> SemanticsImpl<'db> {
         let macro_call_id = macro_call.as_call_id(self.db.upcast(), krate, |path| {
             resolver
                 .resolve_path_as_macro(self.db.upcast(), &path, Some(MacroSubNs::Bang))
-                .map(|it| macro_id_to_def_id(self.db.upcast(), it))
+                .map(|(it, _)| macro_id_to_def_id(self.db.upcast(), it))
         })?;
         hir_expand::db::expand_speculative(
             self.db.upcast(),
@@ -1085,7 +1079,7 @@ impl<'db> SemanticsImpl<'db> {
         let ctx = LowerCtx::with_hygiene(self.db.upcast(), &hygiene);
         let hir_path = Path::from_src(path.clone(), &ctx)?;
         match analyze.resolver.resolve_path_in_type_ns_fully(self.db.upcast(), &hir_path)? {
-            TypeNs::TraitId(id) => Some(Trait { id }),
+            (TypeNs::TraitId(id), _) => Some(Trait { id }),
             _ => None,
         }
     }
@@ -1242,24 +1236,12 @@ impl<'db> SemanticsImpl<'db> {
         self.analyze(path.syntax())?.resolve_path(self.db, path)
     }
 
-    fn resolve_extern_crate(&self, extern_crate: &ast::ExternCrate) -> Option<Crate> {
-        let krate = self.scope(extern_crate.syntax())?.krate();
-        let name = extern_crate.name_ref()?.as_name();
-        if name == known::SELF_PARAM {
-            return Some(krate);
-        }
-        krate
-            .dependencies(self.db)
-            .into_iter()
-            .find_map(|dep| (dep.name == name).then_some(dep.krate))
-    }
-
     fn resolve_variant(&self, record_lit: ast::RecordExpr) -> Option<VariantId> {
         self.analyze(record_lit.syntax())?.resolve_variant(self.db, record_lit)
     }
 
     fn resolve_bind_pat_to_const(&self, pat: &ast::IdentPat) -> Option<ModuleDef> {
-        self.analyze(pat.syntax())?.resolve_bind_pat_to_const(self.db, pat)
+        self.analyze(pat.syntax())?.resolve_bind_pat_to_const(self.db, pat).map(|(def, _)| def)
     }
 
     fn record_literal_missing_fields(&self, literal: &ast::RecordExpr) -> Vec<(Field, Type)> {
@@ -1599,6 +1581,7 @@ to_def_impls![
     (crate::Local, ast::SelfParam, self_param_to_def),
     (crate::Label, ast::Label, label_to_def),
     (crate::Adt, ast::Adt, adt_to_def),
+    (crate::ExternCrateDecl, ast::ExternCrate, extern_crate_to_def),
 ];
 
 fn find_root(node: &SyntaxNode) -> SyntaxNode {
@@ -1694,7 +1677,7 @@ impl<'a> SemanticsScope<'a> {
         hir_ty::associated_type_shorthand_candidates(
             self.db,
             def,
-            resolution.in_type_ns()?,
+            resolution.in_type_ns()?.0,
             |name, id| cb(name, id.into()),
         )
     }

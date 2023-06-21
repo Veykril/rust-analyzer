@@ -300,6 +300,7 @@ impl CompletionItemKind {
                 SymbolKind::Derive => "de",
                 SymbolKind::DeriveHelper => "dh",
                 SymbolKind::Enum => "en",
+                SymbolKind::ExternCrate => "ec",
                 SymbolKind::Field => "fd",
                 SymbolKind::Function => "fn",
                 SymbolKind::Impl => "im",

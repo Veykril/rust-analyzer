@@ -13,7 +13,7 @@ pub(crate) fn complete_vis_path(
 ) {
     match qualified {
         Qualified::With {
-            resolution: Some(hir::PathResolution::Def(hir::ModuleDef::Module(module))),
+            resolution: Some(hir::PathResolution::Def(hir::ModuleDef::Module(module), _)),
             super_chain_len,
             ..
         } => {
