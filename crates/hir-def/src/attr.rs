@@ -417,6 +417,30 @@ impl AttrsWithOwner {
                     ),
                 }
             }
+            AttrDefId::ExternCrateId(it) => {
+                // let loc = it.lookup(db);
+                // let item_tree = loc.id.item_tree(db);
+
+                // let decl_attrs =
+                //     item_tree.raw_attrs(AttrOwner::ModItem(loc.id.value.into())).clone();
+                // let extern_crate = &item_tree[loc.id.value];
+                // let name = extern_crate.name.clone();
+                // // FIXME: Encode this in DefMapCrateData?
+                // let crate_id = loc
+                //     .container
+                //     .def_map(db)
+                //     .extern_prelude()
+                //     .find(|&(prelude_name, _)| *prelude_name == name)
+                //     .unwrap()
+                //     .1
+                //     .krate();
+                // let root = db.crate_graph()[crate_id].root_file_id;
+                // let tree = db.file_item_tree(root.into());
+                // let def_attrs = tree.raw_attrs(AttrOwner::TopLevel).clone();
+
+                // decl_attrs.merge(def_attrs)
+                attrs_from_item_tree_loc(db, it)
+            }
             AttrDefId::FieldId(it) => {
                 return db.fields_attrs(it.parent)[it.local_id].clone();
             }
@@ -462,7 +486,6 @@ impl AttrsWithOwner {
                 }
             },
             AttrDefId::ExternBlockId(it) => attrs_from_item_tree_loc(db, it),
-            AttrDefId::ExternCrateId(it) => attrs_from_item_tree_loc(db, it),
         };
 
         let attrs = raw_attrs.filter(db.upcast(), def.krate(db));

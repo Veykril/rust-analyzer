@@ -343,6 +343,8 @@ pub enum SymbolKind {
     Derive,
     DeriveHelper,
     Enum,
+    // TODO: Verify usages of SymbolKind, check where we might want to emit this
+    ExternCrate,
     Field,
     Function,
     Impl,

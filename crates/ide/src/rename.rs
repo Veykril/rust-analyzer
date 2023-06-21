@@ -165,6 +165,9 @@ fn find_definitions(
                             NameRefClass::FieldShorthand { local_ref, field_ref: _ } => {
                                 Definition::Local(local_ref)
                             }
+                            NameRefClass::ExternCrateShorthand { decl, .. } => {
+                                Definition::ExternCrateDecl(decl)
+                            }
                         })
                         .ok_or_else(|| format_err!("No references found at position"))
                         .and_then(|def| {

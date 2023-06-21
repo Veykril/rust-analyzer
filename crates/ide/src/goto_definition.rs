@@ -1,6 +1,9 @@
 use std::mem::discriminant;
 
-use crate::{doc_links::token_as_doc_comment, FilePosition, NavigationTarget, RangeInfo, TryToNav};
+use crate::{
+    doc_links::token_as_doc_comment, navigation_target::ToNav, FilePosition, NavigationTarget,
+    RangeInfo, TryToNav,
+};
 use hir::{AsAssocItem, AssocItem, Semantics};
 use ide_db::{
     base_db::{AnchoredPath, FileId, FileLoader},
@@ -70,9 +73,15 @@ pub(crate) fn goto_definition(
             }
             Some(
                 IdentClass::classify_token(sema, &token)?
-                    .definitions()
+                    .definitions(sema)
                     .into_iter()
                     .flat_map(|def| {
+                        if let Definition::ExternCrateDecl(crate_def) = def {
+                            return vec![crate_def
+                                .resolved_crate(db)
+                                .root_module(db)
+                                .to_nav(sema.db)];
+                        }
                         try_filter_trait_item_definition(sema, &def)
                             .unwrap_or_else(|| def_to_nav(sema.db, def))
                     })

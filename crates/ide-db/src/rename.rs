@@ -146,6 +146,12 @@ impl Definition {
                 let lifetime = src.value.lifetime()?;
                 src.with_value(lifetime.syntax()).original_file_range_opt(sema.db)
             }
+            Definition::ExternCrateDecl(it) => {
+                let src = it.source(sema.db)?;
+                let rename = src.value.rename()?;
+                let name = rename.name()?;
+                src.with_value(name.syntax()).original_file_range_opt(sema.db)
+            }
             Definition::BuiltinType(_) => return None,
             Definition::SelfType(_) => return None,
             Definition::BuiltinAttr(_) => return None,

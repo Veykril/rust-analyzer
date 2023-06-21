@@ -138,6 +138,7 @@ impl HlTag {
                 SymbolKind::Derive => "derive",
                 SymbolKind::DeriveHelper => "derive_helper",
                 SymbolKind::Enum => "enum",
+                SymbolKind::ExternCrate => "extern_crate",
                 SymbolKind::Field => "field",
                 SymbolKind::Function => "function",
                 SymbolKind::Impl => "self_type",

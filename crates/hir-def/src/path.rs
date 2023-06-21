@@ -25,6 +25,8 @@ pub enum ImportAlias {
     Alias(Name),
 }
 
+// FIXME: This display impl shouldn't exist,we should have a `fn() -> impl Display` function that
+// requires the database
 impl Display for ImportAlias {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

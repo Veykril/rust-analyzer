@@ -47,7 +47,8 @@ from_id![
     (hir_def::TypeParamId, crate::TypeParam),
     (hir_def::ConstParamId, crate::ConstParam),
     (hir_def::LifetimeParamId, crate::LifetimeParam),
-    (hir_def::MacroId, crate::Macro)
+    (hir_def::MacroId, crate::Macro),
+    (hir_def::ExternCrateId, crate::ExternCrateDecl)
 ];
 
 impl From<AdtId> for Adt {

@@ -52,10 +52,10 @@ use hir_def::{
     resolver::{HasResolver, Resolver},
     src::HasSource as _,
     AssocItemId, AssocItemLoc, AttrDefId, ConstId, ConstParamId, DefWithBodyId, EnumId,
-    EnumVariantId, FunctionId, GenericDefId, HasModule, ImplId, InTypeConstId, ItemContainerId,
-    LifetimeParamId, LocalEnumVariantId, LocalFieldId, Lookup, MacroExpander, MacroId, ModuleId,
-    StaticId, StructId, TraitAliasId, TraitId, TypeAliasId, TypeOrConstParamId, TypeParamId,
-    UnionId,
+    EnumVariantId, ExternCrateId, FunctionId, GenericDefId, HasModule, ImplId, InTypeConstId,
+    ItemContainerId, LifetimeParamId, LocalEnumVariantId, LocalFieldId, Lookup, MacroExpander,
+    MacroId, ModuleId, StaticId, StructId, TraitAliasId, TraitId, TypeAliasId, TypeOrConstParamId,
+    TypeParamId, UnionId,
 };
 use hir_expand::{name::name, MacroCallKind};
 use hir_ty::{
@@ -120,7 +120,7 @@ pub use {
         import_map,
         lang_item::LangItem,
         nameres::{DefMap, ModuleSource},
-        path::{ModPath, PathKind},
+        path::{ImportAlias, ModPath, PathKind},
         type_ref::{Mutability, TypeRef},
         visibility::Visibility,
         // FIXME: This is here since some queries take it as input that are used
@@ -1821,6 +1821,48 @@ impl DefWithBody {
         for diag in hir_ty::diagnostics::incorrect_case(db, krate, def.into()) {
             acc.push(diag.into())
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ExternCrateDecl {
+    pub(crate) id: ExternCrateId,
+}
+
+impl ExternCrateDecl {
+    pub fn module(self, db: &dyn HirDatabase) -> Module {
+        self.id.module(db.upcast()).into()
+    }
+
+    pub fn resolved_crate(self, db: &dyn HirDatabase) -> Crate {
+        db.extern_crate_decl_data(self.id).crate_id.into()
+    }
+
+    pub fn name(self, db: &dyn HirDatabase) -> Name {
+        db.extern_crate_decl_data(self.id).name.clone()
+    }
+
+    pub fn alias(self, db: &dyn HirDatabase) -> Option<ImportAlias> {
+        db.extern_crate_decl_data(self.id).alias.clone()
+    }
+
+    /// Returns the name under which this crate is made accessible, taking `_` into account.
+    pub fn alias_or_name(self, db: &dyn HirDatabase) -> Option<Name> {
+        let extern_crate_decl_data = db.extern_crate_decl_data(self.id);
+        match &extern_crate_decl_data.alias {
+            Some(ImportAlias::Underscore) => None,
+            Some(ImportAlias::Alias(alias)) => Some(alias.clone()),
+            None => Some(extern_crate_decl_data.name.clone()),
+        }
+    }
+}
+
+/// Variants inherit visibility from the parent enum.
+impl HasVisibility for ExternCrateDecl {
+    fn visibility(&self, db: &dyn HirDatabase) -> Visibility {
+        db.extern_crate_decl_data(self.id)
+            .visibility
+            .resolve(db.upcast(), &self.id.resolver(db.upcast()))
     }
 }
 
@@ -4678,6 +4720,12 @@ impl HasContainer for Module {
             Some(parent_id) => ItemContainer::Module(Module { id: def_map.module_id(parent_id) }),
             None => ItemContainer::Crate(def_map.krate()),
         }
+    }
+}
+
+impl HasContainer for ExternCrateDecl {
+    fn container(&self, db: &dyn HirDatabase) -> ItemContainer {
+        container_id_to_hir(self.id.lookup(db.upcast()).container.into())
     }
 }
 

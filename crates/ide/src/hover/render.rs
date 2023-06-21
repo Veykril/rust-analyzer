@@ -257,7 +257,7 @@ pub(super) fn keyword(
     let KeywordHint { description, keyword_mod, actions } = keyword_hints(sema, token, parent);
 
     let doc_owner = find_std_module(&famous_defs, &keyword_mod)?;
-    let docs = doc_owner.attrs(sema.db).docs()?;
+    let docs = doc_owner.docs(sema.db)?;
     let markup = process_markup(
         sema.db,
         Definition::Module(doc_owner),
@@ -411,6 +411,7 @@ pub(super) fn definition(
             },
         ),
         Definition::Module(it) => label_and_docs(db, it),
+        Definition::ExternCrateDecl(it) => label_and_docs(db, it),
         Definition::Function(it) => label_and_docs(db, it),
         Definition::Adt(it) => {
             label_and_layout_info_and_docs(db, it, config, |&it| it.layout(db), |_| None)
@@ -620,7 +621,7 @@ where
     D: HasAttrs + HirDisplay,
 {
     let label = def.display(db).to_string();
-    let docs = def.attrs(db).docs();
+    let docs = def.docs(db);
     (label, docs)
 }
 
@@ -645,7 +646,7 @@ where
     ) {
         format_to!(label, "{layout}");
     }
-    let docs = def.attrs(db).docs();
+    let docs = def.docs(db);
     (label, docs)
 }
 
@@ -677,7 +678,7 @@ where
     ) {
         format_to!(label, "{layout}");
     }
-    let docs = def.attrs(db).docs();
+    let docs = def.docs(db);
     (label, docs)
 }
 
@@ -696,7 +697,7 @@ where
     } else {
         def.display(db).to_string()
     };
-    let docs = def.attrs(db).docs();
+    let docs = def.docs(db);
     (label, docs)
 }
 
@@ -727,7 +728,7 @@ fn builtin(famous_defs: &FamousDefs<'_, '_>, builtin: hir::BuiltinType) -> Optio
     // std exposes prim_{} modules with docstrings on the root to document the builtins
     let primitive_mod = format!("prim_{}", builtin.name().display(famous_defs.0.db));
     let doc_owner = find_std_module(famous_defs, &primitive_mod)?;
-    let docs = doc_owner.attrs(famous_defs.0.db).docs()?;
+    let docs = doc_owner.docs(famous_defs.0.db)?;
     markup(Some(docs.into()), builtin.name().display(famous_defs.0.db).to_string(), None)
 }
 
