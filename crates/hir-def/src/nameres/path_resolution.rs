@@ -293,7 +293,7 @@ impl DefMap {
                     Some((_, segment)) => segment,
                     None => return ResolvePathResult::empty(ReachedFixedPoint::Yes),
                 };
-                if let Some(&def) = self.data.extern_prelude.get(segment) {
+                if let Some(&(def, _)) = self.data.extern_prelude.get(segment) {
                     tracing::debug!("absolute path {:?} resolved to crate {:?}", path, def);
                     PerNs::types(def.into(), Visibility::Public)
                 } else {
@@ -449,7 +449,7 @@ impl DefMap {
             self.data
                 .extern_prelude
                 .get(name)
-                .map_or(PerNs::none(), |&it| PerNs::types(it.into(), Visibility::Public))
+                .map_or(PerNs::none(), |&(it, _)| PerNs::types(it.into(), Visibility::Public))
         };
         let macro_use_prelude = || {
             self.macro_use_prelude
@@ -486,7 +486,7 @@ impl DefMap {
                 .extern_prelude
                 .get(name)
                 .copied()
-                .map_or(PerNs::none(), |it| PerNs::types(it.into(), Visibility::Public))
+                .map_or(PerNs::none(), |(it, _)| PerNs::types(it.into(), Visibility::Public))
         };
 
         from_crate_root.or_else(from_extern_prelude)

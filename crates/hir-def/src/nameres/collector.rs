@@ -52,10 +52,10 @@ use crate::{
     tt,
     visibility::{RawVisibility, Visibility},
     AdtId, AstId, AstIdWithPath, ConstLoc, CrateRootModuleId, EnumLoc, EnumVariantId,
-    ExternBlockLoc, ExternCrateLoc, FunctionId, FunctionLoc, ImplLoc, ImportLoc, Intern,
-    ItemContainerId, LocalModuleId, Macro2Id, Macro2Loc, MacroExpander, MacroId, MacroRulesId,
-    MacroRulesLoc, ModuleDefId, ModuleId, ProcMacroId, ProcMacroLoc, StaticLoc, StructLoc,
-    TraitAliasLoc, TraitLoc, TypeAliasLoc, UnionLoc, UnresolvedMacro,
+    ExternBlockLoc, ExternCrateId, ExternCrateLoc, FunctionId, FunctionLoc, ImplLoc, ImportLoc,
+    Intern, ItemContainerId, LocalModuleId, Macro2Id, Macro2Loc, MacroExpander, MacroId,
+    MacroRulesId, MacroRulesLoc, ModuleDefId, ModuleId, ProcMacroId, ProcMacroLoc, StaticLoc,
+    StructLoc, TraitAliasLoc, TraitLoc, TypeAliasLoc, UnionLoc, UnresolvedMacro,
 };
 
 static GLOB_RECURSION_LIMIT: Limit = Limit::new(100);
@@ -147,7 +147,7 @@ impl PartialResolvedImport {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum ImportSource {
     Import { id: ItemTreeId<item_tree::Import>, use_tree: Idx<ast::UseTree> },
-    ExternCrate(ItemTreeId<item_tree::ExternCrate>),
+    ExternCrate(ItemTreeId<item_tree::ExternCrate>, ExternCrateId),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -191,6 +191,7 @@ impl Import {
         krate: CrateId,
         tree: &ItemTree,
         id: ItemTreeId<item_tree::ExternCrate>,
+        id2: ExternCrateId,
     ) -> Self {
         let it = &tree[id.value];
         let attrs = &tree.attrs(db, krate, ModItem::from(id.value).into());
@@ -202,7 +203,7 @@ impl Import {
             kind: ImportKind::Plain,
             is_prelude: false,
             is_macro_use: attrs.by_key("macro_use").exists(),
-            source: ImportSource::ExternCrate(id),
+            source: ImportSource::ExternCrate(id, id2),
         }
     }
 }
@@ -280,7 +281,7 @@ impl DefCollector<'_> {
             if dep.is_prelude() {
                 crate_data
                     .extern_prelude
-                    .insert(name.clone(), CrateRootModuleId { krate: dep.crate_id });
+                    .insert(name.clone(), (CrateRootModuleId { krate: dep.crate_id }, None));
             }
         }
 
@@ -862,17 +863,17 @@ impl DefCollector<'_> {
                 tracing::debug!("resolved import {:?} ({:?}) to {:?}", name, import, def);
 
                 // extern crates in the crate root are special-cased to insert entries into the extern prelude: rust-lang/rust#54658
-                if matches!(import.source, ImportSource::ExternCrate { .. })
-                    && self.def_map.block.is_none()
-                    && module_id == DefMap::ROOT
-                {
-                    if let (Some(ModuleDefId::ModuleId(def)), Some(name)) = (def.take_types(), name)
-                    {
-                        if let Ok(def) = def.try_into() {
-                            Arc::get_mut(&mut self.def_map.data)
-                                .unwrap()
-                                .extern_prelude
-                                .insert(name.clone(), def);
+                if let ImportSource::ExternCrate(_, id) = import.source {
+                    if self.def_map.block.is_none() && module_id == DefMap::ROOT {
+                        if let (Some(ModuleDefId::ModuleId(def)), Some(name)) =
+                            (def.take_types(), name)
+                        {
+                            if let Ok(def) = def.try_into() {
+                                Arc::get_mut(&mut self.def_map.data)
+                                    .unwrap()
+                                    .extern_prelude
+                                    .insert(name.clone(), (def, Some(id)));
+                            }
                         }
                     }
                 }
@@ -1463,7 +1464,7 @@ impl DefCollector<'_> {
         // heuristic, but it works in practice.
         let mut diagnosed_extern_crates = FxHashSet::default();
         for directive in &self.unresolved_imports {
-            if let ImportSource::ExternCrate(krate) = directive.import.source {
+            if let ImportSource::ExternCrate(krate, _) = directive.import.source {
                 let item_tree = krate.item_tree(self.db);
                 let extern_crate = &item_tree[krate.value];
 
@@ -1615,6 +1616,7 @@ impl ModCollector<'_, '_> {
                             krate,
                             self.item_tree,
                             ItemTreeId::new(self.tree_id, import_id),
+                            extern_crate_id,
                         ),
                         status: PartialResolvedImport::Unresolved,
                     })

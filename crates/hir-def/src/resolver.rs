@@ -148,7 +148,7 @@ impl Resolver {
         self.resolve_module_path(db, path, BuiltinShadowMode::Module)
     }
 
-    // FIXME: This shouldn't exist
+    // FIXME: This shouldn't exist, we are trying to do very stupid type path resolution here
     pub fn resolve_module_path_in_trait_assoc_items(
         &self,
         db: &dyn DefDatabase,

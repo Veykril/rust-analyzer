@@ -77,8 +77,8 @@ use crate::{
     path::ModPath,
     per_ns::PerNs,
     visibility::Visibility,
-    AstId, BlockId, BlockLoc, CrateRootModuleId, FunctionId, LocalModuleId, Lookup, MacroExpander,
-    MacroId, ModuleId, ProcMacroId,
+    AstId, BlockId, BlockLoc, CrateRootModuleId, ExternCrateId, FunctionId, LocalModuleId, Lookup,
+    MacroExpander, MacroId, ModuleId, ProcMacroId,
 };
 
 /// Contains the results of (early) name resolution.
@@ -125,7 +125,7 @@ pub struct DefMap {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct DefMapCrateData {
     /// The extern prelude which contains all root modules of external crates that are in scope.
-    extern_prelude: FxHashMap<Name, CrateRootModuleId>,
+    extern_prelude: FxHashMap<Name, (CrateRootModuleId, Option<ExternCrateId>)>,
 
     /// Side table for resolving derive helpers.
     exported_derives: FxHashMap<MacroDefId, Box<[Name]>>,
@@ -426,7 +426,7 @@ impl DefMap {
     }
 
     pub(crate) fn extern_prelude(&self) -> impl Iterator<Item = (&Name, ModuleId)> + '_ {
-        self.data.extern_prelude.iter().map(|(name, &def)| (name, def.into()))
+        self.data.extern_prelude.iter().map(|(name, &(def, _))| (name, def.into()))
     }
 
     pub(crate) fn macro_use_prelude(&self) -> impl Iterator<Item = (&Name, MacroId)> + '_ {
