@@ -46,7 +46,7 @@ pub(crate) fn convert_into_to_from(acc: &mut Assists, ctx: &AssistContext<'_>) -
     let src_type_path = {
         let src_type_path = src_type.syntax().descendants().find_map(ast::Path::cast)?;
         let src_type_def = match ctx.sema.resolve_path(&src_type_path) {
-            Some(hir::PathResolution::Def(module_def)) => module_def,
+            Some(hir::PathResolution::Def(module_def, _)) => module_def,
             _ => return None,
         };
 

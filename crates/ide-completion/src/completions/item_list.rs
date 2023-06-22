@@ -35,7 +35,7 @@ pub(crate) fn complete_item_list(
 
     match qualified {
         Qualified::With {
-            resolution: Some(hir::PathResolution::Def(hir::ModuleDef::Module(module))),
+            resolution: Some(hir::PathResolution::Def(hir::ModuleDef::Module(module), _)),
             super_chain_len,
             ..
         } => {

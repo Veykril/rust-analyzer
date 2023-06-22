@@ -116,10 +116,10 @@ fn fn_target_info(
 ) -> Option<TargetInfo> {
     match path.qualifier() {
         Some(qualifier) => match ctx.sema.resolve_path(&qualifier) {
-            Some(hir::PathResolution::Def(hir::ModuleDef::Module(module))) => {
+            Some(hir::PathResolution::Def(hir::ModuleDef::Module(module), _)) => {
                 get_fn_target_info(ctx, Some(module), call.clone())
             }
-            Some(hir::PathResolution::Def(hir::ModuleDef::Adt(adt))) => {
+            Some(hir::PathResolution::Def(hir::ModuleDef::Adt(adt), _)) => {
                 if let hir::Adt::Enum(_) = adt {
                     // Don't suggest generating function if the name starts with an uppercase letter
                     if fn_name.starts_with(char::is_uppercase) {

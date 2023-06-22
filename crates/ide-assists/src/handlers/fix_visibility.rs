@@ -40,7 +40,7 @@ fn add_vis_to_referenced_module_def(acc: &mut Assists, ctx: &AssistContext<'_>) 
     let qualifier = path.qualifier()?;
     let name_ref = path.segment()?.name_ref()?;
     let qualifier_res = ctx.sema.resolve_path(&qualifier)?;
-    let PathResolution::Def(ModuleDef::Module(module)) = qualifier_res else { return None; };
+    let PathResolution::Def(ModuleDef::Module(module), _) = qualifier_res else { return None; };
     let (_, def) = module
         .scope(ctx.db(), None)
         .into_iter()

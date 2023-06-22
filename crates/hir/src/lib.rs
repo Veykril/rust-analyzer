@@ -118,6 +118,7 @@ pub use {
         data::adt::StructKind,
         find_path::PrefixKind,
         import_map,
+        item_scope::ImportOrExternId,
         lang_item::LangItem,
         nameres::{DefMap, ModuleSource},
         path::{ImportAlias, ModPath, PathKind},

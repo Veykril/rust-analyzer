@@ -532,7 +532,7 @@ impl DefCollector<'_> {
             name![core]
         } else {
             let std = name![std];
-            if self.def_map.extern_prelude().any(|(name, _)| *name == std) {
+            if self.def_map.extern_prelude().any(|(name, _, _)| *name == std) {
                 std
             } else {
                 // If `std` does not exist for some reason, fall back to core. This mostly helps
@@ -777,7 +777,7 @@ impl DefCollector<'_> {
         let _p = profile::span("resolve_import")
             .detail(|| format!("{}", import.path.display(self.db.upcast())));
         tracing::debug!("resolving import: {:?} ({:?})", import, self.def_map.data.edition);
-        if matches!(import.source, ImportSource::ExternCrate { .. }) {
+        if let ImportSource::ExternCrate(_, id) = import.source {
             let name = import
                 .path
                 .as_ident()
@@ -786,9 +786,11 @@ impl DefCollector<'_> {
             let res = self.resolve_extern_crate(name);
 
             match res {
-                Some(res) => {
-                    PartialResolvedImport::Resolved(PerNs::types(res.into(), Visibility::Public))
-                }
+                Some(res) => PartialResolvedImport::Resolved(PerNs::types(
+                    res.into(),
+                    Visibility::Public,
+                    Some(id.into()),
+                )),
                 None => PartialResolvedImport::Unresolved,
             }
         } else {
@@ -1546,7 +1548,7 @@ impl ModCollector<'_, '_> {
                 def_collector.def_map.modules[module_id].scope.declare(id);
                 def_collector.update(
                     module_id,
-                    &[(Some(name.clone()), PerNs::from_def(id, vis, has_constructor))],
+                    &[(Some(name.clone()), PerNs::from_def(id, vis, has_constructor, None))],
                     vis,
                     ImportType::Named,
                 )
@@ -1980,7 +1982,7 @@ impl ModCollector<'_, '_> {
         def_map.modules[self.module_id].scope.declare(def);
         self.def_collector.update(
             self.module_id,
-            &[(Some(name), PerNs::from_def(def, vis, false))],
+            &[(Some(name), PerNs::from_def(def, vis, false, None))],
             vis,
             ImportType::Named,
         );

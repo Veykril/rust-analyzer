@@ -485,7 +485,7 @@ impl ExternCrateDeclData {
         } else {
             db.crate_def_map(loc.container.krate())
                 .extern_prelude()
-                .find(|&(prelude_name, _)| *prelude_name == name)
+                .find(|&(prelude_name, _, _)| *prelude_name == name)
                 .unwrap()
                 .1
                 .krate()

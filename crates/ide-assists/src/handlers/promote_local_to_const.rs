@@ -108,7 +108,7 @@ fn is_body_const(sema: &Semantics<'_, RootDatabase>, expr: &ast::Expr) -> bool {
         match expr {
             ast::Expr::CallExpr(call) => {
                 if let Some(ast::Expr::PathExpr(path_expr)) = call.expr() {
-                    if let Some(PathResolution::Def(ModuleDef::Function(func))) =
+                    if let Some(PathResolution::Def(ModuleDef::Function(func), _)) =
                         path_expr.path().and_then(|path| sema.resolve_path(&path))
                     {
                         is_const &= func.is_const(sema.db);

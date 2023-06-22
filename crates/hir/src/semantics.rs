@@ -8,6 +8,7 @@ use base_db::{FileId, FileRange};
 use either::Either;
 use hir_def::{
     hir::Expr,
+    item_scope::ImportOrExternId,
     lower::LowerCtx,
     macro_id_to_def_id,
     nameres::MacroSubNs,
@@ -38,7 +39,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathResolution {
     /// An item
-    Def(ModuleDef),
+    Def(ModuleDef, Option<ImportOrExternId>),
     /// A local binding (only value namespace)
     Local(Local),
     /// A type parameter
@@ -52,32 +53,33 @@ pub enum PathResolution {
 }
 
 impl PathResolution {
-    pub(crate) fn in_type_ns(&self) -> Option<TypeNs> {
+    pub(crate) fn in_type_ns(&self) -> Option<(TypeNs, Option<ImportOrExternId>)> {
         match self {
-            PathResolution::Def(ModuleDef::Adt(adt)) => Some(TypeNs::AdtId((*adt).into())),
-            PathResolution::Def(ModuleDef::BuiltinType(builtin)) => {
-                Some(TypeNs::BuiltinType((*builtin).into()))
-            }
-            PathResolution::Def(
-                ModuleDef::Const(_)
-                | ModuleDef::Variant(_)
-                | ModuleDef::Macro(_)
-                | ModuleDef::Function(_)
-                | ModuleDef::Module(_)
-                | ModuleDef::Static(_)
-                | ModuleDef::Trait(_)
-                | ModuleDef::TraitAlias(_),
-            ) => None,
-            PathResolution::Def(ModuleDef::TypeAlias(alias)) => {
-                Some(TypeNs::TypeAliasId((*alias).into()))
-            }
+            &PathResolution::Def(def, import) => Some((
+                match def {
+                    ModuleDef::Adt(adt) => TypeNs::AdtId((adt).into()),
+                    ModuleDef::TypeAlias(alias) => TypeNs::TypeAliasId((alias).into()),
+                    ModuleDef::BuiltinType(builtin) => TypeNs::BuiltinType((builtin).into()),
+                    ModuleDef::Module(_)
+                    | ModuleDef::Function(_)
+                    | ModuleDef::Variant(_)
+                    | ModuleDef::Const(_)
+                    | ModuleDef::Static(_)
+                    | ModuleDef::Trait(_)
+                    | ModuleDef::TraitAlias(_)
+                    | ModuleDef::Macro(_) => return None,
+                },
+                import,
+            )),
             PathResolution::BuiltinAttr(_)
             | PathResolution::ToolModule(_)
             | PathResolution::Local(_)
             | PathResolution::DeriveHelper(_)
             | PathResolution::ConstParam(_) => None,
-            PathResolution::TypeParam(param) => Some(TypeNs::GenericParam((*param).into())),
-            PathResolution::SelfType(impl_def) => Some(TypeNs::SelfType((*impl_def).into())),
+            PathResolution::TypeParam(param) => Some((TypeNs::GenericParam((*param).into()), None)),
+            PathResolution::SelfType(impl_def) => {
+                Some((TypeNs::SelfType((*impl_def).into()), None))
+            }
         }
     }
 }
@@ -1077,7 +1079,7 @@ impl<'db> SemanticsImpl<'db> {
         let ctx = LowerCtx::with_hygiene(self.db.upcast(), &hygiene);
         let hir_path = Path::from_src(path.clone(), &ctx)?;
         match analyze.resolver.resolve_path_in_type_ns_fully(self.db.upcast(), &hir_path)? {
-            TypeNs::TraitId(id) => Some(Trait { id }),
+            (TypeNs::TraitId(id), _) => Some(Trait { id }),
             _ => None,
         }
     }
@@ -1239,7 +1241,7 @@ impl<'db> SemanticsImpl<'db> {
     }
 
     fn resolve_bind_pat_to_const(&self, pat: &ast::IdentPat) -> Option<ModuleDef> {
-        self.analyze(pat.syntax())?.resolve_bind_pat_to_const(self.db, pat)
+        self.analyze(pat.syntax())?.resolve_bind_pat_to_const(self.db, pat).map(|(def, _)| def)
     }
 
     fn record_literal_missing_fields(&self, literal: &ast::RecordExpr) -> Vec<(Field, Type)> {
@@ -1675,7 +1677,7 @@ impl<'a> SemanticsScope<'a> {
         hir_ty::associated_type_shorthand_candidates(
             self.db,
             def,
-            resolution.in_type_ns()?,
+            resolution.in_type_ns()?.0,
             |name, id| cb(name, id.into()),
         )
     }

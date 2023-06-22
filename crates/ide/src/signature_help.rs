@@ -420,7 +420,7 @@ fn signature_help_for_tuple_struct_pat(
     };
     let db = sema.db;
 
-    let fields: Vec<_> = if let PathResolution::Def(ModuleDef::Variant(variant)) = path_res {
+    let fields: Vec<_> = if let PathResolution::Def(ModuleDef::Variant(variant), _) = path_res {
         let en = variant.parent_enum(db);
 
         res.doc = en.docs(db).map(|it| it.into());
@@ -434,7 +434,7 @@ fn signature_help_for_tuple_struct_pat(
     } else {
         let adt = match path_res {
             PathResolution::SelfType(imp) => imp.self_ty(db).as_adt()?,
-            PathResolution::Def(ModuleDef::Adt(adt)) => adt,
+            PathResolution::Def(ModuleDef::Adt(adt), _) => adt,
             _ => return None,
         };
 
@@ -540,7 +540,7 @@ fn signature_help_for_record_(
 
     let db = sema.db;
     let path_res = sema.resolve_path(path)?;
-    if let PathResolution::Def(ModuleDef::Variant(variant)) = path_res {
+    if let PathResolution::Def(ModuleDef::Variant(variant), _) = path_res {
         fields = variant.fields(db);
         let en = variant.parent_enum(db);
 
@@ -554,7 +554,7 @@ fn signature_help_for_record_(
     } else {
         let adt = match path_res {
             PathResolution::SelfType(imp) => imp.self_ty(db).as_adt()?,
-            PathResolution::Def(ModuleDef::Adt(adt)) => adt,
+            PathResolution::Def(ModuleDef::Adt(adt), _) => adt,
             _ => return None,
         };
 

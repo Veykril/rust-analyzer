@@ -82,7 +82,7 @@ impl Resolver<'_, '_> {
             .filter_map(|(path_node, resolved)| {
                 if let Some(grandparent) = path_node.parent().and_then(|parent| parent.parent()) {
                     if let Some(call_expr) = ast::CallExpr::cast(grandparent.clone()) {
-                        if let hir::PathResolution::Def(hir::ModuleDef::Function(function)) =
+                        if let hir::PathResolution::Def(hir::ModuleDef::Function(function), _) =
                             resolved.resolution
                         {
                             if function.as_assoc_item(self.resolution_scope.scope.db).is_some() {
@@ -165,7 +165,7 @@ impl Resolver<'_, '_> {
 
     fn ok_to_use_path_resolution(&self, resolution: &hir::PathResolution) -> bool {
         match resolution {
-            hir::PathResolution::Def(hir::ModuleDef::Function(function))
+            hir::PathResolution::Def(hir::ModuleDef::Function(function), _)
                 if function.as_assoc_item(self.resolution_scope.scope.db).is_some() =>
             {
                 if function.self_param(self.resolution_scope.scope.db).is_some() {
@@ -179,6 +179,7 @@ impl Resolver<'_, '_> {
             }
             hir::PathResolution::Def(
                 def @ (hir::ModuleDef::Const(_) | hir::ModuleDef::TypeAlias(_)),
+                _,
             ) if def.as_assoc_item(self.resolution_scope.scope.db).is_some() => {
                 // Not a function. Could be a constant or an associated type.
                 cov_mark::hit!(replace_associated_trait_constant);
@@ -224,7 +225,7 @@ impl<'db> ResolutionScope<'db> {
         // that succeeds, then iterate through the candidates on the resolved type with the provided
         // name.
         let resolved_qualifier = self.scope.speculative_resolve(&path.qualifier()?)?;
-        if let hir::PathResolution::Def(hir::ModuleDef::Adt(adt)) = resolved_qualifier {
+        if let hir::PathResolution::Def(hir::ModuleDef::Adt(adt), _) = resolved_qualifier {
             let name = path.segment()?.name_ref()?;
             let module = self.scope.module();
             adt.ty(self.scope.db).iterate_path_candidates(
@@ -236,7 +237,7 @@ impl<'db> ResolutionScope<'db> {
                 |assoc_item| {
                     let item_name = assoc_item.name(self.scope.db)?;
                     if item_name.to_smol_str().as_str() == name.text() {
-                        Some(hir::PathResolution::Def(assoc_item.into()))
+                        Some(hir::PathResolution::Def(assoc_item.into(), None))
                     } else {
                         None
                     }
@@ -251,7 +252,7 @@ impl<'db> ResolutionScope<'db> {
         use syntax::ast::AstNode;
         if let Some(path) = ast::Path::cast(path.clone()) {
             if let Some(qualifier) = path.qualifier() {
-                if let Some(hir::PathResolution::Def(hir::ModuleDef::Adt(adt))) =
+                if let Some(hir::PathResolution::Def(hir::ModuleDef::Adt(adt), _)) =
                     self.resolve_path(&qualifier)
                 {
                     return Some(adt.ty(self.scope.db));

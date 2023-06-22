@@ -171,7 +171,7 @@ fn import_edits(ctx: &CompletionContext<'_>, requires: &[GreenNode]) -> Option<V
     let resolve = |import: &GreenNode| {
         let path = ast::Path::cast(SyntaxNode::new_root(import.clone()))?;
         let item = match ctx.scope.speculative_resolve(&path)? {
-            hir::PathResolution::Def(def) => def.into(),
+            hir::PathResolution::Def(def, _) => def.into(),
             _ => return None,
         };
         let path = ctx.module.find_use_path_prefixed(

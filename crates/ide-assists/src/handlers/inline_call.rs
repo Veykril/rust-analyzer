@@ -189,7 +189,7 @@ pub(crate) fn inline_call(acc: &mut Assists, ctx: &AssistContext<'_>) -> Option<
                 _ => None,
             }?;
             let function = match ctx.sema.resolve_path(&path)? {
-                PathResolution::Def(hir::ModuleDef::Function(f)) => f,
+                PathResolution::Def(hir::ModuleDef::Function(f), _) => f,
                 _ => return None,
             };
             (function, format!("Inline `{path}`"))

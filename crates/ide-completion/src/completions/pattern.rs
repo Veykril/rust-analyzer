@@ -115,7 +115,7 @@ pub(crate) fn complete_pattern_path(
             acc.add_super_keyword(ctx, *super_chain_len);
 
             match resolution {
-                hir::PathResolution::Def(hir::ModuleDef::Module(module)) => {
+                hir::PathResolution::Def(hir::ModuleDef::Module(module), _) => {
                     let module_scope = module.scope(ctx.db, Some(ctx.module));
                     for (name, def) in module_scope {
                         let add_resolution = match def {
@@ -135,17 +135,19 @@ pub(crate) fn complete_pattern_path(
                     let ty = match res {
                         hir::PathResolution::TypeParam(param) => param.ty(ctx.db),
                         hir::PathResolution::SelfType(impl_def) => impl_def.self_ty(ctx.db),
-                        hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Struct(s))) => {
+                        hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Struct(s)), _) => {
                             s.ty(ctx.db)
                         }
-                        hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e))) => {
+                        hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e)), _) => {
                             e.ty(ctx.db)
                         }
-                        hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Union(u))) => {
+                        hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Union(u)), _) => {
                             u.ty(ctx.db)
                         }
-                        hir::PathResolution::Def(hir::ModuleDef::BuiltinType(ty)) => ty.ty(ctx.db),
-                        hir::PathResolution::Def(hir::ModuleDef::TypeAlias(ty)) => ty.ty(ctx.db),
+                        hir::PathResolution::Def(hir::ModuleDef::BuiltinType(ty), _) => {
+                            ty.ty(ctx.db)
+                        }
+                        hir::PathResolution::Def(hir::ModuleDef::TypeAlias(ty), _) => ty.ty(ctx.db),
                         _ => return,
                     };
 

@@ -14,6 +14,7 @@ use hir_def::{
         Body, BodySourceMap,
     },
     hir::{BindingId, ExprId, Pat, PatId},
+    item_scope::ImportOrExternId,
     lang_item::LangItem,
     lower::LowerCtx,
     macro_id_to_def_id,
@@ -494,7 +495,7 @@ impl SourceAnalyzer {
         &self,
         db: &dyn HirDatabase,
         pat: &ast::IdentPat,
-    ) -> Option<ModuleDef> {
+    ) -> Option<(ModuleDef, Option<ImportOrExternId>)> {
         let pat_id = self.pat_id(&pat.clone().into())?;
         let body = self.body()?;
         let path = match &body[pat_id] {
@@ -503,7 +504,7 @@ impl SourceAnalyzer {
         };
         let res = resolve_hir_path(db, &self.resolver, path)?;
         match res {
-            PathResolution::Def(def) => Some(def),
+            PathResolution::Def(def, import) => Some((def, import)),
             _ => None,
         }
     }
@@ -546,12 +547,12 @@ impl SourceAnalyzer {
                         assoc => assoc,
                     };
 
-                    return Some(PathResolution::Def(AssocItem::from(assoc).into()));
+                    return Some(PathResolution::Def(AssocItem::from(assoc).into(), None));
                 }
                 if let Some(VariantId::EnumVariantId(variant)) =
                     infer.variant_resolution_for_expr(expr_id)
                 {
-                    return Some(PathResolution::Def(ModuleDef::Variant(variant.into())));
+                    return Some(PathResolution::Def(ModuleDef::Variant(variant.into()), None));
                 }
                 prefer_value_ns = true;
             } else if let Some(path_pat) = parent().and_then(ast::PathPat::cast) {
@@ -563,19 +564,19 @@ impl SourceAnalyzer {
                         }
                         assoc => assoc,
                     };
-                    return Some(PathResolution::Def(AssocItem::from(assoc).into()));
+                    return Some(PathResolution::Def(AssocItem::from(assoc).into(), None));
                 }
                 if let Some(VariantId::EnumVariantId(variant)) =
                     infer.variant_resolution_for_pat(pat_id)
                 {
-                    return Some(PathResolution::Def(ModuleDef::Variant(variant.into())));
+                    return Some(PathResolution::Def(ModuleDef::Variant(variant.into()), None));
                 }
             } else if let Some(rec_lit) = parent().and_then(ast::RecordExpr::cast) {
                 let expr_id = self.expr_id(db, &rec_lit.into())?;
                 if let Some(VariantId::EnumVariantId(variant)) =
                     infer.variant_resolution_for_expr(expr_id)
                 {
-                    return Some(PathResolution::Def(ModuleDef::Variant(variant.into())));
+                    return Some(PathResolution::Def(ModuleDef::Variant(variant.into()), None));
                 }
             } else {
                 let record_pat = parent().and_then(ast::RecordPat::cast).map(ast::Pat::from);
@@ -585,7 +586,7 @@ impl SourceAnalyzer {
                     let pat_id = self.pat_id(&pat)?;
                     let variant_res_for_pat = infer.variant_resolution_for_pat(pat_id);
                     if let Some(VariantId::EnumVariantId(variant)) = variant_res_for_pat {
-                        return Some(PathResolution::Def(ModuleDef::Variant(variant.into())));
+                        return Some(PathResolution::Def(ModuleDef::Variant(variant.into()), None));
                     }
                 }
             }
@@ -682,7 +683,7 @@ impl SourceAnalyzer {
                 }
             }
             return match resolve_hir_path_as_attr_macro(db, &self.resolver, &hir_path) {
-                Some(m) => Some(PathResolution::Def(ModuleDef::Macro(m))),
+                Some(m) => Some(PathResolution::Def(ModuleDef::Macro(m), None)),
                 // this labels any path that starts with a tool module as the tool itself, this is technically wrong
                 // but there is no benefit in differentiating these two cases for the time being
                 None => path.first_segment().and_then(|it| it.name_ref()).and_then(|name_ref| {
@@ -976,23 +977,24 @@ fn resolve_hir_path_(
     prefer_value_ns: bool,
 ) -> Option<PathResolution> {
     let types = || {
-        let (ty, unresolved) = match path.type_anchor() {
+        let (ty, unresolved, import) = match path.type_anchor() {
             Some(type_ref) => {
                 let (_, res) = TyLoweringContext::new(db, resolver, resolver.module().into())
                     .lower_ty_ext(type_ref);
-                res.map(|ty_ns| (ty_ns, path.segments().first()))
+                res.map(|ty_ns| (ty_ns, path.segments().first(), None))
             }
             None => {
-                let (ty, remaining_idx) = resolver.resolve_path_in_type_ns(db.upcast(), path)?;
+                let (ty, remaining_idx, import) =
+                    resolver.resolve_path_in_type_ns(db.upcast(), path)?;
                 match remaining_idx {
                     Some(remaining_idx) => {
                         if remaining_idx + 1 == path.segments().len() {
-                            Some((ty, path.segments().last()))
+                            Some((ty, path.segments().last(), import))
                         } else {
                             None
                         }
                     }
-                    None => Some((ty, None)),
+                    None => Some((ty, None, import)),
                 }
             }
         }?;
@@ -1003,7 +1005,7 @@ fn resolve_hir_path_(
             if let Some(type_alias_id) =
                 db.trait_data(trait_id).associated_type_by_name(unresolved.name)
             {
-                return Some(PathResolution::Def(ModuleDefId::from(type_alias_id).into()));
+                return Some(PathResolution::Def(ModuleDefId::from(type_alias_id).into(), None));
             }
         }
 
@@ -1011,13 +1013,13 @@ fn resolve_hir_path_(
             TypeNs::SelfType(it) => PathResolution::SelfType(it.into()),
             TypeNs::GenericParam(id) => PathResolution::TypeParam(id.into()),
             TypeNs::AdtSelfType(it) | TypeNs::AdtId(it) => {
-                PathResolution::Def(Adt::from(it).into())
+                PathResolution::Def(Adt::from(it).into(), None)
             }
-            TypeNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into()),
-            TypeNs::TypeAliasId(it) => PathResolution::Def(TypeAlias::from(it).into()),
-            TypeNs::BuiltinType(it) => PathResolution::Def(BuiltinType::from(it).into()),
-            TypeNs::TraitId(it) => PathResolution::Def(Trait::from(it).into()),
-            TypeNs::TraitAliasId(it) => PathResolution::Def(TraitAlias::from(it).into()),
+            TypeNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into(), import),
+            TypeNs::TypeAliasId(it) => PathResolution::Def(TypeAlias::from(it).into(), import),
+            TypeNs::BuiltinType(it) => PathResolution::Def(BuiltinType::from(it).into(), import),
+            TypeNs::TraitId(it) => PathResolution::Def(Trait::from(it).into(), import),
+            TypeNs::TraitAliasId(it) => PathResolution::Def(TraitAlias::from(it).into(), import),
         };
         match unresolved {
             Some(unresolved) => resolver
@@ -1026,13 +1028,13 @@ fn resolve_hir_path_(
                     hir_ty::associated_type_shorthand_candidates(
                         db,
                         def,
-                        res.in_type_ns()?,
+                        res.in_type_ns()?.0,
                         |name, id| (name == unresolved.name).then_some(id),
                     )
                 })
                 .map(TypeAlias::from)
                 .map(Into::into)
-                .map(PathResolution::Def),
+                .map(|it| PathResolution::Def(it, None)),
             None => Some(res),
         }
     };
@@ -1045,11 +1047,11 @@ fn resolve_hir_path_(
                     let var = Local { parent: body_owner?, binding_id };
                     PathResolution::Local(var)
                 }
-                ValueNs::FunctionId(it) => PathResolution::Def(Function::from(it).into()),
-                ValueNs::ConstId(it) => PathResolution::Def(Const::from(it).into()),
-                ValueNs::StaticId(it) => PathResolution::Def(Static::from(it).into()),
-                ValueNs::StructId(it) => PathResolution::Def(Struct::from(it).into()),
-                ValueNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into()),
+                ValueNs::FunctionId(it) => PathResolution::Def(Function::from(it).into(), None),
+                ValueNs::ConstId(it) => PathResolution::Def(Const::from(it).into(), None),
+                ValueNs::StaticId(it) => PathResolution::Def(Static::from(it).into(), None),
+                ValueNs::StructId(it) => PathResolution::Def(Struct::from(it).into(), None),
+                ValueNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into(), None),
                 ValueNs::ImplSelf(impl_id) => PathResolution::SelfType(impl_id.into()),
                 ValueNs::GenericParam(id) => PathResolution::ConstParam(id.into()),
             };
@@ -1060,14 +1062,14 @@ fn resolve_hir_path_(
     let items = || {
         resolver
             .resolve_module_path_in_items(db.upcast(), path.mod_path()?)
-            .take_types()
-            .map(|it| PathResolution::Def(it.into()))
+            .take_types_all()
+            .map(|(it, _, import)| PathResolution::Def(it.into(), import))
     };
 
     let macros = || {
         resolver
             .resolve_path_as_macro(db.upcast(), path.mod_path()?, None)
-            .map(|def| PathResolution::Def(ModuleDef::Macro(def.into())))
+            .map(|def| PathResolution::Def(ModuleDef::Macro(def.into()), None))
     };
 
     if prefer_value_ns { values().or_else(types) } else { types().or_else(values) }
@@ -1095,22 +1097,22 @@ fn resolve_hir_path_qualifier(
 ) -> Option<PathResolution> {
     resolver
         .resolve_path_in_type_ns_fully(db.upcast(), &path)
-        .map(|ty| match ty {
+        .map(|(ty, import)| match ty {
             TypeNs::SelfType(it) => PathResolution::SelfType(it.into()),
             TypeNs::GenericParam(id) => PathResolution::TypeParam(id.into()),
             TypeNs::AdtSelfType(it) | TypeNs::AdtId(it) => {
-                PathResolution::Def(Adt::from(it).into())
+                PathResolution::Def(Adt::from(it).into(), import)
             }
-            TypeNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into()),
-            TypeNs::TypeAliasId(it) => PathResolution::Def(TypeAlias::from(it).into()),
-            TypeNs::BuiltinType(it) => PathResolution::Def(BuiltinType::from(it).into()),
-            TypeNs::TraitId(it) => PathResolution::Def(Trait::from(it).into()),
-            TypeNs::TraitAliasId(it) => PathResolution::Def(TraitAlias::from(it).into()),
+            TypeNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into(), import),
+            TypeNs::TypeAliasId(it) => PathResolution::Def(TypeAlias::from(it).into(), import),
+            TypeNs::BuiltinType(it) => PathResolution::Def(BuiltinType::from(it).into(), import),
+            TypeNs::TraitId(it) => PathResolution::Def(Trait::from(it).into(), import),
+            TypeNs::TraitAliasId(it) => PathResolution::Def(TraitAlias::from(it).into(), import),
         })
         .or_else(|| {
             resolver
                 .resolve_module_path_in_items(db.upcast(), path.mod_path()?)
-                .take_types()
-                .map(|it| PathResolution::Def(it.into()))
+                .take_types_all()
+                .map(|(it, _, import)| PathResolution::Def(it.into(), import))
         })
 }

@@ -121,7 +121,7 @@ fn compute_item_ranks(
 
 fn trait_definition(path: &ast::Path, sema: &Semantics<'_, RootDatabase>) -> Option<hir::Trait> {
     match sema.resolve_path(path)? {
-        PathResolution::Def(hir::ModuleDef::Trait(trait_)) => Some(trait_),
+        PathResolution::Def(hir::ModuleDef::Trait(trait_), _) => Some(trait_),
         _ => None,
     }
 }

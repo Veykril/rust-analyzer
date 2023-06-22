@@ -81,7 +81,7 @@ pub(crate) fn complete_attribute_path(
 
     match qualified {
         Qualified::With {
-            resolution: Some(hir::PathResolution::Def(hir::ModuleDef::Module(module))),
+            resolution: Some(hir::PathResolution::Def(hir::ModuleDef::Module(module), _)),
             super_chain_len,
             ..
         } => {

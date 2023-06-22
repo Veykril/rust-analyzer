@@ -45,7 +45,7 @@ pub(crate) fn expand_glob_import(acc: &mut Assists, ctx: &AssistContext<'_>) -> 
     let use_tree = star.parent().and_then(ast::UseTree::cast)?;
     let (parent, mod_path) = find_parent_and_path(&star)?;
     let target_module = match ctx.sema.resolve_path(&mod_path)? {
-        PathResolution::Def(ModuleDef::Module(it)) => it,
+        PathResolution::Def(ModuleDef::Module(it), _) => it,
         _ => return None,
     };
 

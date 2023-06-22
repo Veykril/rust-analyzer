@@ -447,7 +447,7 @@ impl<'a> TyLoweringContext<'a> {
             return None;
         }
         let resolution = match self.resolver.resolve_path_in_type_ns(self.db.upcast(), path) {
-            Some((it, None)) => it,
+            Some((it, None, _)) => it,
             _ => return None,
         };
         match resolution {
@@ -627,7 +627,7 @@ impl<'a> TyLoweringContext<'a> {
             return self.lower_ty_relative_path(ty, res, path.segments());
         }
 
-        let (resolution, remaining_index) =
+        let (resolution, remaining_index, _import) =
             match self.resolver.resolve_path_in_type_ns(self.db.upcast(), path) {
                 Some(it) => it,
                 None => return (TyKind::Error.intern(Interner), None),
@@ -924,7 +924,7 @@ impl<'a> TyLoweringContext<'a> {
     ) -> Option<TraitRef> {
         let resolved = match self.resolver.resolve_path_in_type_ns_fully(self.db.upcast(), path)? {
             // FIXME(trait_alias): We need to handle trait alias here.
-            TypeNs::TraitId(tr) => tr,
+            (TypeNs::TraitId(tr), _) => tr,
             _ => return None,
         };
         let segment = path.segments().last().expect("path should have at least one segment");
@@ -1424,7 +1424,7 @@ pub(crate) fn generic_predicates_for_param_query(
                             None => return true,
                         };
                         let tr = match resolver.resolve_path_in_type_ns_fully(db.upcast(), path) {
-                            Some(TypeNs::TraitId(tr)) => tr,
+                            Some((TypeNs::TraitId(tr), _)) => tr,
                             _ => return false,
                         };
 

@@ -2510,7 +2510,7 @@ use foo as qux;
             r"
 extern crate foo as bar;
 
-use foo as qux;
+use bar as qux;
 ",
         );
     }
@@ -2529,7 +2529,7 @@ use qux as frob;
             r"
 extern crate foo as bar;
 
-use qux as frob;
+use bar as frob;
 ",
         );
     }
@@ -2565,7 +2565,7 @@ use qux as frob;
             r"
 extern crate self as bar;
 
-use qux as frob;
+use bar as frob;
 ",
         );
     }

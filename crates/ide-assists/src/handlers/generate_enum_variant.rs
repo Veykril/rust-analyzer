@@ -46,7 +46,7 @@ pub(crate) fn generate_enum_variant(acc: &mut Assists, ctx: &AssistContext<'_>) 
         return None;
     }
 
-    if let Some(hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e)))) =
+    if let Some(hir::PathResolution::Def(hir::ModuleDef::Adt(hir::Adt::Enum(e)), _)) =
         ctx.sema.resolve_path(&path.qualifier()?)
     {
         let target = path.syntax().text_range();

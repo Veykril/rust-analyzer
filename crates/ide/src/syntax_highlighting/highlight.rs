@@ -364,8 +364,13 @@ fn highlight_def(
             }
             h
         }
-        Definition::ExternCrateDecl(_) => {
-            Highlight::new(HlTag::Symbol(SymbolKind::Module)) | HlMod::CrateRoot
+        Definition::ExternCrateDecl(extern_crate) => {
+            let mut highlight =
+                Highlight::new(HlTag::Symbol(SymbolKind::Module)) | HlMod::CrateRoot;
+            if extern_crate.alias(db).is_none() {
+                highlight |= HlMod::Library;
+            }
+            highlight
         }
         Definition::Function(func) => {
             let mut h = Highlight::new(HlTag::Symbol(SymbolKind::Function));

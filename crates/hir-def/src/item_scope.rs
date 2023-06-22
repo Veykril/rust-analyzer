@@ -37,6 +37,14 @@ pub enum ImportOrExternId {
     ExternCrateId(ExternCrateId),
 }
 
+impl ImportOrExternId {
+    pub fn import(self) -> Option<ImportId> {
+        match self {
+            ImportOrExternId::ExternCrateId(_) => None,
+        }
+    }
+}
+
 impl_from!(ExternCrateId for ImportOrExternId);
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -90,7 +98,7 @@ struct DeriveMacroInvocation {
 pub(crate) static BUILTIN_SCOPE: Lazy<FxHashMap<Name, PerNs>> = Lazy::new(|| {
     BuiltinType::ALL
         .iter()
-        .map(|(name, ty)| (name.clone(), PerNs::types((*ty).into(), Visibility::Public)))
+        .map(|(name, ty)| (name.clone(), PerNs::types((*ty).into(), Visibility::Public, None)))
         .collect()
 });
 
@@ -369,7 +377,7 @@ impl ItemScope {
     pub(crate) fn resolutions(&self) -> impl Iterator<Item = (Option<Name>, PerNs)> + '_ {
         self.entries().map(|(name, res)| (Some(name.clone()), res)).chain(
             self.unnamed_trait_imports.iter().map(|(&tr, &(vis, _import))| {
-                (None, PerNs::types2(ModuleDefId::TraitId(tr), vis, None))
+                (None, PerNs::types(ModuleDefId::TraitId(tr), vis, None))
             }),
         )
     }
@@ -454,27 +462,32 @@ impl ItemScope {
 }
 
 impl PerNs {
-    pub(crate) fn from_def(def: ModuleDefId, v: Visibility, has_constructor: bool) -> PerNs {
+    pub(crate) fn from_def(
+        def: ModuleDefId,
+        v: Visibility,
+        has_constructor: bool,
+        import: Option<ImportOrExternId>,
+    ) -> PerNs {
         match def {
-            ModuleDefId::ModuleId(_) => PerNs::types(def, v),
+            ModuleDefId::ModuleId(_) => PerNs::types(def, v, import),
             ModuleDefId::FunctionId(_) => PerNs::values(def, v),
             ModuleDefId::AdtId(adt) => match adt {
-                AdtId::UnionId(_) => PerNs::types(def, v),
-                AdtId::EnumId(_) => PerNs::types(def, v),
+                AdtId::UnionId(_) => PerNs::types(def, v, import),
+                AdtId::EnumId(_) => PerNs::types(def, v, import),
                 AdtId::StructId(_) => {
                     if has_constructor {
                         PerNs::both(def, def, v)
                     } else {
-                        PerNs::types(def, v)
+                        PerNs::types(def, v, import)
                     }
                 }
             },
             ModuleDefId::EnumVariantId(_) => PerNs::both(def, def, v),
             ModuleDefId::ConstId(_) | ModuleDefId::StaticId(_) => PerNs::values(def, v),
-            ModuleDefId::TraitId(_) => PerNs::types(def, v),
-            ModuleDefId::TraitAliasId(_) => PerNs::types(def, v),
-            ModuleDefId::TypeAliasId(_) => PerNs::types(def, v),
-            ModuleDefId::BuiltinType(_) => PerNs::types(def, v),
+            ModuleDefId::TraitId(_) => PerNs::types(def, v, import),
+            ModuleDefId::TraitAliasId(_) => PerNs::types(def, v, import),
+            ModuleDefId::TypeAliasId(_) => PerNs::types(def, v, import),
+            ModuleDefId::BuiltinType(_) => PerNs::types(def, v, import),
             ModuleDefId::MacroId(mac) => PerNs::macros(mac, v),
         }
     }

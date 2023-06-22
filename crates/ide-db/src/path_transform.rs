@@ -286,7 +286,9 @@ impl<'a> Ctx<'a> {
                     }
                 }
             }
-            hir::PathResolution::Def(def) if def.as_assoc_item(self.source_scope.db).is_none() => {
+            hir::PathResolution::Def(def, _)
+                if def.as_assoc_item(self.source_scope.db).is_none() =>
+            {
                 if let hir::ModuleDef::Trait(_) = def {
                     if matches!(path.segment()?.kind()?, ast::PathSegmentKind::Type { .. }) {
                         // `speculative_resolve` resolves segments like `<T as
@@ -315,7 +317,7 @@ impl<'a> Ctx<'a> {
             }
             hir::PathResolution::Local(_)
             | hir::PathResolution::SelfType(_)
-            | hir::PathResolution::Def(_)
+            | hir::PathResolution::Def(_, _)
             | hir::PathResolution::BuiltinAttr(_)
             | hir::PathResolution::ToolModule(_)
             | hir::PathResolution::DeriveHelper(_) => (),

@@ -31,11 +31,7 @@ impl PerNs {
         PerNs { types: None, values: Some((t, v, None)), macros: None }
     }
 
-    pub fn types(t: ModuleDefId, v: Visibility) -> PerNs {
-        PerNs { types: Some((t, v, None)), values: None, macros: None }
-    }
-
-    pub fn types2(t: ModuleDefId, v: Visibility, import: Option<ImportOrExternId>) -> PerNs {
+    pub fn types(t: ModuleDefId, v: Visibility, import: Option<ImportOrExternId>) -> PerNs {
         PerNs { types: Some((t, v, import)), values: None, macros: None }
     }
 
@@ -59,8 +55,8 @@ impl PerNs {
         self.types.map(|it| it.0)
     }
 
-    pub fn take_types_vis(self) -> Option<(ModuleDefId, Visibility)> {
-        self.types.map(|(a, b, _)| (a, b))
+    pub fn take_types_all(self) -> Option<(ModuleDefId, Visibility, Option<ImportOrExternId>)> {
+        self.types
     }
 
     pub fn take_values(self) -> Option<ModuleDefId> {

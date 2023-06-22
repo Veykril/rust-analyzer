@@ -8,9 +8,9 @@
 use arrayvec::ArrayVec;
 use hir::{
     Adt, AsAssocItem, AssocItem, BuiltinAttr, BuiltinType, Const, Crate, DeriveHelper,
-    ExternCrateDecl, Field, Function, GenericParam, HasVisibility, Impl, Label, Local, Macro,
-    Module, ModuleDef, Name, PathResolution, Semantics, Static, ToolModule, Trait, TraitAlias,
-    TypeAlias, Variant, Visibility,
+    ExternCrateDecl, Field, Function, GenericParam, HasVisibility, Impl, ImportOrExternId, Label,
+    Local, Macro, Module, ModuleDef, Name, PathResolution, Semantics, Static, ToolModule, Trait,
+    TraitAlias, TypeAlias, Variant, Visibility,
 };
 use stdx::impl_from;
 use syntax::{
@@ -520,7 +520,7 @@ impl NameRefClass {
                     //        ^^^^^
                     let containing_path = name_ref.syntax().ancestors().find_map(ast::Path::cast)?;
                     let resolved = sema.resolve_path(&containing_path)?;
-                    if let PathResolution::Def(ModuleDef::Trait(tr)) = resolved {
+                    if let PathResolution::Def(ModuleDef::Trait(tr), _) = resolved {
                         if let Some(ty) = tr
                             .items_with_supertraits(sema.db)
                             .iter()
@@ -619,7 +619,10 @@ impl From<AssocItem> for Definition {
 impl From<PathResolution> for Definition {
     fn from(path_resolution: PathResolution) -> Self {
         match path_resolution {
-            PathResolution::Def(def) => def.into(),
+            PathResolution::Def(_, Some(ImportOrExternId::ExternCrateId(id))) => {
+                Definition::ExternCrateDecl(ExternCrateDecl::from(id))
+            }
+            PathResolution::Def(def, _) => def.into(),
             PathResolution::Local(local) => Definition::Local(local),
             PathResolution::TypeParam(par) => Definition::GenericParam(par.into()),
             PathResolution::ConstParam(par) => Definition::GenericParam(par.into()),

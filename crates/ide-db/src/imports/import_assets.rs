@@ -651,13 +651,13 @@ fn path_import_candidate(
                     return None;
                 }
             }
-            Some(PathResolution::Def(ModuleDef::Adt(assoc_item_path))) => {
+            Some(PathResolution::Def(ModuleDef::Adt(assoc_item_path), _)) => {
                 ImportCandidate::TraitAssocItem(TraitImportCandidate {
                     receiver_ty: assoc_item_path.ty(sema.db),
                     assoc_item_name: name,
                 })
             }
-            Some(PathResolution::Def(ModuleDef::TypeAlias(alias))) => {
+            Some(PathResolution::Def(ModuleDef::TypeAlias(alias), _)) => {
                 let ty = alias.ty(sema.db);
                 if ty.as_adt().is_some() {
                     ImportCandidate::TraitAssocItem(TraitImportCandidate {

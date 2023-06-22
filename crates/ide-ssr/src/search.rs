@@ -281,7 +281,7 @@ fn pick_path_for_usages(pattern: &ResolvedPattern) -> Option<&ResolvedPath> {
         .resolved_paths
         .iter()
         .filter(|(_, p)| {
-            !matches!(p.resolution, hir::PathResolution::Def(hir::ModuleDef::BuiltinType(_)))
+            !matches!(p.resolution, hir::PathResolution::Def(hir::ModuleDef::BuiltinType(_), _))
         })
         .map(|(node, resolved)| (node.text().len(), resolved))
         .max_by(|(a, _), (b, _)| a.cmp(b))
