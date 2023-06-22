@@ -470,7 +470,7 @@ impl Resolver {
         BUILTIN_SCOPE.iter().for_each(|(name, &def)| {
             res.add_per_ns(name, def);
         });
-        if let Some(prelude) = def_map.prelude() {
+        if let Some((prelude, _source)) = def_map.prelude() {
             let prelude_def_map = prelude.def_map(db);
             for (name, def) in prelude_def_map[prelude.local_id].scope.entries() {
                 res.add_per_ns(name, def)
@@ -501,7 +501,7 @@ impl Resolver {
         }
 
         // Fill in the prelude traits
-        if let Some(prelude) = self.module_scope.def_map.prelude() {
+        if let Some((prelude, _source)) = self.module_scope.def_map.prelude() {
             let prelude_def_map = prelude.def_map(db);
             traits.extend(prelude_def_map[prelude.local_id].scope.traits());
         }
@@ -892,13 +892,13 @@ impl ScopeNames {
         }
     }
     fn add_per_ns(&mut self, name: &Name, def: PerNs) {
-        if let &Some((ty, _)) = &def.types {
+        if let &Some((ty, _, _)) = &def.types {
             self.add(name, ScopeDef::ModuleDef(ty))
         }
-        if let &Some((def, _)) = &def.values {
+        if let &Some((def, _, _)) = &def.values {
             self.add(name, ScopeDef::ModuleDef(def))
         }
-        if let &Some((mac, _)) = &def.macros {
+        if let &Some((mac, _, _)) = &def.macros {
             self.add(name, ScopeDef::ModuleDef(ModuleDefId::MacroId(mac)))
         }
         if def.is_none() {

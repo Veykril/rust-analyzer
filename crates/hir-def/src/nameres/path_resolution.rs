@@ -64,7 +64,7 @@ impl PerNs {
         db: &dyn DefDatabase,
         expected: Option<MacroSubNs>,
     ) -> Self {
-        self.macros = self.macros.filter(|&(id, _)| {
+        self.macros = self.macros.filter(|&(id, _, _)| {
             let this = MacroSubNs::from_id(db, id);
             sub_namespace_match(Some(this), expected)
         });
@@ -454,7 +454,7 @@ impl DefMap {
         let macro_use_prelude = || {
             self.macro_use_prelude
                 .get(name)
-                .map_or(PerNs::none(), |&it| PerNs::macros(it.into(), Visibility::Public))
+                .map_or(PerNs::none(), |&(it, _)| PerNs::macros(it.into(), Visibility::Public))
         };
         let prelude = || self.resolve_in_prelude(db, name);
 
@@ -493,7 +493,7 @@ impl DefMap {
     }
 
     fn resolve_in_prelude(&self, db: &dyn DefDatabase, name: &Name) -> PerNs {
-        if let Some(prelude) = self.prelude {
+        if let Some((prelude, _source)) = self.prelude {
             let keep;
             let def_map = if prelude.krate == self.krate {
                 self

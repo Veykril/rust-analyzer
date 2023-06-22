@@ -10,12 +10,13 @@ use once_cell::sync::Lazy;
 use profile::Count;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::{smallvec, SmallVec};
-use stdx::format_to;
+use stdx::{format_to, impl_from};
 use syntax::ast;
 
 use crate::{
     db::DefDatabase, per_ns::PerNs, visibility::Visibility, AdtId, BuiltinType, ConstId,
-    ExternCrateId, HasModule, ImplId, LocalModuleId, MacroId, ModuleDefId, ModuleId, TraitId,
+    ExternCrateId, HasModule, ImplId, ImportId, LocalModuleId, MacroId, ModuleDefId, ModuleId,
+    TraitId,
 };
 
 #[derive(Copy, Clone, Debug)]
@@ -31,15 +32,22 @@ pub struct PerNsGlobImports {
     macros: FxHashSet<(LocalModuleId, Name)>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ImportOrExternId {
+    ExternCrateId(ExternCrateId),
+}
+
+impl_from!(ExternCrateId for ImportOrExternId);
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ItemScope {
     _c: Count<Self>,
 
     /// Defs visible in this scope. This includes `declarations`, but also
     /// imports.
-    types: FxHashMap<Name, (ModuleDefId, Visibility)>,
-    values: FxHashMap<Name, (ModuleDefId, Visibility)>,
-    macros: FxHashMap<Name, (MacroId, Visibility)>,
+    types: FxHashMap<Name, (ModuleDefId, Visibility, Option<ImportOrExternId>)>,
+    values: FxHashMap<Name, (ModuleDefId, Visibility, Option<ImportId>)>,
+    macros: FxHashMap<Name, (MacroId, Visibility, Option<ImportId>)>,
     unresolved: FxHashSet<Name>,
 
     /// The defs declared in this scope. Each def has a single scope where it is
@@ -48,9 +56,10 @@ pub struct ItemScope {
 
     impls: Vec<ImplId>,
     unnamed_consts: Vec<ConstId>,
-    /// Traits imported via `use Trait as _;`.
-    unnamed_trait_imports: FxHashMap<TraitId, Visibility>,
     extern_crate_decls: Vec<ExternCrateId>,
+
+    /// Traits imported via `use Trait as _;`.
+    unnamed_trait_imports: FxHashMap<TraitId, (Visibility, Option<ImportId>)>,
     /// Macros visible in current module in legacy textual scope
     ///
     /// For macros invoked by an unqualified identifier like `bar!()`, `legacy_macros` will be searched in first.
@@ -98,7 +107,7 @@ pub(crate) enum BuiltinShadowMode {
 /// Other methods will only resolve values, types and module scoped macros only.
 impl ItemScope {
     pub fn entries(&self) -> impl Iterator<Item = (&Name, PerNs)> + '_ {
-        // FIXME: shadowing
+        // FIXME: macro shadowing
         self.types
             .keys()
             .chain(self.values.keys())
@@ -125,13 +134,15 @@ impl ItemScope {
 
     pub fn values(
         &self,
-    ) -> impl Iterator<Item = (ModuleDefId, Visibility)> + ExactSizeIterator + '_ {
+    ) -> impl Iterator<Item = (ModuleDefId, Visibility, Option<ImportId>)> + ExactSizeIterator + '_
+    {
         self.values.values().copied()
     }
 
     pub fn types(
         &self,
-    ) -> impl Iterator<Item = (ModuleDefId, Visibility)> + ExactSizeIterator + '_ {
+    ) -> impl Iterator<Item = (ModuleDefId, Visibility, Option<ImportOrExternId>)> + ExactSizeIterator + '_
+    {
         self.types.values().copied()
     }
 
@@ -158,28 +169,41 @@ impl ItemScope {
         }
     }
 
-    pub(crate) fn type_(&self, name: &Name) -> Option<(ModuleDefId, Visibility)> {
+    pub(crate) fn type_(
+        &self,
+        name: &Name,
+    ) -> Option<(ModuleDefId, Visibility, Option<ImportOrExternId>)> {
         self.types.get(name).copied()
     }
 
     /// XXX: this is O(N) rather than O(1), try to not introduce new usages.
-    pub(crate) fn name_of(&self, item: ItemInNs) -> Option<(&Name, Visibility)> {
-        let (def, mut iter) = match item {
+    pub(crate) fn name_of(
+        &self,
+        item: ItemInNs,
+    ) -> Option<(&Name, Visibility, Option<ImportOrExternId>)> {
+        match item {
             ItemInNs::Macros(def) => {
-                return self.macros.iter().find_map(|(name, &(other_def, vis))| {
-                    (other_def == def).then_some((name, vis))
-                });
+                self.macros.iter().find_map(|(name, &(other_def, vis, _import))| {
+                    (other_def == def).then_some((name, vis, None))
+                })
             }
-            ItemInNs::Types(def) => (def, self.types.iter()),
-            ItemInNs::Values(def) => (def, self.values.iter()),
-        };
-        iter.find_map(|(name, &(other_def, vis))| (other_def == def).then_some((name, vis)))
+            ItemInNs::Types(def) => {
+                self.types.iter().find_map(|(name, &(other_def, vis, import))| {
+                    (other_def == def).then_some((name, vis, import))
+                })
+            }
+            ItemInNs::Values(def) => {
+                self.values.iter().find_map(|(name, &(other_def, vis, _import))| {
+                    (other_def == def).then_some((name, vis, None))
+                })
+            }
+        }
     }
 
     pub(crate) fn traits(&self) -> impl Iterator<Item = TraitId> + '_ {
         self.types
             .values()
-            .filter_map(|&(def, _)| match def {
+            .filter_map(|&(def, _, _)| match def {
                 ModuleDefId::TraitId(t) => Some(t),
                 _ => None,
             })
@@ -272,11 +296,16 @@ impl ItemScope {
     }
 
     pub(crate) fn unnamed_trait_vis(&self, tr: TraitId) -> Option<Visibility> {
-        self.unnamed_trait_imports.get(&tr).copied()
+        self.unnamed_trait_imports.get(&tr).copied().map(|it| it.0)
     }
 
-    pub(crate) fn push_unnamed_trait(&mut self, tr: TraitId, vis: Visibility) {
-        self.unnamed_trait_imports.insert(tr, vis);
+    pub(crate) fn push_unnamed_trait(
+        &mut self,
+        tr: TraitId,
+        vis: Visibility,
+        import: Option<ImportId>,
+    ) {
+        self.unnamed_trait_imports.insert(tr, (vis, import));
     }
 
     pub(crate) fn push_res_with_import(
@@ -339,9 +368,9 @@ impl ItemScope {
 
     pub(crate) fn resolutions(&self) -> impl Iterator<Item = (Option<Name>, PerNs)> + '_ {
         self.entries().map(|(name, res)| (Some(name.clone()), res)).chain(
-            self.unnamed_trait_imports
-                .iter()
-                .map(|(tr, vis)| (None, PerNs::types(ModuleDefId::TraitId(*tr), *vis))),
+            self.unnamed_trait_imports.iter().map(|(&tr, &(vis, _import))| {
+                (None, PerNs::types2(ModuleDefId::TraitId(tr), vis, None))
+            }),
         )
     }
 
@@ -349,15 +378,14 @@ impl ItemScope {
     pub(crate) fn censor_non_proc_macros(&mut self, this_module: ModuleId) {
         self.types
             .values_mut()
-            .chain(self.values.values_mut())
+            .map(|(def, vis, _)| (def, vis))
+            .chain(self.values.values_mut().map(|(def, vis, _)| (def, vis)))
             .map(|(_, v)| v)
-            .chain(self.unnamed_trait_imports.values_mut())
+            .chain(self.unnamed_trait_imports.values_mut().map(|(vis, _)| vis))
             .for_each(|vis| *vis = Visibility::Module(this_module));
 
-        for (mac, vis) in self.macros.values_mut() {
-            if let MacroId::ProcMacroId(_) = mac {
-                // FIXME: Technically this is insufficient since reexports of proc macros are also
-                // forbidden. Practically nobody does that.
+        for (mac, vis, import) in self.macros.values_mut() {
+            if matches!(mac, MacroId::ProcMacroId(_)) && import.is_none() {
                 continue;
             }
 

@@ -377,7 +377,7 @@ fn collect_unnamed_consts<'a>(
 
     // FIXME: Also treat consts named `_DERIVE_*` as unnamed, since synstructure generates those.
     // Should be removed once synstructure stops doing that.
-    let synstructure_hack_consts = scope.values().filter_map(|(item, _)| match item {
+    let synstructure_hack_consts = scope.values().filter_map(|(item, _, _)| match item {
         ModuleDefId::ConstId(id) => {
             let loc = id.lookup(db.upcast());
             let item_tree = loc.id.item_tree(db.upcast());

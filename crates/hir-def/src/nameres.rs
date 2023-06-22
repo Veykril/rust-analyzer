@@ -77,8 +77,8 @@ use crate::{
     path::ModPath,
     per_ns::PerNs,
     visibility::Visibility,
-    AstId, BlockId, BlockLoc, CrateRootModuleId, ExternCrateId, FunctionId, LocalModuleId, Lookup,
-    MacroExpander, MacroId, ModuleId, ProcMacroId,
+    AstId, BlockId, BlockLoc, CrateRootModuleId, ExternCrateId, FunctionId, ImportId,
+    LocalModuleId, Lookup, MacroExpander, MacroId, ModuleId, ProcMacroId,
 };
 
 /// Contains the results of (early) name resolution.
@@ -105,10 +105,10 @@ pub struct DefMap {
     /// The prelude is empty for non-block DefMaps (unless `#[prelude_import]` was used,
     /// but that attribute is nightly and when used in a block, it affects resolution globally
     /// so we aren't handling this correctly anyways).
-    prelude: Option<ModuleId>,
+    prelude: Option<(ModuleId, Option<ImportId>)>,
     /// `macro_use` prelude that contains macros from `#[macro_use]`'d external crates. Note that
     /// this contains all kinds of macro, not just `macro_rules!` macro.
-    macro_use_prelude: FxHashMap<Name, MacroId>,
+    macro_use_prelude: FxHashMap<Name, (MacroId, Option<ExternCrateId>)>,
 
     /// Tracks which custom derives are in scope for an item, to allow resolution of derive helper
     /// attributes.
@@ -421,7 +421,7 @@ impl DefMap {
         self.block.map(|block| block.block)
     }
 
-    pub(crate) fn prelude(&self) -> Option<ModuleId> {
+    pub(crate) fn prelude(&self) -> Option<(ModuleId, Option<ImportId>)> {
         self.prelude
     }
 
@@ -430,7 +430,7 @@ impl DefMap {
     }
 
     pub(crate) fn macro_use_prelude(&self) -> impl Iterator<Item = (&Name, MacroId)> + '_ {
-        self.macro_use_prelude.iter().map(|(name, &def)| (name, def))
+        self.macro_use_prelude.iter().map(|(name, &(def, _))| (name, def))
     }
 
     pub fn module_id(&self, local_id: LocalModuleId) -> ModuleId {

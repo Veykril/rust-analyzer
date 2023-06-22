@@ -192,7 +192,7 @@ fn find_path_for_module(
                     def_map[local_id]
                         .scope
                         .type_(&name)
-                        .filter(|&(id, _)| id != ModuleDefId::ModuleId(def_id))
+                        .filter(|&(id, _, _)| id != ModuleDefId::ModuleId(def_id))
                 })
                 .is_some();
             let kind = if name_already_occupied_in_type_ns {
@@ -231,7 +231,7 @@ fn find_in_scope(
     item: ItemInNs,
 ) -> Option<Name> {
     def_map.with_ancestor_maps(db, from.local_id, &mut |def_map, local_id| {
-        def_map[local_id].scope.name_of(item).map(|(name, _)| name.clone())
+        def_map[local_id].scope.name_of(item).map(|(name, _, _)| name.clone())
     })
 }
 
@@ -244,11 +244,11 @@ fn find_in_prelude(
     item: ItemInNs,
     from: ModuleId,
 ) -> Option<ModPath> {
-    let prelude_module = root_def_map.prelude()?;
+    let (prelude_module, _import_source) = root_def_map.prelude()?;
     // Preludes in block DefMaps are ignored, only the crate DefMap is searched
     let prelude_def_map = prelude_module.def_map(db);
     let prelude_scope = &prelude_def_map[prelude_module.local_id].scope;
-    let (name, vis) = prelude_scope.name_of(item)?;
+    let (name, vis, _) = prelude_scope.name_of(item)?;
     if !vis.is_visible_from(db, from) {
         return None;
     }
@@ -480,7 +480,7 @@ fn find_local_import_locations(
             &ext_def_map[module.local_id]
         };
 
-        if let Some((name, vis)) = data.scope.name_of(item) {
+        if let Some((name, vis, _)) = data.scope.name_of(item) {
             if vis.is_visible_from(db, from) {
                 let is_private = match vis {
                     Visibility::Module(private_to) => private_to.local_id == module.local_id,
@@ -503,7 +503,7 @@ fn find_local_import_locations(
         }
 
         // Descend into all modules visible from `from`.
-        for (ty, vis) in data.scope.types() {
+        for (ty, vis, _) in data.scope.types() {
             if let ModuleDefId::ModuleId(module) = ty {
                 if vis.is_visible_from(db, from) {
                     worklist.push(module);

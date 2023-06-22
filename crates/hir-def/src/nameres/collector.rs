@@ -557,8 +557,8 @@ impl DefCollector<'_> {
             self.def_map.resolve_path(self.db, DefMap::ROOT, &path, BuiltinShadowMode::Other, None);
 
         match per_ns.types {
-            Some((ModuleDefId::ModuleId(m), _)) => {
-                self.def_map.prelude = Some(m);
+            Some((ModuleDefId::ModuleId(m), _, _)) => {
+                self.def_map.prelude = Some((m, None));
             }
             types => {
                 tracing::debug!(
@@ -721,7 +721,12 @@ impl DefCollector<'_> {
     /// Exported macros are just all macros in the root module scope.
     /// Note that it contains not only all `#[macro_export]` macros, but also all aliases
     /// created by `use` in the root module, ignoring the visibility of `use`.
-    fn import_macros_from_extern_crate(&mut self, krate: CrateId, names: Option<Vec<Name>>) {
+    fn import_macros_from_extern_crate(
+        &mut self,
+        krate: CrateId,
+        names: Option<Vec<Name>>,
+        extern_crate: Option<ExternCrateId>,
+    ) {
         let def_map = self.db.crate_def_map(krate);
         // `#[macro_use]` brings macros into macro_use prelude. Yes, even non-`macro_rules!`
         // macros.
@@ -730,12 +735,12 @@ impl DefCollector<'_> {
             for name in names {
                 // FIXME: Report diagnostic on 404.
                 if let Some(def) = root_scope.get(&name).take_macros() {
-                    self.def_map.macro_use_prelude.insert(name, def);
+                    self.def_map.macro_use_prelude.insert(name, (def, extern_crate));
                 }
             }
         } else {
             for (name, def) in root_scope.macros() {
-                self.def_map.macro_use_prelude.insert(name.clone(), def);
+                self.def_map.macro_use_prelude.insert(name.clone(), (def, extern_crate));
             }
         }
     }
@@ -888,7 +893,7 @@ impl DefCollector<'_> {
                             // Note: This dodgily overrides the injected prelude. The rustc
                             // implementation seems to work the same though.
                             cov_mark::hit!(std_prelude);
-                            self.def_map.prelude = Some(m);
+                            self.def_map.prelude = Some((m, /* FIXME */ None));
                         } else if m.krate != self.def_map.krate {
                             cov_mark::hit!(glob_across_crates);
                             // glob import from other crate => we can just import everything once
@@ -1049,7 +1054,7 @@ impl DefCollector<'_> {
 
                     if should_update {
                         changed = true;
-                        self.def_map.modules[module_id].scope.push_unnamed_trait(tr, vis);
+                        self.def_map.modules[module_id].scope.push_unnamed_trait(tr, vis, None);
                     }
                 }
             }
@@ -1523,61 +1528,52 @@ impl ModCollector<'_, '_> {
         self.def_collector.mod_dirs.insert(self.module_id, self.mod_dir.clone());
 
         // Prelude module is always considered to be `#[macro_use]`.
-        if let Some(prelude_module) = self.def_collector.def_map.prelude {
+        if let Some((prelude_module, _source)) = self.def_collector.def_map.prelude {
             if prelude_module.krate != krate && is_crate_root {
                 cov_mark::hit!(prelude_is_macro_use);
-                self.def_collector.import_macros_from_extern_crate(prelude_module.krate, None);
+                self.def_collector.import_macros_from_extern_crate(
+                    prelude_module.krate,
+                    None,
+                    None,
+                );
             }
         }
 
-        // This should be processed eagerly instead of deferred to resolving.
-        // `#[macro_use] extern crate` is hoisted to imports macros before collecting
-        // any other items.
-        //
-        // If we're not at the crate root, `macro_use`d extern crates are an error so let's just
-        // ignore them.
-        if is_crate_root {
-            for &item in items {
-                if let ModItem::ExternCrate(id) = item {
-                    self.process_macro_use_extern_crate(id);
-                }
-            }
-        }
+        let db = self.def_collector.db;
+        let module_id = self.module_id;
+        let update_def =
+            |def_collector: &mut DefCollector<'_>, id, name: &Name, vis, has_constructor| {
+                def_collector.def_map.modules[module_id].scope.declare(id);
+                def_collector.update(
+                    module_id,
+                    &[(Some(name.clone()), PerNs::from_def(id, vis, has_constructor))],
+                    vis,
+                    ImportType::Named,
+                )
+            };
+        let resolve_vis = |def_map: &DefMap, visibility| {
+            def_map
+                .resolve_visibility(db, module_id, visibility, false)
+                .unwrap_or(Visibility::Public)
+        };
 
-        for &item in items {
-            let attrs = self.item_tree.attrs(self.def_collector.db, krate, item.into());
+        let mut process_mod_item = |item: ModItem| {
+            let attrs = self.item_tree.attrs(db, krate, item.into());
             if let Some(cfg) = attrs.cfg() {
                 if !self.is_cfg_enabled(&cfg) {
                     self.emit_unconfigured_diagnostic(item, &cfg);
-                    continue;
+                    return;
                 }
             }
 
             if let Err(()) = self.resolve_attributes(&attrs, item, container) {
                 // Do not process the item. It has at least one non-builtin attribute, so the
                 // fixed-point algorithm is required to resolve the rest of them.
-                continue;
+                return;
             }
 
-            let db = self.def_collector.db;
-            let module = self.def_collector.def_map.module_id(self.module_id);
+            let module = self.def_collector.def_map.module_id(module_id);
             let def_map = &mut self.def_collector.def_map;
-            let update_def =
-                |def_collector: &mut DefCollector<'_>, id, name: &Name, vis, has_constructor| {
-                    def_collector.def_map.modules[self.module_id].scope.declare(id);
-                    def_collector.update(
-                        self.module_id,
-                        &[(Some(name.clone()), PerNs::from_def(id, vis, has_constructor))],
-                        vis,
-                        ImportType::Named,
-                    )
-                };
-            let resolve_vis = |def_map: &DefMap, visibility| {
-                def_map
-                    .resolve_visibility(db, self.module_id, visibility, false)
-                    .unwrap_or(Visibility::Public)
-            };
-
             match item {
                 ModItem::Mod(m) => self.collect_module(m, &attrs),
                 ModItem::Import(import_id) => {
@@ -1606,6 +1602,9 @@ impl ModCollector<'_, '_> {
                         id: ItemTreeId::new(self.tree_id, import_id),
                     }
                     .intern(db);
+                    if is_crate_root {
+                        self.process_macro_use_extern_crate(import_id, extern_crate_id);
+                    }
                     self.def_collector.def_map.modules[self.module_id]
                         .scope
                         .define_extern_crate_decl(extern_crate_id);
@@ -1775,10 +1774,32 @@ impl ModCollector<'_, '_> {
                     );
                 }
             }
+        };
+
+        // extern crates should be processed eagerly instead of deferred to resolving.
+        // `#[macro_use] extern crate` is hoisted to imports macros before collecting
+        // any other items.
+        if is_crate_root {
+            items
+                .iter()
+                .filter(|it| matches!(it, ModItem::ExternCrate(..)))
+                .copied()
+                .for_each(&mut process_mod_item);
+            items
+                .iter()
+                .filter(|it| !matches!(it, ModItem::ExternCrate(..)))
+                .copied()
+                .for_each(process_mod_item);
+        } else {
+            items.iter().copied().for_each(process_mod_item);
         }
     }
 
-    fn process_macro_use_extern_crate(&mut self, extern_crate: FileItemTreeId<ExternCrate>) {
+    fn process_macro_use_extern_crate(
+        &mut self,
+        extern_crate: FileItemTreeId<ExternCrate>,
+        extern_crate_id: ExternCrateId,
+    ) {
         let db = self.def_collector.db;
         let attrs = self.item_tree.attrs(
             db,
@@ -1809,7 +1830,7 @@ impl ModCollector<'_, '_> {
             let Some(paths) = attr.parse_path_comma_token_tree(db.upcast(), &hygiene) else {
                 // `#[macro_use]` (without any paths) found, forget collected names and just import
                 // all visible macros.
-                self.def_collector.import_macros_from_extern_crate(target_crate, None);
+                self.def_collector.import_macros_from_extern_crate(target_crate, None, Some(extern_crate_id));
                 return;
             };
             for path in paths {
@@ -1819,7 +1840,11 @@ impl ModCollector<'_, '_> {
             }
         }
 
-        self.def_collector.import_macros_from_extern_crate(target_crate, Some(single_imports));
+        self.def_collector.import_macros_from_extern_crate(
+            target_crate,
+            Some(single_imports),
+            Some(extern_crate_id),
+        );
     }
 
     fn collect_module(&mut self, module_id: FileItemTreeId<Mod>, attrs: &Attrs) {
@@ -2205,7 +2230,7 @@ impl ModCollector<'_, '_> {
                             map[module].scope.get_legacy_macro(name)?.last().copied()
                         })
                         .or_else(|| def_map[self.module_id].scope.get(name).take_macros())
-                        .or_else(|| def_map.macro_use_prelude.get(name).copied())
+                        .or_else(|| def_map.macro_use_prelude.get(name).copied().map(|it| it.0))
                         .filter(|&id| {
                             sub_namespace_match(
                                 Some(MacroSubNs::from_id(db, id)),
