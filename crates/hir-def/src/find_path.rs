@@ -183,7 +183,7 @@ fn find_path_for_module(
 
     // - if the item is the crate root of a dependency crate, return the name from the extern prelude
     let root_def_map = crate_root.def_map(db);
-    for (name, def_id, _) in root_def_map.extern_prelude() {
+    for (name, def_id, _extern_crate_decl) in root_def_map.extern_prelude() {
         if module_id == def_id {
             let name = scope_name.unwrap_or_else(|| name.clone());
 
@@ -346,6 +346,9 @@ fn calculate_best_path(
         let extern_paths = crate_graph[from.krate].dependencies.iter().filter_map(|dep| {
             let import_map = db.import_map(dep.crate_id);
             import_map.import_info_for(item).and_then(|info| {
+                if info.is_doc_hidden {
+                    return None;
+                }
                 // Determine best path for containing module and append last segment from `info`.
                 // FIXME: we should guide this to look up the path locally, or from the same crate again?
                 let mut path = find_path_for_module(
@@ -727,6 +730,28 @@ pub struct S;
             "intermediate::std_renamed::S",
             "intermediate::std_renamed::S",
             "intermediate::std_renamed::S",
+        );
+    }
+
+    #[test]
+    fn different_crate_doc_hidden() {
+        check_found_path(
+            r#"
+//- /main.rs crate:main deps:intermediate
+$0
+//- /intermediate.rs crate:intermediate deps:std
+#[doc(hidden)]
+pub extern crate std as ignore_this;
+pub mod foo {
+    pub use std;
+}
+//- /std.rs crate:std
+pub struct S;
+    "#,
+            "intermediate::foo::std::S",
+            "intermediate::foo::std::S",
+            "intermediate::foo::std::S",
+            "intermediate::foo::std::S",
         );
     }
 

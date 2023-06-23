@@ -279,6 +279,7 @@ impl DefCollector<'_> {
 
         for (name, dep) in &self.deps {
             if dep.is_prelude() {
+                dbg!(name);
                 crate_data
                     .extern_prelude
                     .insert(name.clone(), (CrateRootModuleId { krate: dep.crate_id }, None));

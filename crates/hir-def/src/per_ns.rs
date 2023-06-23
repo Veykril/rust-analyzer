@@ -9,6 +9,8 @@ use crate::{
     ImportId, MacroId, ModuleDefId,
 };
 
+/// A set of items belonging to the same name in different namespaces, with their visibilities
+/// and possible the imports that brought them into scope.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PerNs {
     pub types: Option<(ModuleDefId, Visibility, Option<ImportOrExternId>)>,
@@ -106,12 +108,12 @@ impl PerNs {
         }
     }
 
-    pub fn iter_items(self) -> impl Iterator<Item = ItemInNs> {
+    pub fn iter_items(self) -> impl Iterator<Item = (ItemInNs, Option<ImportOrExternId>)> {
         let _p = profile::span("PerNs::iter_items");
         self.types
-            .map(|it| ItemInNs::Types(it.0))
+            .map(|(it, _, import)| (ItemInNs::Types(it), import))
             .into_iter()
-            .chain(self.values.map(|it| ItemInNs::Values(it.0)).into_iter())
-            .chain(self.macros.map(|it| ItemInNs::Macros(it.0)).into_iter())
+            .chain(self.values.map(|(it, _, _import)| (ItemInNs::Values(it), None)).into_iter())
+            .chain(self.macros.map(|(it, _, _import)| (ItemInNs::Macros(it), None)).into_iter())
     }
 }
