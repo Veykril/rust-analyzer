@@ -80,7 +80,7 @@ pub(crate) fn path_to_const(
     expected_ty: Ty,
 ) -> Option<Const> {
     match resolver.resolve_path_in_value_ns_fully(db.upcast(), path) {
-        Some(ValueNs::GenericParam(p)) => {
+        Some((ValueNs::GenericParam(p), _)) => {
             let ty = db.const_param_ty(p);
             let args = args_lazy();
             let value = match mode {
@@ -102,7 +102,7 @@ pub(crate) fn path_to_const(
             };
             Some(ConstData { ty, value }.intern(Interner))
         }
-        Some(ValueNs::ConstId(c)) => Some(intern_const_scalar(
+        Some((ValueNs::ConstId(c), _)) => Some(intern_const_scalar(
             ConstScalar::UnevaluatedConst(c.into(), Substitution::empty(Interner)),
             expected_ty,
         )),

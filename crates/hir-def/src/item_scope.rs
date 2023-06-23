@@ -32,20 +32,23 @@ pub struct PerNsGlobImports {
     macros: FxHashSet<(LocalModuleId, Name)>,
 }
 
+// FIXME: We might need more variants here, special casing glob imports and the like
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ImportOrExternId {
     ExternCrateId(ExternCrateId),
+    ImportId(ImportId),
 }
 
 impl ImportOrExternId {
     pub fn import(self) -> Option<ImportId> {
         match self {
             ImportOrExternId::ExternCrateId(_) => None,
+            ImportOrExternId::ImportId(id) => Some(id),
         }
     }
 }
 
-impl_from!(ExternCrateId for ImportOrExternId);
+impl_from!(ExternCrateId, ImportId for ImportOrExternId);
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ItemScope {
@@ -191,8 +194,8 @@ impl ItemScope {
     ) -> Option<(&Name, Visibility, Option<ImportOrExternId>)> {
         match item {
             ItemInNs::Macros(def) => {
-                self.macros.iter().find_map(|(name, &(other_def, vis, _import))| {
-                    (other_def == def).then_some((name, vis, None))
+                self.macros.iter().find_map(|(name, &(other_def, vis, import))| {
+                    (other_def == def).then_some((name, vis, import.map(Into::into)))
                 })
             }
             ItemInNs::Types(def) => {
@@ -201,8 +204,8 @@ impl ItemScope {
                 })
             }
             ItemInNs::Values(def) => {
-                self.values.iter().find_map(|(name, &(other_def, vis, _import))| {
-                    (other_def == def).then_some((name, vis, None))
+                self.values.iter().find_map(|(name, &(other_def, vis, import))| {
+                    (other_def == def).then_some((name, vis, import.map(Into::into)))
                 })
             }
         }
@@ -376,8 +379,8 @@ impl ItemScope {
 
     pub(crate) fn resolutions(&self) -> impl Iterator<Item = (Option<Name>, PerNs)> + '_ {
         self.entries().map(|(name, res)| (Some(name.clone()), res)).chain(
-            self.unnamed_trait_imports.iter().map(|(&tr, &(vis, _import))| {
-                (None, PerNs::types(ModuleDefId::TraitId(tr), vis, None))
+            self.unnamed_trait_imports.iter().map(|(&tr, &(vis, import))| {
+                (None, PerNs::types(ModuleDefId::TraitId(tr), vis, import.map(Into::into)))
             }),
         )
     }
@@ -470,25 +473,31 @@ impl PerNs {
     ) -> PerNs {
         match def {
             ModuleDefId::ModuleId(_) => PerNs::types(def, v, import),
-            ModuleDefId::FunctionId(_) => PerNs::values(def, v),
+            ModuleDefId::FunctionId(_) => {
+                PerNs::values(def, v, import.and_then(ImportOrExternId::import))
+            }
             ModuleDefId::AdtId(adt) => match adt {
                 AdtId::UnionId(_) => PerNs::types(def, v, import),
                 AdtId::EnumId(_) => PerNs::types(def, v, import),
                 AdtId::StructId(_) => {
                     if has_constructor {
-                        PerNs::both(def, def, v)
+                        PerNs::both(def, def, v, import)
                     } else {
                         PerNs::types(def, v, import)
                     }
                 }
             },
-            ModuleDefId::EnumVariantId(_) => PerNs::both(def, def, v),
-            ModuleDefId::ConstId(_) | ModuleDefId::StaticId(_) => PerNs::values(def, v),
+            ModuleDefId::EnumVariantId(_) => PerNs::both(def, def, v, import),
+            ModuleDefId::ConstId(_) | ModuleDefId::StaticId(_) => {
+                PerNs::values(def, v, import.and_then(ImportOrExternId::import))
+            }
             ModuleDefId::TraitId(_) => PerNs::types(def, v, import),
             ModuleDefId::TraitAliasId(_) => PerNs::types(def, v, import),
             ModuleDefId::TypeAliasId(_) => PerNs::types(def, v, import),
             ModuleDefId::BuiltinType(_) => PerNs::types(def, v, import),
-            ModuleDefId::MacroId(mac) => PerNs::macros(mac, v),
+            ModuleDefId::MacroId(mac) => {
+                PerNs::macros(mac, v, import.and_then(ImportOrExternId::import))
+            }
         }
     }
 }

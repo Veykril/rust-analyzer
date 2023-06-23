@@ -407,7 +407,7 @@ impl<'ctx> MirLowerCtx<'ctx> {
                     let resolver = resolver_for_expr(self.db.upcast(), self.owner, expr_id);
                     resolver
                         .resolve_path_in_value_ns_fully(self.db.upcast(), p)
-                        .ok_or_else(unresolved_name)?
+                        .ok_or_else(unresolved_name)?.0
                 };
                 match pr {
                     ValueNs::LocalBinding(_) | ValueNs::StaticId(_) => {
@@ -1174,14 +1174,14 @@ impl<'ctx> MirLowerCtx<'ctx> {
                     .resolve_path_in_value_ns(self.db.upcast(), c)
                     .ok_or_else(unresolved_name)?;
                 match pr {
-                    ResolveValueResult::ValueNs(v) => {
+                    ResolveValueResult::ValueNs(v, _) => {
                         if let ValueNs::ConstId(c) = v {
                             self.lower_const_to_operand(Substitution::empty(Interner), c.into(), ty)
                         } else {
                             not_supported!("bad path in range pattern");
                         }
                     }
-                    ResolveValueResult::Partial(_, _) => {
+                    ResolveValueResult::Partial(_, _, _) => {
                         not_supported!("associated constants in range pattern")
                     }
                 }

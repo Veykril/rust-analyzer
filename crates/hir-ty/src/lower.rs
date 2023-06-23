@@ -391,11 +391,9 @@ impl<'a> TyLoweringContext<'a> {
                 let ty = {
                     let macro_call = macro_call.to_node(self.db.upcast());
                     let resolver = |path| {
-                        self.resolver.resolve_path_as_macro(
-                            self.db.upcast(),
-                            &path,
-                            Some(MacroSubNs::Bang),
-                        )
+                        self.resolver
+                            .resolve_path_as_macro(self.db.upcast(), &path, Some(MacroSubNs::Bang))
+                            .map(|(it, _)| it)
                     };
                     match expander.enter_expand::<ast::Type>(self.db.upcast(), macro_call, resolver)
                     {

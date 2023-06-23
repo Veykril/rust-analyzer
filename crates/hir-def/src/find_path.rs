@@ -756,6 +756,29 @@ pub struct S;
     }
 
     #[test]
+    fn respect_doc_hidden() {
+        check_found_path(
+            r#"
+//- /main.rs crate:main deps:std,lazy_static
+$0
+//- /lazy_static.rs crate:lazy_static deps:core
+#[doc(hidden)]
+pub use core::ops::Deref as __Deref;
+//- /std.rs crate:std deps:core
+pub use core::ops;
+//- /core.rs crate:core
+pub mod ops {
+    pub trait Deref {}
+}
+    "#,
+            "std::ops::Deref",
+            "std::ops::Deref",
+            "std::ops::Deref",
+            "std::ops::Deref",
+        );
+    }
+
+    #[test]
     fn partially_imported() {
         cov_mark::check!(partially_imported);
         // Tests that short paths are used even for external items, when parts of the path are

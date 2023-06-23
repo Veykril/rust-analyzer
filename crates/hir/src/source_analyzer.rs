@@ -22,8 +22,8 @@ use hir_def::{
     path::{ModPath, Path, PathKind},
     resolver::{resolver_for_scope, Resolver, TypeNs, ValueNs},
     type_ref::Mutability,
-    AsMacroCall, AssocItemId, ConstId, DefWithBodyId, FieldId, FunctionId, ItemContainerId,
-    LocalFieldId, Lookup, ModuleDefId, TraitId, VariantId,
+    AsMacroCall, AssocItemId, ConstId, DefWithBodyId, FieldId, FunctionId, ImportId,
+    ItemContainerId, LocalFieldId, Lookup, ModuleDefId, TraitId, VariantId,
 };
 use hir_expand::{
     builtin_fn_macro::BuiltinFnLikeExpander,
@@ -447,7 +447,7 @@ impl SourceAnalyzer {
                 once(local_name.clone()),
             ));
             match self.resolver.resolve_path_in_value_ns_fully(db.upcast(), &path) {
-                Some(ValueNs::LocalBinding(binding_id)) => {
+                Some((ValueNs::LocalBinding(binding_id), _)) => {
                     Some(Local { binding_id, parent: self.resolver.body_owner()? })
                 }
                 _ => None,
@@ -488,7 +488,7 @@ impl SourceAnalyzer {
         let path = macro_call.value.path().and_then(|ast| Path::from_src(ast, &ctx))?;
         self.resolver
             .resolve_path_as_macro(db.upcast(), path.mod_path()?, Some(MacroSubNs::Bang))
-            .map(|it| it.into())
+            .map(|(it, _)| it.into())
     }
 
     pub(crate) fn resolve_bind_pat_to_const(
@@ -683,7 +683,9 @@ impl SourceAnalyzer {
                 }
             }
             return match resolve_hir_path_as_attr_macro(db, &self.resolver, &hir_path) {
-                Some(m) => Some(PathResolution::Def(ModuleDef::Macro(m), None)),
+                Some((m, import)) => {
+                    Some(PathResolution::Def(ModuleDef::Macro(m), import.map(Into::into)))
+                }
                 // this labels any path that starts with a tool module as the tool itself, this is technically wrong
                 // but there is no benefit in differentiating these two cases for the time being
                 None => path.first_segment().and_then(|it| it.name_ref()).and_then(|name_ref| {
@@ -761,7 +763,7 @@ impl SourceAnalyzer {
         let macro_call_id = macro_call.as_call_id(db.upcast(), krate, |path| {
             self.resolver
                 .resolve_path_as_macro(db.upcast(), &path, Some(MacroSubNs::Bang))
-                .map(|it| macro_id_to_def_id(db.upcast(), it))
+                .map(|(it, _)| macro_id_to_def_id(db.upcast(), it))
         })?;
         Some(macro_call_id.as_file()).filter(|it| it.expansion_level(db.upcast()) < 64)
     }
@@ -964,10 +966,10 @@ pub(crate) fn resolve_hir_path_as_attr_macro(
     db: &dyn HirDatabase,
     resolver: &Resolver,
     path: &Path,
-) -> Option<Macro> {
+) -> Option<(Macro, Option<ImportId>)> {
     resolver
         .resolve_path_as_macro(db.upcast(), path.mod_path()?, Some(MacroSubNs::Attr))
-        .map(Into::into)
+        .map(|(id, import)| (id.into(), import))
 }
 
 fn resolve_hir_path_(
@@ -1041,17 +1043,27 @@ fn resolve_hir_path_(
 
     let body_owner = resolver.body_owner();
     let values = || {
-        resolver.resolve_path_in_value_ns_fully(db.upcast(), path).and_then(|val| {
+        resolver.resolve_path_in_value_ns_fully(db.upcast(), path).and_then(|(val, import)| {
             let res = match val {
                 ValueNs::LocalBinding(binding_id) => {
                     let var = Local { parent: body_owner?, binding_id };
                     PathResolution::Local(var)
                 }
-                ValueNs::FunctionId(it) => PathResolution::Def(Function::from(it).into(), None),
-                ValueNs::ConstId(it) => PathResolution::Def(Const::from(it).into(), None),
-                ValueNs::StaticId(it) => PathResolution::Def(Static::from(it).into(), None),
-                ValueNs::StructId(it) => PathResolution::Def(Struct::from(it).into(), None),
-                ValueNs::EnumVariantId(it) => PathResolution::Def(Variant::from(it).into(), None),
+                ValueNs::FunctionId(it) => {
+                    PathResolution::Def(Function::from(it).into(), import.map(Into::into))
+                }
+                ValueNs::ConstId(it) => {
+                    PathResolution::Def(Const::from(it).into(), import.map(Into::into))
+                }
+                ValueNs::StaticId(it) => {
+                    PathResolution::Def(Static::from(it).into(), import.map(Into::into))
+                }
+                ValueNs::StructId(it) => {
+                    PathResolution::Def(Struct::from(it).into(), import.map(Into::into))
+                }
+                ValueNs::EnumVariantId(it) => {
+                    PathResolution::Def(Variant::from(it).into(), import.map(Into::into))
+                }
                 ValueNs::ImplSelf(impl_id) => PathResolution::SelfType(impl_id.into()),
                 ValueNs::GenericParam(id) => PathResolution::ConstParam(id.into()),
             };
@@ -1067,9 +1079,9 @@ fn resolve_hir_path_(
     };
 
     let macros = || {
-        resolver
-            .resolve_path_as_macro(db.upcast(), path.mod_path()?, None)
-            .map(|def| PathResolution::Def(ModuleDef::Macro(def.into()), None))
+        resolver.resolve_path_as_macro(db.upcast(), path.mod_path()?, None).map(|(def, import)| {
+            PathResolution::Def(ModuleDef::Macro(def.into()), import.map(Into::into))
+        })
     };
 
     if prefer_value_ns { values().or_else(types) } else { types().or_else(values) }

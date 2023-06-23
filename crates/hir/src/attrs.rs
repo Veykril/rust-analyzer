@@ -175,6 +175,7 @@ fn resolve_doc_path(
         AttrDefId::ExternBlockId(it) => it.resolver(db.upcast()),
         AttrDefId::MacroId(it) => it.resolver(db.upcast()),
         AttrDefId::ExternCrateId(it) => it.resolver(db.upcast()),
+        AttrDefId::ImportId(it) => it.resolver(db.upcast()),
         AttrDefId::GenericParamId(it) => match it {
             GenericParamId::TypeParamId(it) => it.parent(),
             GenericParamId::ConstParamId(it) => it.parent(),

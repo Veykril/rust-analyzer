@@ -29,20 +29,29 @@ impl PerNs {
         PerNs { types: None, values: None, macros: None }
     }
 
-    pub fn values(t: ModuleDefId, v: Visibility) -> PerNs {
-        PerNs { types: None, values: Some((t, v, None)), macros: None }
+    pub fn values(t: ModuleDefId, v: Visibility, import: Option<ImportId>) -> PerNs {
+        PerNs { types: None, values: Some((t, v, import)), macros: None }
     }
 
     pub fn types(t: ModuleDefId, v: Visibility, import: Option<ImportOrExternId>) -> PerNs {
         PerNs { types: Some((t, v, import)), values: None, macros: None }
     }
 
-    pub fn both(types: ModuleDefId, values: ModuleDefId, v: Visibility) -> PerNs {
-        PerNs { types: Some((types, v, None)), values: Some((values, v, None)), macros: None }
+    pub fn both(
+        types: ModuleDefId,
+        values: ModuleDefId,
+        v: Visibility,
+        import: Option<ImportOrExternId>,
+    ) -> PerNs {
+        PerNs {
+            types: Some((types, v, import)),
+            values: Some((values, v, import.and_then(ImportOrExternId::import))),
+            macros: None,
+        }
     }
 
-    pub fn macros(macro_: MacroId, v: Visibility) -> PerNs {
-        PerNs { types: None, values: None, macros: Some((macro_, v, None)) }
+    pub fn macros(macro_: MacroId, v: Visibility, import: Option<ImportId>) -> PerNs {
+        PerNs { types: None, values: None, macros: Some((macro_, v, import)) }
     }
 
     pub fn is_none(&self) -> bool {
@@ -65,8 +74,16 @@ impl PerNs {
         self.values.map(|it| it.0)
     }
 
+    pub fn take_values_all(self) -> Option<(ModuleDefId, Visibility, Option<ImportId>)> {
+        self.values
+    }
+
     pub fn take_macros(self) -> Option<MacroId> {
         self.macros.map(|it| it.0)
+    }
+
+    pub fn take_macros_all(self) -> Option<(MacroId, Visibility, Option<ImportId>)> {
+        self.macros
     }
 
     pub fn types_only(mut self) -> Self {
@@ -92,6 +109,14 @@ impl PerNs {
         }
     }
 
+    pub fn with_import(self, import: ImportOrExternId) -> PerNs {
+        PerNs {
+            types: self.types.map(|(it, vis, _)| (it, vis, Some(import))),
+            values: self.values.map(|(it, vis, _)| (it, vis, import.import())),
+            macros: self.macros.map(|(it, vis, _)| (it, vis, import.import())),
+        }
+    }
+
     pub fn or(self, other: PerNs) -> PerNs {
         PerNs {
             types: self.types.or(other.types),
@@ -113,7 +138,15 @@ impl PerNs {
         self.types
             .map(|(it, _, import)| (ItemInNs::Types(it), import))
             .into_iter()
-            .chain(self.values.map(|(it, _, _import)| (ItemInNs::Values(it), None)).into_iter())
-            .chain(self.macros.map(|(it, _, _import)| (ItemInNs::Macros(it), None)).into_iter())
+            .chain(
+                self.values
+                    .map(|(it, _, import)| (ItemInNs::Values(it), import.map(Into::into)))
+                    .into_iter(),
+            )
+            .chain(
+                self.macros
+                    .map(|(it, _, import)| (ItemInNs::Macros(it), import.map(Into::into)))
+                    .into_iter(),
+            )
     }
 }
