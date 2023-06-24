@@ -14,7 +14,7 @@ use hir_def::{
         Body, BodySourceMap,
     },
     hir::{BindingId, ExprId, Pat, PatId},
-    item_scope::ImportOrExternId,
+    item_scope::{ImportOrExternId, UseId},
     lang_item::LangItem,
     lower::LowerCtx,
     macro_id_to_def_id,
@@ -22,8 +22,8 @@ use hir_def::{
     path::{ModPath, Path, PathKind},
     resolver::{resolver_for_scope, Resolver, TypeNs, ValueNs},
     type_ref::Mutability,
-    AsMacroCall, AssocItemId, ConstId, DefWithBodyId, FieldId, FunctionId, ImportId,
-    ItemContainerId, LocalFieldId, Lookup, ModuleDefId, TraitId, VariantId,
+    AsMacroCall, AssocItemId, ConstId, DefWithBodyId, FieldId, FunctionId, ItemContainerId,
+    LocalFieldId, Lookup, ModuleDefId, TraitId, VariantId,
 };
 use hir_expand::{
     builtin_fn_macro::BuiltinFnLikeExpander,
@@ -966,7 +966,7 @@ pub(crate) fn resolve_hir_path_as_attr_macro(
     db: &dyn HirDatabase,
     resolver: &Resolver,
     path: &Path,
-) -> Option<(Macro, Option<ImportId>)> {
+) -> Option<(Macro, Option<UseId>)> {
     resolver
         .resolve_path_as_macro(db.upcast(), path.mod_path()?, Some(MacroSubNs::Attr))
         .map(|(id, import)| (id.into(), import))

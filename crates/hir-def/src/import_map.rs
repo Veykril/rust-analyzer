@@ -214,7 +214,7 @@ fn collect_import_map(db: &dyn DefDatabase, krate: CrateId) -> ImportMap {
                 let attr_id = if let Some(import) = import {
                     match import {
                         ImportOrExternId::ExternCrateId(id) => Some(id.into()),
-                        ImportOrExternId::ImportId(id) => Some(id.into()),
+                        ImportOrExternId::UseId(id) => Some(id.into()),
                     }
                 } else {
                     match item {

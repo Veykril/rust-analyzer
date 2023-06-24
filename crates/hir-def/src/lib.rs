@@ -87,6 +87,7 @@ use ::tt::token_id as tt;
 use crate::{
     builtin_type::BuiltinType,
     data::adt::VariantData,
+    item_scope::UseId,
     item_tree::{
         Const, Enum, ExternCrate, Function, Impl, Import, ItemTreeId, ItemTreeNode, MacroDef,
         MacroRules, Static, Struct, Trait, TraitAlias, TypeAlias, Union,
@@ -862,6 +863,12 @@ impl From<ItemContainerId> for AttrDefId {
             ItemContainerId::TraitId(tid) => AttrDefId::TraitId(tid),
             ItemContainerId::ExternBlockId(id) => AttrDefId::ExternBlockId(id),
         }
+    }
+}
+
+impl From<UseId> for AttrDefId {
+    fn from(value: UseId) -> Self {
+        value.import.into()
     }
 }
 

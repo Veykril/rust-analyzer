@@ -6,6 +6,7 @@ use std::collections::hash_map::Entry;
 use base_db::CrateId;
 use hir_expand::{attrs::AttrId, db::ExpandDatabase, name::Name, AstId, MacroCallId};
 use itertools::Itertools;
+use la_arena::Idx;
 use once_cell::sync::Lazy;
 use profile::Count;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -36,19 +37,25 @@ pub struct PerNsGlobImports {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ImportOrExternId {
     ExternCrateId(ExternCrateId),
-    ImportId(ImportId),
+    UseId(UseId),
 }
 
 impl ImportOrExternId {
-    pub fn import(self) -> Option<ImportId> {
+    pub fn import(self) -> Option<UseId> {
         match self {
             ImportOrExternId::ExternCrateId(_) => None,
-            ImportOrExternId::ImportId(id) => Some(id),
+            ImportOrExternId::UseId(id) => Some(id),
         }
     }
 }
 
-impl_from!(ExternCrateId, ImportId for ImportOrExternId);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct UseId {
+    pub import: ImportId,
+    pub idx: Idx<ast::UseTree>,
+}
+
+impl_from!(ExternCrateId, UseId for ImportOrExternId);
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ItemScope {
@@ -57,8 +64,8 @@ pub struct ItemScope {
     /// Defs visible in this scope. This includes `declarations`, but also
     /// imports.
     types: FxHashMap<Name, (ModuleDefId, Visibility, Option<ImportOrExternId>)>,
-    values: FxHashMap<Name, (ModuleDefId, Visibility, Option<ImportId>)>,
-    macros: FxHashMap<Name, (MacroId, Visibility, Option<ImportId>)>,
+    values: FxHashMap<Name, (ModuleDefId, Visibility, Option<UseId>)>,
+    macros: FxHashMap<Name, (MacroId, Visibility, Option<UseId>)>,
     unresolved: FxHashSet<Name>,
 
     /// The defs declared in this scope. Each def has a single scope where it is
@@ -70,7 +77,7 @@ pub struct ItemScope {
     extern_crate_decls: Vec<ExternCrateId>,
 
     /// Traits imported via `use Trait as _;`.
-    unnamed_trait_imports: FxHashMap<TraitId, (Visibility, Option<ImportId>)>,
+    unnamed_trait_imports: FxHashMap<TraitId, (Visibility, Option<UseId>)>,
     /// Macros visible in current module in legacy textual scope
     ///
     /// For macros invoked by an unqualified identifier like `bar!()`, `legacy_macros` will be searched in first.
@@ -145,7 +152,7 @@ impl ItemScope {
 
     pub fn values(
         &self,
-    ) -> impl Iterator<Item = (ModuleDefId, Visibility, Option<ImportId>)> + ExactSizeIterator + '_
+    ) -> impl Iterator<Item = (ModuleDefId, Visibility, Option<UseId>)> + ExactSizeIterator + '_
     {
         self.values.values().copied()
     }
@@ -314,7 +321,7 @@ impl ItemScope {
         &mut self,
         tr: TraitId,
         vis: Visibility,
-        import: Option<ImportId>,
+        import: Option<UseId>,
     ) {
         self.unnamed_trait_imports.insert(tr, (vis, import));
     }
