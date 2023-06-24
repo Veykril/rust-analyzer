@@ -33,7 +33,7 @@ use crate::{
     attr_macro_as_call_id,
     db::DefDatabase,
     derive_macro_as_call_id,
-    item_scope::{ImportOrExternId, ImportType, PerNsGlobImports},
+    item_scope::{ImportOrExternId, ImportType, PerNsGlobImports, UseId},
     item_tree::{
         self, ExternCrate, Fields, FileItemTreeId, ImportKind, ItemTree, ItemTreeId, ItemTreeNode,
         MacroCall, MacroDef, MacroRules, Mod, ModItem, ModKind, TreeId,
@@ -803,7 +803,7 @@ impl DefCollector<'_> {
                     None => PartialResolvedImport::Unresolved,
                 }
             }
-            ImportSource::Import { id, .. } => {
+            ImportSource::Import { id, use_tree, .. } => {
                 let res = self.def_map.resolve_path_fp_with_macro(
                     self.db,
                     ResolveMode::Import,
@@ -813,7 +813,7 @@ impl DefCollector<'_> {
                     None, // An import may resolve to any kind of macro.
                 );
 
-                let def = res.resolved_def.with_import(id.into());
+                let def = res.resolved_def.with_import(UseId { import: id, idx: use_tree }.into());
                 if res.reached_fixedpoint == ReachedFixedPoint::No || def.is_none() {
                     return PartialResolvedImport::Unresolved;
                 }

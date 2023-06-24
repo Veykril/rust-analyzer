@@ -8,9 +8,9 @@
 use arrayvec::ArrayVec;
 use hir::{
     Adt, AsAssocItem, AssocItem, BuiltinAttr, BuiltinType, Const, Crate, DeriveHelper,
-    ExternCrateDecl, Field, Function, GenericParam, HasVisibility, Impl, ImportOrExternId, Label,
-    Local, Macro, Module, ModuleDef, Name, PathResolution, Semantics, Static, ToolModule, Trait,
-    TraitAlias, TypeAlias, Variant, Visibility,
+    ExternCrateDecl, Field, Function, GenericParam, HasVisibility, Impl, Import, ImportOrExternId,
+    Label, Local, Macro, Module, ModuleDef, Name, PathResolution, Semantics, Static, ToolModule,
+    Trait, TraitAlias, TypeAlias, Variant, Visibility,
 };
 use stdx::impl_from;
 use syntax::{
@@ -43,6 +43,7 @@ pub enum Definition {
     BuiltinAttr(BuiltinAttr),
     ToolModule(ToolModule),
     ExternCrateDecl(ExternCrateDecl),
+    Import(Import),
 }
 
 impl Definition {

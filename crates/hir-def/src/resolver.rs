@@ -25,7 +25,7 @@ use crate::{
     EnumVariantId, ExternBlockId, ExternCrateId, FunctionId, GenericDefId, GenericParamId,
     HasModule, ImplId, ImportId, ItemContainerId, LifetimeParamId, LocalModuleId, Lookup, Macro2Id,
     MacroId, MacroRulesId, ModuleDefId, ModuleId, ProcMacroId, StaticId, StructId, TraitAliasId,
-    TraitId, TypeAliasId, TypeOrConstParamId, TypeOwnerId, TypeParamId, VariantId,
+    TraitId, TypeAliasId, TypeOrConstParamId, TypeOwnerId, TypeParamId, UseId, VariantId,
 };
 
 #[derive(Debug, Clone)]
@@ -100,7 +100,7 @@ pub enum TypeNs {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ResolveValueResult {
-    ValueNs(ValueNs, Option<ImportId>),
+    ValueNs(ValueNs, Option<UseId>),
     Partial(TypeNs, usize, Option<ImportOrExternId>),
 }
 
@@ -395,7 +395,7 @@ impl Resolver {
         &self,
         db: &dyn DefDatabase,
         path: &Path,
-    ) -> Option<(ValueNs, Option<ImportId>)> {
+    ) -> Option<(ValueNs, Option<UseId>)> {
         match self.resolve_path_in_value_ns(db, path)? {
             ResolveValueResult::ValueNs(it, import) => Some((it, import)),
             ResolveValueResult::Partial(..) => None,
@@ -407,7 +407,7 @@ impl Resolver {
         db: &dyn DefDatabase,
         path: &ModPath,
         expected_macro_kind: Option<MacroSubNs>,
-    ) -> Option<(MacroId, Option<ImportId>)> {
+    ) -> Option<(MacroId, Option<UseId>)> {
         let (item_map, module) = self.item_scope();
         item_map
             .resolve_path(db, module, path, BuiltinShadowMode::Other, expected_macro_kind)
@@ -857,7 +857,7 @@ impl ModuleItemMap {
     }
 }
 
-fn to_value_ns(per_ns: PerNs) -> Option<(ValueNs, Option<ImportId>)> {
+fn to_value_ns(per_ns: PerNs) -> Option<(ValueNs, Option<UseId>)> {
     let (module_def_id, _, import) = per_ns.take_values_all()?;
     let res = match module_def_id {
         ModuleDefId::FunctionId(it) => ValueNs::FunctionId(it),
@@ -1043,10 +1043,15 @@ impl HasResolver for ExternCrateId {
         self.lookup(db).container.resolver(db)
     }
 }
-
 impl HasResolver for ImportId {
     fn resolver(self, db: &dyn DefDatabase) -> Resolver {
         self.lookup(db).container.resolver(db)
+    }
+}
+
+impl HasResolver for UseId {
+    fn resolver(self, db: &dyn DefDatabase) -> Resolver {
+        self.import.resolver(db)
     }
 }
 

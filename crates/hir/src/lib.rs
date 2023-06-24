@@ -52,10 +52,10 @@ use hir_def::{
     resolver::{HasResolver, Resolver},
     src::HasSource as _,
     AssocItemId, AssocItemLoc, AttrDefId, ConstId, ConstParamId, DefWithBodyId, EnumId,
-    EnumVariantId, ExternCrateId, FunctionId, GenericDefId, HasModule, ImplId, InTypeConstId,
-    ItemContainerId, LifetimeParamId, LocalEnumVariantId, LocalFieldId, Lookup, MacroExpander,
-    MacroId, ModuleId, StaticId, StructId, TraitAliasId, TraitId, TypeAliasId, TypeOrConstParamId,
-    TypeParamId, UnionId,
+    EnumVariantId, ExternCrateId, FunctionId, GenericDefId, HasModule, ImplId, ImportId,
+    InTypeConstId, ItemContainerId, LifetimeParamId, LocalEnumVariantId, LocalFieldId, Lookup,
+    MacroExpander, MacroId, ModuleId, StaticId, StructId, TraitAliasId, TraitId, TypeAliasId,
+    TypeOrConstParamId, TypeParamId, UnionId,
 };
 use hir_expand::{name::name, MacroCallKind};
 use hir_ty::{
@@ -1860,6 +1860,48 @@ impl ExternCrateDecl {
 
 /// Variants inherit visibility from the parent enum.
 impl HasVisibility for ExternCrateDecl {
+    fn visibility(&self, db: &dyn HirDatabase) -> Visibility {
+        db.extern_crate_decl_data(self.id)
+            .visibility
+            .resolve(db.upcast(), &self.id.resolver(db.upcast()))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Import {
+    pub(crate) id: ImportId,
+}
+
+impl Import {
+    pub fn module(self, db: &dyn HirDatabase) -> Module {
+        self.id.module(db.upcast()).into()
+    }
+
+    pub fn resolved_def(self, db: &dyn HirDatabase) -> ModuleDef {
+        db.extern_crate_decl_data(self.id).crate_id.into()
+    }
+
+    pub fn name(self, db: &dyn HirDatabase) -> Name {
+        db.extern_crate_decl_data(self.id).name.clone()
+    }
+
+    pub fn alias(self, db: &dyn HirDatabase) -> Option<ImportAlias> {
+        db.extern_crate_decl_data(self.id).alias.clone()
+    }
+
+    /// Returns the name under which this crate is made accessible, taking `_` into account.
+    pub fn alias_or_name(self, db: &dyn HirDatabase) -> Option<Name> {
+        let extern_crate_decl_data = db.extern_crate_decl_data(self.id);
+        match &extern_crate_decl_data.alias {
+            Some(ImportAlias::Underscore) => None,
+            Some(ImportAlias::Alias(alias)) => Some(alias.clone()),
+            None => Some(extern_crate_decl_data.name.clone()),
+        }
+    }
+}
+
+/// Variants inherit visibility from the parent enum.
+impl HasVisibility for Import {
     fn visibility(&self, db: &dyn HirDatabase) -> Visibility {
         db.extern_crate_decl_data(self.id)
             .visibility
