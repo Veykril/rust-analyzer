@@ -4,9 +4,9 @@
 //! `PerNs` (per namespace) captures this.
 
 use crate::{
-    item_scope::{ImportOrExternId, ItemInNs},
+    item_scope::{ImportOrExternId, ItemInNs, UseId},
     visibility::Visibility,
-    ImportId, MacroId, ModuleDefId,
+    MacroId, ModuleDefId,
 };
 
 /// A set of items belonging to the same name in different namespaces, with their visibilities
@@ -14,8 +14,8 @@ use crate::{
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct PerNs {
     pub types: Option<(ModuleDefId, Visibility, Option<ImportOrExternId>)>,
-    pub values: Option<(ModuleDefId, Visibility, Option<ImportId>)>,
-    pub macros: Option<(MacroId, Visibility, Option<ImportId>)>,
+    pub values: Option<(ModuleDefId, Visibility, Option<UseId>)>,
+    pub macros: Option<(MacroId, Visibility, Option<UseId>)>,
 }
 
 impl Default for PerNs {
@@ -29,7 +29,7 @@ impl PerNs {
         PerNs { types: None, values: None, macros: None }
     }
 
-    pub fn values(t: ModuleDefId, v: Visibility, import: Option<ImportId>) -> PerNs {
+    pub fn values(t: ModuleDefId, v: Visibility, import: Option<UseId>) -> PerNs {
         PerNs { types: None, values: Some((t, v, import)), macros: None }
     }
 
@@ -50,7 +50,7 @@ impl PerNs {
         }
     }
 
-    pub fn macros(macro_: MacroId, v: Visibility, import: Option<ImportId>) -> PerNs {
+    pub fn macros(macro_: MacroId, v: Visibility, import: Option<UseId>) -> PerNs {
         PerNs { types: None, values: None, macros: Some((macro_, v, import)) }
     }
 
@@ -74,7 +74,7 @@ impl PerNs {
         self.values.map(|it| it.0)
     }
 
-    pub fn take_values_all(self) -> Option<(ModuleDefId, Visibility, Option<ImportId>)> {
+    pub fn take_values_all(self) -> Option<(ModuleDefId, Visibility, Option<UseId>)> {
         self.values
     }
 
@@ -82,7 +82,7 @@ impl PerNs {
         self.macros.map(|it| it.0)
     }
 
-    pub fn take_macros_all(self) -> Option<(MacroId, Visibility, Option<ImportId>)> {
+    pub fn take_macros_all(self) -> Option<(MacroId, Visibility, Option<UseId>)> {
         self.macros
     }
 

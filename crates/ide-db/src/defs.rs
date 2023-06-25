@@ -8,9 +8,9 @@
 use arrayvec::ArrayVec;
 use hir::{
     Adt, AsAssocItem, AssocItem, BuiltinAttr, BuiltinType, Const, Crate, DeriveHelper,
-    ExternCrateDecl, Field, Function, GenericParam, HasVisibility, Impl, ImportOrExternId, Label,
-    Local, Macro, Module, ModuleDef, Name, PathResolution, Semantics, Static, ToolModule, Trait,
-    TraitAlias, TypeAlias, Variant, Visibility,
+    ExternCrateDecl, Field, Function, GenericParam, HasVisibility, Impl, Import, ImportOrExternId,
+    Label, Local, Macro, Module, ModuleDef, Name, PathResolution, Semantics, Static, ToolModule,
+    Trait, TraitAlias, TypeAlias, Variant, Visibility,
 };
 use stdx::impl_from;
 use syntax::{
@@ -43,6 +43,7 @@ pub enum Definition {
     BuiltinAttr(BuiltinAttr),
     ToolModule(ToolModule),
     ExternCrateDecl(ExternCrateDecl),
+    Import(Import),
 }
 
 impl Definition {
@@ -75,6 +76,7 @@ impl Definition {
             Definition::GenericParam(it) => it.module(db),
             Definition::Label(it) => it.module(db),
             Definition::ExternCrateDecl(it) => it.module(db),
+            Definition::Import(it) => it.module(db),
             Definition::DeriveHelper(it) => it.derive().module(db),
             Definition::BuiltinAttr(_) | Definition::BuiltinType(_) | Definition::ToolModule(_) => {
                 return None
@@ -97,6 +99,7 @@ impl Definition {
             Definition::Variant(it) => it.visibility(db),
             Definition::BuiltinType(_) => Visibility::Public,
             Definition::ExternCrateDecl(it) => it.visibility(db),
+            Definition::Import(it) => it.visibility(db),
             Definition::Macro(_) => return None,
             Definition::BuiltinAttr(_)
             | Definition::ToolModule(_)
@@ -131,6 +134,7 @@ impl Definition {
             Definition::ToolModule(_) => return None,  // FIXME
             Definition::DeriveHelper(it) => it.name(db),
             Definition::ExternCrateDecl(it) => return it.alias_or_name(db),
+            Definition::Import(it) => return it.alias_or_name(db),
         };
         Some(name)
     }
@@ -621,6 +625,9 @@ impl From<PathResolution> for Definition {
         match path_resolution {
             PathResolution::Def(_, Some(ImportOrExternId::ExternCrateId(id))) => {
                 Definition::ExternCrateDecl(ExternCrateDecl::from(id))
+            }
+            PathResolution::Def(_, Some(ImportOrExternId::UseId(id))) => {
+                Definition::Import(Import::from(id))
             }
             PathResolution::Def(def, _) => def.into(),
             PathResolution::Local(local) => Definition::Local(local),

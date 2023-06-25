@@ -11,7 +11,7 @@ use hir_expand::{HirFileId, InFile};
 use syntax::ast;
 
 use crate::{
-    db::HirDatabase, Adt, Const, Enum, ExternCrateDecl, Field, FieldSource, Function, Impl,
+    db::HirDatabase, Adt, Const, Enum, ExternCrateDecl, Field, FieldSource, Function, Impl, Import,
     LifetimeParam, LocalSource, Macro, Module, Static, Struct, Trait, TraitAlias, TypeAlias,
     TypeOrConstParam, Union, Variant,
 };
@@ -66,6 +66,23 @@ impl Module {
     pub fn declaration_source(self, db: &dyn HirDatabase) -> Option<InFile<ast::Module>> {
         let def_map = self.id.def_map(db.upcast());
         def_map[self.id.local_id].declaration_source(db.upcast())
+    }
+}
+
+/// NB: Import is !HasSource, because ...
+impl Import {
+    pub fn use_tree_source(self, db: &dyn HirDatabase) -> InFile<ast::UseTree> {
+        let loc = self.id.import.lookup(db.upcast());
+        let tree = loc.id.item_tree(db.upcast());
+        let node = &tree[loc.id.value];
+        InFile::new(
+            loc.id.file_id(),
+            node.use_tree_to_ast(db.upcast(), loc.id.file_id(), self.id.idx),
+        )
+    }
+
+    pub fn source(self, db: &dyn HirDatabase) -> InFile<ast::Use> {
+        self.id.import.lookup(db.upcast()).source(db.upcast())
     }
 }
 

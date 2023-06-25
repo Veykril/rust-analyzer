@@ -550,7 +550,7 @@ pub struct Import {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct UseTree {
     pub index: Idx<ast::UseTree>,
-    kind: UseTreeKind,
+    pub kind: UseTreeKind,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -746,6 +746,7 @@ pub struct MacroDef {
 
 impl Import {
     /// Maps a `UseTree` contained in this import back to its AST node.
+    // FIXME: This is quadratic
     pub fn use_tree_to_ast(
         &self,
         db: &dyn DefDatabase,

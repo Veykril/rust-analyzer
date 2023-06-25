@@ -84,16 +84,11 @@ impl RootDatabase {
             )*}
         }
         purge_each_query![
-            // SourceDatabase
-            base_db::ParseQuery
-            base_db::CrateGraphQuery
-            base_db::ProcMacrosQuery
-
-            // SourceDatabaseExt
-            base_db::FileTextQuery
-            base_db::FileSourceRootQuery
-            base_db::SourceRootQuery
-            base_db::SourceRootCratesQuery
+            // SymbolsDatabase
+            crate::symbol_index::ModuleSymbolsQuery
+            crate::symbol_index::LibrarySymbolsQuery
+            crate::symbol_index::LocalRootsQuery
+            crate::symbol_index::LibraryRootsQuery
 
             // ExpandDatabase
             hir::db::AstIdMapQuery
@@ -187,15 +182,6 @@ impl RootDatabase {
             hir::db::TraitSolveQueryQuery
             hir::db::ProgramClausesForChalkEnvQuery
 
-            // SymbolsDatabase
-            crate::symbol_index::ModuleSymbolsQuery
-            crate::symbol_index::LibrarySymbolsQuery
-            crate::symbol_index::LocalRootsQuery
-            crate::symbol_index::LibraryRootsQuery
-
-            // LineIndexDatabase
-            crate::LineIndexQuery
-
             // InternDatabase
             hir::db::InternFunctionQuery
             hir::db::InternStructQuery
@@ -212,6 +198,20 @@ impl RootDatabase {
             hir::db::InternMacro2Query
             hir::db::InternProcMacroQuery
             hir::db::InternMacroRulesQuery
+
+            // LineIndexDatabase
+            crate::LineIndexQuery
+
+            // SourceDatabase
+            base_db::ParseQuery
+            base_db::CrateGraphQuery
+            base_db::ProcMacrosQuery
+
+            // SourceDatabaseExt
+            base_db::FileTextQuery
+            base_db::FileSourceRootQuery
+            base_db::SourceRootQuery
+            base_db::SourceRootCratesQuery
         ];
 
         acc.sort_by_key(|it| std::cmp::Reverse(it.1));

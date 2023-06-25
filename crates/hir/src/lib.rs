@@ -43,7 +43,8 @@ use hir_def::{
     data::adt::VariantData,
     generics::{LifetimeParamData, TypeOrConstParamData, TypeParamProvenance},
     hir::{BindingAnnotation, BindingId, ExprOrPatId, LabelId, Pat},
-    item_tree::ItemTreeNode,
+    item_scope::UseId,
+    item_tree::{ItemTreeNode, UseTreeKind},
     lang_item::LangItemTarget,
     layout::{self, ReprOptions, TargetDataLayout},
     macro_id_to_def_id,
@@ -52,10 +53,10 @@ use hir_def::{
     resolver::{HasResolver, Resolver},
     src::HasSource as _,
     AssocItemId, AssocItemLoc, AttrDefId, ConstId, ConstParamId, DefWithBodyId, EnumId,
-    EnumVariantId, ExternCrateId, FunctionId, GenericDefId, HasModule, ImplId, InTypeConstId,
-    ItemContainerId, LifetimeParamId, LocalEnumVariantId, LocalFieldId, Lookup, MacroExpander,
-    MacroId, ModuleId, StaticId, StructId, TraitAliasId, TraitId, TypeAliasId, TypeOrConstParamId,
-    TypeParamId, UnionId,
+    EnumVariantId, ExternCrateId, FunctionId, GenericDefId, HasModule, ImplId, ImportId,
+    InTypeConstId, ItemContainerId, LifetimeParamId, LocalEnumVariantId, LocalFieldId, Lookup,
+    MacroExpander, MacroId, ModuleId, StaticId, StructId, TraitAliasId, TraitId, TypeAliasId,
+    TypeOrConstParamId, TypeParamId, UnionId,
 };
 use hir_expand::{name::name, MacroCallKind};
 use hir_ty::{
@@ -1862,6 +1863,80 @@ impl ExternCrateDecl {
 impl HasVisibility for ExternCrateDecl {
     fn visibility(&self, db: &dyn HirDatabase) -> Visibility {
         db.extern_crate_decl_data(self.id)
+            .visibility
+            .resolve(db.upcast(), &self.id.resolver(db.upcast()))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Import {
+    pub(crate) id: UseId,
+}
+
+// FIXME: THese lookups are quadratic!
+impl Import {
+    pub fn module(self, db: &dyn HirDatabase) -> Module {
+        self.id.import.module(db.upcast()).into()
+    }
+
+    pub fn resolved_def(self, db: &dyn HirDatabase) -> Option<ModuleDef> {
+        // db.import_data(self.id.import).crate_id.into()
+        loop {}
+    }
+
+    pub fn name(self, db: &dyn HirDatabase) -> Option<Name> {
+        let loc = self.id.import.lookup(db.upcast());
+        let item_tree = loc.id.item_tree(db.upcast());
+        let import = &item_tree[loc.id.value];
+        match &find_use_tree(&import.use_tree, self.id.idx).unwrap().kind {
+            UseTreeKind::Single { path, .. } => path.segments().last().cloned(),
+            UseTreeKind::Glob { .. } | UseTreeKind::Prefixed { .. } => None,
+        }
+    }
+
+    pub fn alias(self, db: &dyn HirDatabase) -> Option<ImportAlias> {
+        let loc = self.id.import.lookup(db.upcast());
+        let item_tree = loc.id.item_tree(db.upcast());
+        let import = &item_tree[loc.id.value];
+        match &find_use_tree(&import.use_tree, self.id.idx).unwrap().kind {
+            UseTreeKind::Single { alias, .. } => alias.clone(),
+            UseTreeKind::Glob { .. } | UseTreeKind::Prefixed { .. } => None,
+        }
+    }
+
+    /// Returns the name under which this crate is made accessible, taking `_` into account.
+    pub fn alias_or_name(self, db: &dyn HirDatabase) -> Option<Name> {
+        let loc = self.id.import.lookup(db.upcast());
+        let item_tree = loc.id.item_tree(db.upcast());
+        let import = &item_tree[loc.id.value];
+        match &find_use_tree(&import.use_tree, self.id.idx).unwrap().kind {
+            UseTreeKind::Single { path, alias, .. } => match alias {
+                Some(ImportAlias::Underscore) => None,
+                Some(ImportAlias::Alias(alias)) => Some(alias.clone()),
+                None => path.segments().last().cloned(),
+            },
+            UseTreeKind::Glob { .. } | UseTreeKind::Prefixed { .. } => None,
+        }
+    }
+}
+
+fn find_use_tree(
+    tree: &hir_def::item_tree::UseTree,
+    index: la_arena::Idx<ast::UseTree>,
+) -> Option<&hir_def::item_tree::UseTree> {
+    if tree.index == index {
+        return Some(tree);
+    }
+    match &tree.kind {
+        UseTreeKind::Prefixed { list, .. } => list.iter().find_map(|it| find_use_tree(it, index)),
+        _ => None,
+    }
+}
+
+/// Variants inherit visibility from the parent enum.
+impl HasVisibility for Import {
+    fn visibility(&self, db: &dyn HirDatabase) -> Visibility {
+        db.import_data(self.id.import)
             .visibility
             .resolve(db.upcast(), &self.id.resolver(db.upcast()))
     }

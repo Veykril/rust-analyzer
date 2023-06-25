@@ -20,6 +20,8 @@ smallvec.workspace = true
 triomphe.workspace = true
 once_cell = "1.17.1"
 
+la-arena.workspace = true
+
 # local deps
 base-db.workspace = true
 cfg.workspace = true

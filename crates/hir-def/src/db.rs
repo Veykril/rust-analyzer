@@ -12,8 +12,8 @@ use crate::{
     body::{scope::ExprScopes, Body, BodySourceMap},
     data::{
         adt::{EnumData, StructData},
-        ConstData, ExternCrateDeclData, FunctionData, ImplData, Macro2Data, MacroRulesData,
-        ProcMacroData, StaticData, TraitAliasData, TraitData, TypeAliasData,
+        ConstData, ExternCrateDeclData, FunctionData, ImplData, ImportData, Macro2Data,
+        MacroRulesData, ProcMacroData, StaticData, TraitAliasData, TraitData, TypeAliasData,
     },
     generics::GenericParams,
     import_map::ImportMap,
@@ -166,6 +166,9 @@ pub trait DefDatabase: InternDatabase + ExpandDatabase + Upcast<dyn ExpandDataba
 
     #[salsa::invoke(ExternCrateDeclData::extern_crate_decl_data_query)]
     fn extern_crate_decl_data(&self, extern_crate: ExternCrateId) -> Arc<ExternCrateDeclData>;
+
+    #[salsa::invoke(ImportData::import_data_query)]
+    fn import_data(&self, extern_crate: ImportId) -> Arc<ImportData>;
 
     // endregion:data
 

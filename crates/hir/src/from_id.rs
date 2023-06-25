@@ -48,8 +48,15 @@ from_id![
     (hir_def::ConstParamId, crate::ConstParam),
     (hir_def::LifetimeParamId, crate::LifetimeParam),
     (hir_def::MacroId, crate::Macro),
-    (hir_def::ExternCrateId, crate::ExternCrateDecl)
+    (hir_def::ExternCrateId, crate::ExternCrateDecl),
+    (hir_def::UseId, crate::Import)
 ];
+
+impl From<crate::Import> for hir_def::ImportId {
+    fn from(value: crate::Import) -> Self {
+        value.id.import
+    }
+}
 
 impl From<AdtId> for Adt {
     fn from(id: AdtId) -> Self {

@@ -29,8 +29,8 @@ use crate::{
     type_ref::{TraitRef, TypeBound, TypeRef},
     visibility::RawVisibility,
     AssocItemId, AstIdWithPath, ConstId, ConstLoc, ExternCrateId, FunctionId, FunctionLoc,
-    HasModule, ImplId, Intern, ItemContainerId, ItemLoc, Lookup, Macro2Id, MacroRulesId, ModuleId,
-    ProcMacroId, StaticId, TraitAliasId, TraitId, TypeAliasId, TypeAliasLoc,
+    HasModule, ImplId, ImportId, Intern, ItemContainerId, ItemLoc, Lookup, Macro2Id, MacroRulesId,
+    ModuleId, ProcMacroId, StaticId, TraitAliasId, TraitId, TypeAliasId, TypeAliasLoc,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -497,6 +497,20 @@ impl ExternCrateDeclData {
             alias: extern_crate.alias.clone(),
             crate_id,
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportData {
+    pub visibility: RawVisibility,
+}
+
+impl ImportData {
+    pub(crate) fn import_data_query(db: &dyn DefDatabase, import_id: ImportId) -> Arc<Self> {
+        let loc = import_id.lookup(db);
+        let item_tree = loc.id.item_tree(db);
+        let import = &item_tree[loc.id.value];
+        Arc::new(Self { visibility: item_tree[import.visibility].clone() })
     }
 }
 

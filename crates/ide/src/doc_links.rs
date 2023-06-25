@@ -213,6 +213,7 @@ pub(crate) fn resolve_doc_path_for_def(
         Definition::Field(it) => it.resolve_doc_path(db, link, ns),
         Definition::SelfType(it) => it.resolve_doc_path(db, link, ns),
         Definition::ExternCrateDecl(it) => it.resolve_doc_path(db, link, ns),
+        Definition::Import(it) => it.resolve_doc_path(db, link, ns),
         Definition::BuiltinAttr(_)
         | Definition::ToolModule(_)
         | Definition::BuiltinType(_)
@@ -587,6 +588,9 @@ fn filename_and_frag_for_def(
         },
         Definition::ExternCrateDecl(it) => {
             format!("{}/index.html", it.name(db).display(db.upcast()))
+        }
+        Definition::Import(it) => {
+            todo!()
         }
         Definition::Trait(t) => format!("trait.{}.html", t.name(db).display(db.upcast())),
         Definition::TraitAlias(t) => format!("traitalias.{}.html", t.name(db).display(db.upcast())),

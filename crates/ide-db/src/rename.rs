@@ -157,6 +157,16 @@ impl Definition {
                     src.with_value(name.syntax()).original_file_range_opt(sema.db)
                 }
             }
+            Definition::Import(it) => {
+                let src = it.use_tree_source(sema.db);
+                if let Some(rename) = src.value.rename() {
+                    let name = rename.name()?;
+                    src.with_value(name.syntax()).original_file_range_opt(sema.db)
+                } else {
+                    let name = src.value.path()?.segment()?.name_ref()?;
+                    src.with_value(name.syntax()).original_file_range_opt(sema.db)
+                }
+            }
             Definition::BuiltinType(_) => return None,
             Definition::SelfType(_) => return None,
             Definition::BuiltinAttr(_) => return None,

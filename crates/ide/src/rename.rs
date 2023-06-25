@@ -2569,4 +2569,122 @@ use bar as frob;
 ",
         );
     }
+
+    #[test]
+    fn use_def() {
+        check(
+            "bar",
+            r"
+struct S;
+mod x {
+    use super::S$0;
+    fn f(_: S) {}
+}
+",
+            r"
+struct S;
+mod x {
+    use super::S as bar;
+    fn f(_: bar) {}
+}
+",
+        );
+    }
+
+    #[test]
+    fn use_ref() {
+        check(
+            "bar",
+            r"
+struct S;
+mod x {
+    use super::S;
+    fn f(_: S$0) {}
+}
+",
+            r"
+struct bar;
+mod x {
+    use super::bar;
+    fn f(_: bar) {}
+}
+",
+        );
+    }
+
+    #[test]
+    fn use_alias_def() {
+        check(
+            "Qux",
+            r"
+struct S;
+mod x {
+    use super::S as Bar$0;
+    fn f(_: Bar) {}
+}
+",
+            r"
+struct S;
+mod x {
+    use super::S as Qux;
+    fn f(_: Qux) {}
+}
+",
+        );
+    }
+
+    #[test]
+    fn use_alias_ref() {
+        check(
+            "Qux",
+            r"
+struct S;
+mod x {
+    use super::S as Bar;
+    fn f(_: Bar$0) {}
+}
+",
+            r"
+struct S;
+mod x {
+    use super::S as Qux;
+    fn f(_: Qux) {}
+}
+",
+        );
+    }
+
+    #[test]
+    fn use_self_def() {
+        check(
+            "bar",
+            r"
+use self$0;
+
+use self as qux;
+",
+            r"
+use self as bar;
+
+use self as qux;
+",
+        );
+    }
+
+    #[test]
+    fn use_self_alias_def() {
+        check(
+            "bar",
+            r"
+use self as qux$0;
+
+use qux as frob;
+",
+            r"
+use self as bar;
+
+use bar as frob;
+",
+        );
+    }
 }
