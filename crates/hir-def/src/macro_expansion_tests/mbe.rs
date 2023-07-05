@@ -27,23 +27,20 @@ macro_rules! f {
 // +tokenids
 f!(struct MyTraitMap2);
 "#,
-        expect![[r##"
-// call ids will be shifted by Shift(30)
+        expect![[r#"
 // +tokenids
-macro_rules! f {#0
-    (#1 struct#2 $#3ident#4:#5ident#6 )#1 =#7>#8 {#9
-        struct#10 $#11ident#12 {#13
-            map#14:#15 :#16:#17std#18:#19:#20collections#21:#22:#23HashSet#24<#25(#26)#26>#27,#28
-        }#13
-    }#9;#29
-}#0
+macro_rules! f {
+    ( struct $ident:ident ) => {
+        struct $ident {
+            map: ::std::collections::HashSet<()>,
+        }
+    };
+}
 
-// // +tokenids
-// f!(struct#1 MyTraitMap2#2);
-struct#10 MyTraitMap2#32 {#13
-    map#14:#15 ::std#18::collections#21::HashSet#24<#25(#26)#26>#27,#28
-}#13
-"##]],
+struct#FileId(FileId(0))@71..77 MyTraitMap2#FileId(FileId(0))@8..19 {#FileId(FileId(0))@85..86
+    map#FileId(FileId(0))@99..102:#FileId(FileId(0))@102..103 ::std#FileId(FileId(0))@106..109::collections#FileId(FileId(0))@111..122::HashSet#FileId(FileId(0))@124..131<#FileId(FileId(0))@131..132(#FileId(FileId(0))@132..133)#FileId(FileId(0))@133..134>#FileId(FileId(0))@134..135,#FileId(FileId(0))@135..136
+}#FileId(FileId(0))@145..146
+"#]],
     );
 }
 
@@ -71,31 +68,22 @@ f! {
 
 
 "#,
-        expect![[r##"
-// call ids will be shifted by Shift(18)
+        expect![[r#"
 // +tokenids
-macro_rules! f {#0
-    (#1$#2(#3$#4tt#5:#6tt#7)#3*#8)#1 =#9>#10 {#11
-        $#12(#13$#14tt#15)#13*#16
-    }#11;#17
-}#0
+macro_rules! f {
+    ($($tt:tt)*) => {
+        $($tt)*
+    };
+}
 
-// // +tokenids
-// f! {
-//     fn#1 main#2() {
-//         1#5;#6
-//         1.0#7;#8
-//         let#9 x#10 =#11 1#12;#13
-//     }
-// }
-fn#19 main#20(#21)#21 {#22
-    1#23;#24
-    1.0#25;#26
-    let#27 x#28 =#29 1#30;#31
-}#22
+fn#FileId(FileId(0))@6..8 main#FileId(FileId(0))@9..13(#FileId(FileId(0))@13..14)#FileId(FileId(0))@14..15 {#FileId(FileId(0))@16..17
+    1#FileId(FileId(0))@26..27;#FileId(FileId(0))@27..28
+    1.0#FileId(FileId(0))@37..40;#FileId(FileId(0))@40..41
+    let#FileId(FileId(0))@50..53 x#FileId(FileId(0))@54..55 =#FileId(FileId(0))@56..57 1#FileId(FileId(0))@58..59;#FileId(FileId(0))@59..60
+}#FileId(FileId(0))@65..66
 
 
-"##]],
+"#]],
     );
 }
 

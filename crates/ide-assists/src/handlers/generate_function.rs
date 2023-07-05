@@ -1,5 +1,6 @@
 use hir::{
-    Adt, AsAssocItem, HasSource, HirDisplay, Module, PathResolution, Semantics, Type, TypeInfo,
+    Adt, AsAssocItem, HasSource, HirDisplay, HirFileIdExt, Module, PathResolution, Semantics, Type,
+    TypeInfo,
 };
 use ide_db::{
     base_db::FileId,

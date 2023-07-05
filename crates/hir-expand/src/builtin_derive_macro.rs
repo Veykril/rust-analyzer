@@ -1,16 +1,15 @@
 //! Builtin derives.
 
-use ::tt::Ident;
+use ::tt::Span;
 use base_db::{CrateOrigin, LangCrateOrigin};
 use itertools::izip;
-use mbe::TokenMap;
 use rustc_hash::FxHashSet;
 use stdx::never;
 use tracing::debug;
 
 use crate::{
     name::{AsName, Name},
-    tt::{self, TokenId},
+    tt, TokenMap,
 };
 use syntax::ast::{self, AstNode, FieldList, HasAttrs, HasGenericParams, HasName, HasTypeBounds};
 
@@ -71,7 +70,7 @@ enum VariantShape {
 }
 
 fn tuple_field_iterator(n: usize) -> impl Iterator<Item = tt::Ident> {
-    (0..n).map(|it| Ident::new(format!("f{it}"), tt::TokenId::unspecified()))
+    (0..n).map(|it| tt::Ident::new(format!("f{it}"), tt::SpanData::DUMMY))
 }
 
 impl VariantShape {
@@ -248,7 +247,15 @@ fn parse_adt(tm: &TokenMap, adt: &ast::Adt) -> Result<BasicAdtInfo, ExpandError>
             let ty = if let ast::TypeOrConstParam::Const(param) = param {
                 let ty = param
                     .ty()
-                    .map(|ty| mbe::syntax_node_to_token_tree(ty.syntax()).0)
+                    .map(|ty| {
+                        mbe::syntax_node_to_token_tree(
+                            ty.syntax(),
+                            token_map
+                                .token_by_range(ty.syntax().first_token().unwrap().text_range())
+                                .unwrap()
+                                .anchor,
+                        )
+                    })
                     .unwrap_or_else(tt::Subtree::empty);
                 Some(ty)
             } else {
@@ -293,8 +300,7 @@ fn name_to_token(token_map: &TokenMap, name: Option<ast::Name>) -> Result<tt::Id
         debug!("parsed item has no name");
         ExpandError::other("missing name")
     })?;
-    let name_token_id =
-        token_map.token_by_range(name.syntax().text_range()).unwrap_or_else(TokenId::unspecified);
+    let name_token_id = token_map.token_by_range(name.syntax().text_range()).unwrap();
     let name_token = tt::Ident { span: name_token_id, text: name.text().into() };
     Ok(name_token)
 }
@@ -408,11 +414,8 @@ fn clone_expand(
     let krate = find_builtin_crate(db, id);
     expand_simple_derive(tt, tm, quote! { #krate::clone::Clone }, |adt| {
         if matches!(adt.shape, AdtShape::Union) {
-            let star = tt::Punct {
-                char: '*',
-                spacing: ::tt::Spacing::Alone,
-                span: tt::TokenId::unspecified(),
-            };
+            let star =
+                tt::Punct { char: '*', spacing: ::tt::Spacing::Alone, span: tt::SpanData::DUMMY };
             return quote! {
                 fn clone(&self) -> Self {
                     #star self
@@ -420,11 +423,8 @@ fn clone_expand(
             };
         }
         if matches!(&adt.shape, AdtShape::Enum { variants, .. } if variants.is_empty()) {
-            let star = tt::Punct {
-                char: '*',
-                spacing: ::tt::Spacing::Alone,
-                span: tt::TokenId::unspecified(),
-            };
+            let star =
+                tt::Punct { char: '*', spacing: ::tt::Spacing::Alone, span: tt::SpanData::DUMMY };
             return quote! {
                 fn clone(&self) -> Self {
                     match #star self {}
@@ -452,16 +452,14 @@ fn clone_expand(
 }
 
 /// This function exists since `quote! { => }` doesn't work.
-fn fat_arrow() -> ::tt::Subtree<TokenId> {
-    let eq =
-        tt::Punct { char: '=', spacing: ::tt::Spacing::Joint, span: tt::TokenId::unspecified() };
+fn fat_arrow() -> tt::Subtree {
+    let eq = tt::Punct { char: '=', spacing: ::tt::Spacing::Joint, span: tt::SpanData::DUMMY };
     quote! { #eq> }
 }
 
 /// This function exists since `quote! { && }` doesn't work.
-fn and_and() -> ::tt::Subtree<TokenId> {
-    let and =
-        tt::Punct { char: '&', spacing: ::tt::Spacing::Joint, span: tt::TokenId::unspecified() };
+fn and_and() -> tt::Subtree {
+    let and = tt::Punct { char: '&', spacing: ::tt::Spacing::Joint, span: tt::SpanData::DUMMY };
     quote! { #and& }
 }
 
@@ -540,11 +538,8 @@ fn debug_expand(
             },
         };
         if matches!(&adt.shape, AdtShape::Enum { variants, .. } if variants.is_empty()) {
-            let star = tt::Punct {
-                char: '*',
-                spacing: ::tt::Spacing::Alone,
-                span: tt::TokenId::unspecified(),
-            };
+            let star =
+                tt::Punct { char: '*', spacing: ::tt::Spacing::Alone, span: tt::SpanData::DUMMY };
             return quote! {
                 fn fmt(&self, f: &mut #krate::fmt::Formatter) -> #krate::fmt::Result {
                     match #star self {}
@@ -599,11 +594,8 @@ fn hash_expand(
             return quote! {};
         }
         if matches!(&adt.shape, AdtShape::Enum { variants, .. } if variants.is_empty()) {
-            let star = tt::Punct {
-                char: '*',
-                spacing: ::tt::Spacing::Alone,
-                span: tt::TokenId::unspecified(),
-            };
+            let star =
+                tt::Punct { char: '*', spacing: ::tt::Spacing::Alone, span: tt::SpanData::DUMMY };
             return quote! {
                 fn hash<H: #krate::hash::Hasher>(&self, ra_expand_state: &mut H) {
                     match #star self {}
@@ -674,14 +666,14 @@ fn partial_eq_expand(
                     }
                     [first, rest @ ..] => {
                         let rest = rest.iter().map(|it| {
-                            let t1 = Ident::new(format!("{}_self", it.text), it.span);
-                            let t2 = Ident::new(format!("{}_other", it.text), it.span);
+                            let t1 = tt::Ident::new(format!("{}_self", it.text), it.span);
+                            let t2 = tt::Ident::new(format!("{}_other", it.text), it.span);
                             let and_and = and_and();
                             quote!(#and_and #t1 .eq( #t2 ))
                         });
                         let first = {
-                            let t1 = Ident::new(format!("{}_self", first.text), first.span);
-                            let t2 = Ident::new(format!("{}_other", first.text), first.span);
+                            let t1 = tt::Ident::new(format!("{}_self", first.text), first.span);
+                            let t2 = tt::Ident::new(format!("{}_other", first.text), first.span);
                             quote!(#t1 .eq( #t2 ))
                         };
                         quote!(#first ##rest)
@@ -708,11 +700,11 @@ fn self_and_other_patterns(
     name: &tt::Ident,
 ) -> (Vec<tt::Subtree>, Vec<tt::Subtree>) {
     let self_patterns = adt.shape.as_pattern_map(name, |it| {
-        let t = Ident::new(format!("{}_self", it.text), it.span);
+        let t = tt::Ident::new(format!("{}_self", it.text), it.span);
         quote!(#t)
     });
     let other_patterns = adt.shape.as_pattern_map(name, |it| {
-        let t = Ident::new(format!("{}_other", it.text), it.span);
+        let t = tt::Ident::new(format!("{}_other", it.text), it.span);
         quote!(#t)
     });
     (self_patterns, other_patterns)
@@ -752,8 +744,8 @@ fn ord_expand(
             |(pat1, pat2, fields)| {
                 let mut body = quote!(#krate::cmp::Ordering::Equal);
                 for f in fields.into_iter().rev() {
-                    let t1 = Ident::new(format!("{}_self", f.text), f.span);
-                    let t2 = Ident::new(format!("{}_other", f.text), f.span);
+                    let t1 = tt::Ident::new(format!("{}_self", f.text), f.span);
+                    let t2 = tt::Ident::new(format!("{}_other", f.text), f.span);
                     body = compare(krate, quote!(#t1), quote!(#t2), body);
                 }
                 let fat_arrow = fat_arrow();
@@ -817,8 +809,8 @@ fn partial_ord_expand(
             |(pat1, pat2, fields)| {
                 let mut body = quote!(#krate::option::Option::Some(#krate::cmp::Ordering::Equal));
                 for f in fields.into_iter().rev() {
-                    let t1 = Ident::new(format!("{}_self", f.text), f.span);
-                    let t2 = Ident::new(format!("{}_other", f.text), f.span);
+                    let t1 = tt::Ident::new(format!("{}_self", f.text), f.span);
+                    let t2 = tt::Ident::new(format!("{}_other", f.text), f.span);
                     body = compare(krate, quote!(#t1), quote!(#t2), body);
                 }
                 let fat_arrow = fat_arrow();

@@ -15,7 +15,7 @@
 use std::{iter, mem};
 
 use flycheck::{FlycheckConfig, FlycheckHandle};
-use hir::db::DefDatabase;
+use hir::{db::DefDatabase, tt};
 use ide::Change;
 use ide_db::{
     base_db::{salsa::Durability, CrateGraph, ProcMacroPaths, ProcMacros},
