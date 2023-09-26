@@ -1094,3 +1094,53 @@ pub struct UnstableButWeAreOnNightlyAnyway;
         "#]],
     );
 }
+
+#[test]
+fn complete_assoc_fn_before_arg_list() {
+    check_edit(
+        "leak",
+        r#"
+struct Box<T> { t: T }
+impl<T> Box<T> {
+    fn leak<'a>(this: Self) -> &'a mut T { loop {}}
+}
+fn main() {
+    l$0(Box { t: 0 });
+}
+"#,
+        r#"
+struct Box<T> { t: T }
+impl<T> Box<T> {
+    fn leak<'a>(this: Self) -> &'a mut T { loop {}}
+}
+fn main() {
+    Box::leak(Box { t: 0 });
+}
+"#,
+    );
+}
+
+#[test]
+fn complete_assoc_method_ref_before_arg_list() {
+    check_edit(
+        "foo",
+        r#"
+struct Thing<T> { t: T }
+impl<T> Thing<T> {
+    fn foo(&self) {}
+}
+fn main() {
+    foo$0(Thing { t: 0 });
+}
+"#,
+        r#"
+struct Thing<T> { t: T }
+impl<T> Thing<T> {
+    fn foo(&self) {}
+}
+fn main() {
+    Thing::foo(Thing { t: 0 });
+}
+"#,
+    );
+}

@@ -942,6 +942,22 @@ fn classify_name_ref(
         let after_if_expr = after_if_expr(it.clone());
         let ref_expr_parent =
             path.as_single_name_ref().and_then(|_| it.parent()).and_then(ast::RefExpr::cast);
+        let is_fn_call_path_first_arg = if path.as_single_name_ref().is_some() {
+            (|| {
+                let call = path
+                    .syntax()
+                    .parent()
+                    .and_then(ast::PathExpr::cast)?
+                    .syntax()
+                    .parent()
+                    .and_then(ast::CallExpr::cast)?;
+                let call = find_node_in_file_compensated(sema, original_file, &call)?;
+                let arg = call.arg_list()?.args().next()?;
+                Some(sema.type_of_expr(&arg)?.original)
+            })()
+        } else {
+            None
+        };
         let (innermost_ret_ty, self_param) = {
             let find_ret_ty = |it: SyntaxNode| {
                 if let Some(item) = ast::Item::cast(it.clone()) {
@@ -1016,6 +1032,7 @@ fn classify_name_ref(
                 incomplete_let,
                 impl_,
                 in_match_guard,
+                is_fn_call_path_first_arg,
             },
         }
     };
@@ -1420,7 +1437,6 @@ fn ancestors_in_file_compensated<'sema>(
     in_file: &SyntaxNode,
     node: &SyntaxNode,
 ) -> Option<impl Iterator<Item = SyntaxNode> + 'sema> {
-    let syntax_range = in_file.text_range();
     let range = node.text_range();
     let end = range.end().checked_sub(TextSize::try_from(COMPLETION_MARKER.len()).ok()?)?;
     if end < range.start() {
@@ -1428,7 +1444,7 @@ fn ancestors_in_file_compensated<'sema>(
     }
     let range = TextRange::new(range.start(), end);
     // our inserted ident could cause `range` to go outside of the original syntax, so cap it
-    let intersection = range.intersect(syntax_range)?;
+    let intersection = range.intersect(in_file.text_range())?;
     let node = match in_file.covering_element(intersection) {
         NodeOrToken::Node(node) => node,
         NodeOrToken::Token(tok) => tok.parent()?,

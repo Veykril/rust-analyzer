@@ -131,6 +131,7 @@ pub(crate) struct AttrCtx {
     pub(crate) annotated_item_kind: Option<SyntaxKind>,
 }
 
+// FIXME: Restructure this, some fields are disjoint
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct ExprCtx {
     pub(crate) in_block_expr: bool,
@@ -148,6 +149,9 @@ pub(crate) struct ExprCtx {
     /// Whether this expression occurs in match arm guard position: before the
     /// fat arrow token
     pub(crate) in_match_guard: bool,
+    /// Whether we are completing a single segment path that is a function call with at least one argument,
+    /// this store the type of that first argument to the call.
+    pub(crate) is_fn_call_path_first_arg: Option<hir::Type>,
 }
 
 /// Original file ast nodes

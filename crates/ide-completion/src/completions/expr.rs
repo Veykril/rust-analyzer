@@ -31,6 +31,7 @@ pub(crate) fn complete_expr_path(
         ref innermost_ret_ty,
         ref impl_,
         in_match_guard,
+        ref is_fn_call_path_first_arg,
         ..
     } = expr_ctx;
 
@@ -161,6 +162,21 @@ pub(crate) fn complete_expr_path(
         Qualified::Absolute => acc.add_crate_roots(ctx, path_ctx),
         Qualified::No => {
             acc.add_nameref_keywords_with_colon(ctx);
+            // Complete associated functions when completing an identifier that is followed by an arg list
+            if let Some(ty) = is_fn_call_path_first_arg {
+                ctx.iterate_path_candidates(&ty, |item| {
+                    match item {
+                        hir::AssocItem::Function(func) => {
+                            // FIXME need to qualify this!
+                            acc.add_function(ctx, path_ctx, func, None)
+                        }
+                        _ => (),
+                    };
+                });
+            }
+            // FIXME: complete Box::new if Box is expected and `new$0(...)` is being typed?
+
+            // Complete constructors for the expected type
             if let Some(adt) =
                 ctx.expected_type.as_ref().and_then(|ty| ty.strip_references().as_adt())
             {
@@ -168,6 +184,7 @@ pub(crate) fn complete_expr_path(
                 let complete_self = self_ty == Some(adt);
 
                 match adt {
+                    // Complete paths for record constructors
                     hir::Adt::Struct(strukt) => {
                         let path = ctx
                             .module
@@ -190,6 +207,7 @@ pub(crate) fn complete_expr_path(
                             );
                         }
                     }
+                    // Complete paths for union constructors
                     hir::Adt::Union(un) => {
                         let path = ctx
                             .module
@@ -205,6 +223,7 @@ pub(crate) fn complete_expr_path(
                             acc.add_union_literal(ctx, un, None, Some(hir::known::SELF_TYPE));
                         }
                     }
+                    // Complete paths for enum variant record constructors
                     hir::Adt::Enum(e) => {
                         super::enum_variants_with_paths(
                             acc,
@@ -219,6 +238,7 @@ pub(crate) fn complete_expr_path(
                 }
             }
             ctx.process_all_names(&mut |name, def, doc_aliases| match def {
+                // Complete paths for in scope traits that have valid assoc items
                 ScopeDef::ModuleDef(hir::ModuleDef::Trait(t)) => {
                     let assocs = t.items_with_supertraits(ctx.db);
                     match &*assocs {
