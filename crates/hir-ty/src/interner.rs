@@ -31,8 +31,10 @@ impl<T> std::ops::Deref for InternedWrapper<T> {
 }
 
 impl_internable!(
-    InternedWrapper<Vec<chalk_ir::VariableKind<Interner>>>,
-    InternedWrapper<SmallVec<[GenericArg; 2]>>,
+    InternedWrapper<SmallVec<[chalk_ir::VariableKind<Interner>; 1]>>,
+    // ideally this would be InternedWrapper<[GenericArg]>, but we can't currently have
+    // [T]: Interned where T: Interned due to the lack of generic statics
+    InternedWrapper<SmallVec<[GenericArg; 1]>>,
     InternedWrapper<chalk_ir::TyData<Interner>>,
     InternedWrapper<chalk_ir::LifetimeData<Interner>>,
     InternedWrapper<chalk_ir::ConstData<Interner>>,
@@ -40,27 +42,30 @@ impl_internable!(
     InternedWrapper<Vec<chalk_ir::CanonicalVarKind<Interner>>>,
     InternedWrapper<Vec<chalk_ir::ProgramClause<Interner>>>,
     InternedWrapper<Vec<chalk_ir::QuantifiedWhereClause<Interner>>>,
-    InternedWrapper<Vec<chalk_ir::Variance>>,
+    InternedWrapper<SmallVec<[chalk_ir::Variance; 16]>>,
 );
+
+// const C: [(); 0] = [(); std::mem::size_of::<ConstScalar>()];
 
 impl chalk_ir::interner::Interner for Interner {
     type InternedType = Interned<InternedWrapper<chalk_ir::TyData<Self>>>;
     type InternedLifetime = Interned<InternedWrapper<chalk_ir::LifetimeData<Self>>>;
     type InternedConst = Interned<InternedWrapper<chalk_ir::ConstData<Self>>>;
-    type InternedConcreteConst = ConstScalar;
+    type InternedConcreteConst = Arc<ConstScalar>;
     type InternedGenericArg = chalk_ir::GenericArgData<Self>;
     type InternedGoal = Arc<GoalData<Self>>;
     type InternedGoals = Vec<Goal<Self>>;
-    type InternedSubstitution = Interned<InternedWrapper<SmallVec<[GenericArg; 2]>>>;
+    type InternedSubstitution = Interned<InternedWrapper<SmallVec<[GenericArg; 1]>>>;
     type InternedProgramClauses = Interned<InternedWrapper<Vec<chalk_ir::ProgramClause<Self>>>>;
     type InternedProgramClause = chalk_ir::ProgramClauseData<Self>;
     type InternedQuantifiedWhereClauses =
         Interned<InternedWrapper<Vec<chalk_ir::QuantifiedWhereClause<Self>>>>;
-    type InternedVariableKinds = Interned<InternedWrapper<Vec<chalk_ir::VariableKind<Interner>>>>;
+    type InternedVariableKinds =
+        Interned<InternedWrapper<SmallVec<[chalk_ir::VariableKind<Interner>; 1]>>>;
     type InternedCanonicalVarKinds =
         Interned<InternedWrapper<Vec<chalk_ir::CanonicalVarKind<Self>>>>;
     type InternedConstraints = Vec<chalk_ir::InEnvironment<chalk_ir::Constraint<Self>>>;
-    type InternedVariances = Interned<InternedWrapper<Vec<chalk_ir::Variance>>>;
+    type InternedVariances = Interned<InternedWrapper<SmallVec<[chalk_ir::Variance; 16]>>>;
     type DefId = InternId;
     type InternedAdtId = hir_def::AdtId;
     type Identifier = TypeAliasId;
@@ -266,7 +271,9 @@ impl chalk_ir::interner::Interner for Interner {
         c1: &Self::InternedConcreteConst,
         c2: &Self::InternedConcreteConst,
     ) -> bool {
-        !matches!(c1, ConstScalar::Bytes(..)) || !matches!(c2, ConstScalar::Bytes(..)) || (c1 == c2)
+        !matches!(**c1, ConstScalar::Bytes(..))
+            || !matches!(**c2, ConstScalar::Bytes(..))
+            || (c1 == c2)
     }
 
     fn intern_generic_arg(

@@ -190,7 +190,7 @@ impl Filler<'_> {
                     }
                     chalk_ir::ConstValue::InferenceVar(_)
                     | chalk_ir::ConstValue::Placeholder(_) => {}
-                    chalk_ir::ConstValue::Concrete(cc) => match &cc.interned {
+                    chalk_ir::ConstValue::Concrete(cc) => match &*cc.interned {
                         crate::ConstScalar::UnevaluatedConst(const_id, subst) => {
                             let mut subst = subst.clone();
                             self.fill_subst(&mut subst)?;

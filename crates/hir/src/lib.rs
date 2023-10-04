@@ -2231,7 +2231,7 @@ impl Const {
         if let TyKind::Scalar(s) = data.ty.kind(Interner) {
             if matches!(s, Scalar::Int(_) | Scalar::Uint(_)) {
                 if let hir_ty::ConstValue::Concrete(c) = &data.value {
-                    if let hir_ty::ConstScalar::Bytes(b, _) = &c.interned {
+                    if let hir_ty::ConstScalar::Bytes(b, _) = &*c.interned {
                         let value = u128::from_le_bytes(mir::pad16(b, false));
                         let value_signed =
                             i128::from_le_bytes(mir::pad16(b, matches!(s, Scalar::Int(_))));

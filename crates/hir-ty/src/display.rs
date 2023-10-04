@@ -427,7 +427,7 @@ impl HirDisplay for Const {
                 write!(f, "{}", param_data.name().unwrap().display(f.db.upcast()))?;
                 Ok(())
             }
-            ConstValue::Concrete(c) => match &c.interned {
+            ConstValue::Concrete(c) => match &*c.interned {
                 ConstScalar::Bytes(b, m) => render_const_scalar(f, &b, m, &data.ty),
                 ConstScalar::UnevaluatedConst(c, parameters) => {
                     write!(f, "{}", c.name(f.db.upcast()))?;
@@ -1267,7 +1267,7 @@ fn hir_fmt_generics(
                         if let Some(ConstValue::Concrete(c)) =
                             parameter.constant(Interner).map(|it| &it.data(Interner).value)
                         {
-                            if c.interned == ConstScalar::Unknown {
+                            if *c.interned == ConstScalar::Unknown {
                                 return true;
                             }
                         }

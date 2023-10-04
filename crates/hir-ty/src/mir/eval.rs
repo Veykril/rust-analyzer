@@ -1667,9 +1667,9 @@ impl Evaluator<'_> {
             not_supported!("evaluating non concrete constant");
         };
         let result_owner;
-        let (v, memory_map) = match &c.interned {
+        let (v, memory_map) = match &*c.interned {
             ConstScalar::Bytes(v, mm) => (v, mm),
-            ConstScalar::UnevaluatedConst(const_id, subst) => 'b: {
+            ConstScalar::UnevaluatedConst(const_id, subst) => {
                 let mut const_id = *const_id;
                 let mut subst = subst.clone();
                 if let hir_def::GeneralConstId::ConstId(c) = const_id {
@@ -1685,11 +1685,14 @@ impl Evaluator<'_> {
                         MirEvalError::ConstEvalError(name, Box::new(e))
                     })?;
                 if let chalk_ir::ConstValue::Concrete(c) = &result_owner.data(Interner).value {
-                    if let ConstScalar::Bytes(v, mm) = &c.interned {
-                        break 'b (v, mm);
+                    if let ConstScalar::Bytes(v, mm) = &*c.interned {
+                        (v, mm)
+                    } else {
+                        not_supported!("unevaluatable constant");
                     }
+                } else {
+                    not_supported!("unevaluatable constant");
                 }
-                not_supported!("unevaluatable constant");
             }
             ConstScalar::Unknown => not_supported!("evaluating unknown const"),
         };

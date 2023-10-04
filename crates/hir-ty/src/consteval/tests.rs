@@ -76,7 +76,7 @@ fn check_answer(ra_fixture: &str, check: impl FnOnce(&[u8], &MemoryMap)) {
         }
     };
     match &r.data(Interner).value {
-        chalk_ir::ConstValue::Concrete(c) => match &c.interned {
+        chalk_ir::ConstValue::Concrete(c) => match &*c.interned {
             ConstScalar::Bytes(b, mm) => {
                 check(b, mm);
             }

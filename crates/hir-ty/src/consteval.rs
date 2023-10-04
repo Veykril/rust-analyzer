@@ -30,15 +30,10 @@ pub trait ConstExt {
 
 impl ConstExt for Const {
     fn is_unknown(&self) -> bool {
-        match self.data(Interner).value {
-            // interned Unknown
-            chalk_ir::ConstValue::Concrete(chalk_ir::ConcreteConst {
-                interned: ConstScalar::Unknown,
-            }) => true,
-
-            // interned concrete anything else
-            chalk_ir::ConstValue::Concrete(..) => false,
-
+        match &self.data(Interner).value {
+            chalk_ir::ConstValue::Concrete(chalk_ir::ConcreteConst { interned }) => {
+                matches!(**interned, ConstScalar::Unknown)
+            }
             _ => {
                 tracing::error!(
                     "is_unknown was called on a non-concrete constant value! {:?}",
@@ -114,7 +109,9 @@ pub(crate) fn path_to_const(
 pub fn unknown_const(ty: Ty) -> Const {
     ConstData {
         ty,
-        value: ConstValue::Concrete(chalk_ir::ConcreteConst { interned: ConstScalar::Unknown }),
+        value: ConstValue::Concrete(chalk_ir::ConcreteConst {
+            interned: Arc::new(ConstScalar::Unknown),
+        }),
     }
     .intern(Interner)
 }
@@ -125,8 +122,11 @@ pub fn unknown_const_as_generic(ty: Ty) -> GenericArg {
 
 /// Interns a constant scalar with the given type
 pub fn intern_const_scalar(value: ConstScalar, ty: Ty) -> Const {
-    ConstData { ty, value: ConstValue::Concrete(chalk_ir::ConcreteConst { interned: value }) }
-        .intern(Interner)
+    ConstData {
+        ty,
+        value: ConstValue::Concrete(chalk_ir::ConcreteConst { interned: Arc::new(value) }),
+    }
+    .intern(Interner)
 }
 
 /// Interns a constant scalar with the given type
@@ -171,7 +171,7 @@ pub fn try_const_usize(db: &dyn HirDatabase, c: &Const) -> Option<u128> {
         chalk_ir::ConstValue::BoundVar(_) => None,
         chalk_ir::ConstValue::InferenceVar(_) => None,
         chalk_ir::ConstValue::Placeholder(_) => None,
-        chalk_ir::ConstValue::Concrete(c) => match &c.interned {
+        chalk_ir::ConstValue::Concrete(c) => match &*c.interned {
             ConstScalar::Bytes(it, _) => Some(u128::from_le_bytes(pad16(&it, false))),
             ConstScalar::UnevaluatedConst(c, subst) => {
                 let ec = db.const_eval(*c, subst.clone(), None).ok()?;

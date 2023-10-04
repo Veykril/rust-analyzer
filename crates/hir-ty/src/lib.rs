@@ -724,7 +724,7 @@ where
 
 pub fn known_const_to_ast(konst: &Const, db: &dyn HirDatabase) -> Option<ConstArg> {
     if let ConstValue::Concrete(c) = &konst.interned().value {
-        match c.interned {
+        match *c.interned {
             ConstScalar::UnevaluatedConst(GeneralConstId::InTypeConstId(cid), _) => {
                 return Some(cid.source(db.upcast()));
             }

@@ -244,7 +244,7 @@ impl<'a> InferenceTable<'a> {
                     _ => ty,
                 }),
                 Either::Right(c) => Either::Right(match &c.data(Interner).value {
-                    chalk_ir::ConstValue::Concrete(cc) => match &cc.interned {
+                    chalk_ir::ConstValue::Concrete(cc) => match &*cc.interned {
                         crate::ConstScalar::UnevaluatedConst(c_id, subst) => {
                             // FIXME: Ideally here we should do everything that we do with type alias, i.e. adding a variable
                             // and registering an obligation. But it needs chalk support, so we handle the most basic
@@ -778,7 +778,7 @@ impl<'a> InferenceTable<'a> {
     pub(super) fn insert_const_vars_shallow(&mut self, c: Const) -> Const {
         let data = c.data(Interner);
         match &data.value {
-            ConstValue::Concrete(cc) => match &cc.interned {
+            ConstValue::Concrete(cc) => match &*cc.interned {
                 crate::ConstScalar::Unknown => self.new_const_var(data.ty.clone()),
                 // try to evaluate unevaluated const. Replace with new var if const eval failed.
                 crate::ConstScalar::UnevaluatedConst(id, subst) => {
@@ -811,6 +811,7 @@ mod resolve {
         cast::Cast,
         fold::{TypeFoldable, TypeFolder},
     };
+    use triomphe::Arc;
 
     #[derive(chalk_derive::FallibleTypeFolder)]
     #[has_interner(Interner)]
@@ -873,7 +874,9 @@ mod resolve {
             let var = self.table.var_unification_table.inference_var_root(var);
             let default = ConstData {
                 ty: ty.clone(),
-                value: ConstValue::Concrete(ConcreteConst { interned: ConstScalar::Unknown }),
+                value: ConstValue::Concrete(ConcreteConst {
+                    interned: Arc::new(ConstScalar::Unknown),
+                }),
             }
             .intern(Interner)
             .cast(Interner);

@@ -417,7 +417,7 @@ impl FallibleTypeFolder<Interner> for UnevaluatedConstEvaluatorFolder<'_> {
         _outer_binder: DebruijnIndex,
     ) -> Result<Const, Self::Error> {
         if let chalk_ir::ConstValue::Concrete(c) = &constant.data(Interner).value {
-            if let ConstScalar::UnevaluatedConst(id, subst) = &c.interned {
+            if let ConstScalar::UnevaluatedConst(id, subst) = &*c.interned {
                 if let Ok(eval) = self.db.const_eval(*id, subst.clone(), None) {
                     return Ok(eval);
                 } else {
