@@ -106,11 +106,9 @@ fn collect_import_map(db: &dyn DefDatabase, krate: CrateId) -> ImportMapIndex {
     let root = def_map.module_id(DefMap::ROOT);
     let mut worklist = vec![root];
     let mut visited = FxHashSet::default();
+    visited.insert(root);
 
     while let Some(module) = worklist.pop() {
-        if !visited.insert(module) {
-            continue;
-        }
         let ext_def_map;
         let mod_data = if module.krate == krate {
             &def_map[module.local_id]
@@ -131,6 +129,12 @@ fn collect_import_map(db: &dyn DefDatabase, krate: CrateId) -> ImportMapIndex {
 
         for (name, per_ns) in visible_items {
             for (item, import) in per_ns.iter_items() {
+                if matches!(
+                    item,
+                    ItemInNs::Types(ModuleDefId::ModuleId(m)) if visited.contains(&m)
+                ) {
+                    continue;
+                }
                 let attr_id = if let Some(import) = import {
                     match import {
                         ImportOrExternCrate::ExternCrate(id) => Some(id.into()),
@@ -171,7 +175,9 @@ fn collect_import_map(db: &dyn DefDatabase, krate: CrateId) -> ImportMapIndex {
 
                 // If we've just added a module, descend into it.
                 if let Some(ModuleDefId::ModuleId(mod_id)) = item.as_module_def_id() {
-                    worklist.push(mod_id);
+                    if visited.insert(mod_id) {
+                        worklist.push(mod_id);
+                    }
                 }
             }
         }
@@ -761,9 +767,7 @@ mod tests {
                 - module (t)
                 - module::S (t)
                 - module::S (v)
-                - module::module (t)
                 - sub (t)
-                - sub::module (t)
             "#]],
         );
     }
