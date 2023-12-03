@@ -1,0 +1,55 @@
+thread 'rustc' panicked at compiler\rustc_metadata\src\rmeta\def_path_hash_map.rs:22:85:
+called `Option::unwrap()` on a `None` value
+stack backtrace:
+   0:     0x7ff98b3addff - std::backtrace::Backtrace::force_capture::ha3a21e4ec120294d
+   1:     0x7ff98b3add64 - std::backtrace::Backtrace::force_capture::ha3a21e4ec120294d
+   2:     0x7ff96aa06889 - <tracing_subscriber[fcc8fc445e891d0d]::util::TryInitError as core[f75c0b145cf50c74]::fmt::Display>::fmt
+   3:     0x7ff98b3c6903 - std::panicking::rust_panic_with_hook::h38549691dc902b43
+   4:     0x7ff98b3c676b - <std::panicking::begin_panic_handler::StaticStrPayload as core::panic::PanicPayload>::take_box::h651a2c3b20df89f9
+   5:     0x7ff98b3c3949 - <std::sys_common::backtrace::_print::DisplayBacktrace as core::fmt::Display>::fmt::h13c6feb785cc9a95
+   6:     0x7ff98b3c64b4 - rust_begin_unwind
+   7:     0x7ff98b41b407 - core::panicking::panic_fmt::ha6ae5b670bf434fb
+   8:     0x7ff98b41b4c2 - core::panicking::panic::h310d3a0ba748044b
+   9:     0x7ff96a5fb585 - <rustc_metadata[574085d326d23cf6]::creader::CStore as rustc_session[9ba697eb8dc3323e]::cstore::CrateStore>::def_path_hash_to_def_id
+  10:     0x7ff96a859806 - <rustc_query_system[1b8eb890a01b0448]::dep_graph::dep_node::DepNode as rustc_middle[14c60477d40c4c19]::dep_graph::dep_node::DepNodeExt>::extract_def_id
+  11:     0x7ff96950e86c - rustc_query_impl[64ffa7f6096503f9]::profiling_support::alloc_self_profile_query_strings
+  12:     0x7ff96a2c862b - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  13:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  14:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  15:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  16:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  17:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  18:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  19:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  20:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  21:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  22:     0x7ff96a2c85c3 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  23:     0x7ff96a33ceb1 - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  24:     0x7ff96a2c75ab - <rustc_query_impl[64ffa7f6096503f9]::plumbing::QueryCtxt as rustc_query_system[1b8eb890a01b0448]::query::QueryContext>::load_side_effects
+  25:     0x7ff9699cf4ab - <rustc_codegen_llvm[a1fe642abb16154]::context::CodegenCx as rustc_codegen_ssa[886b92df4281d808]::traits::declare::PreDefineMethods>::predefine_fn
+  26:     0x7ff9699dade8 - <rustc_codegen_llvm[a1fe642abb16154]::base::ValueIter as core[f75c0b145cf50c74]::iter::traits::iterator::Iterator>::next
+  27:     0x7ff966b05be5 - <rustc_target[7d747ef45864f77e]::abi::TyAndLayout<rustc_middle[14c60477d40c4c19]::ty::Ty> as rustc_codegen_llvm[a1fe642abb16154]::type_of::LayoutLlvmExt>::scalar_llvm_type_at
+  28:     0x7ff966b2d8e5 - rustc_codegen_llvm[a1fe642abb16154]::llvm_util::global_llvm_features
+  29:     0x7ff966b4489d - <rustc_codegen_llvm[a1fe642abb16154]::builder::Builder as rustc_codegen_ssa[886b92df4281d808]::traits::builder::BuilderMethods>::unchecked_umul
+  30:     0x7ff966b023e9 - <rustc_codegen_llvm[a1fe642abb16154]::LlvmCodegenBackend as rustc_codegen_ssa[886b92df4281d808]::traits::backend::CodegenBackend>::codegen_crate
+  31:     0x7ff966a97939 - <rustc_interface[caf534394184764e]::queries::Linker>::link
+  32:     0x7ff966aab3d7 - rustc_interface[caf534394184764e]::passes::start_codegen
+  33:     0x7ff966aac974 - rustc_interface[caf534394184764e]::passes::start_codegen
+  34:     0x7ff966a96bef - <rustc_interface[caf534394184764e]::queries::Queries>::codegen_and_build_linker
+  35:     0x7ff966a383b7 - rustc_driver_impl[aa152b14224255de]::main
+  36:     0x7ff966a2f5e3 - rustc_driver_impl[aa152b14224255de]::main
+  37:     0x7ff966a75c8c - <rustc_middle[14c60477d40c4c19]::ty::SymbolName as core[f75c0b145cf50c74]::fmt::Debug>::fmt
+  38:     0x7ff966a30111 - rustc_driver_impl[aa152b14224255de]::main
+  39:     0x7ff966a7848f - <rustc_middle[14c60477d40c4c19]::ty::SymbolName as core[f75c0b145cf50c74]::fmt::Debug>::fmt
+  40:     0x7ff966a785a8 - <rustc_middle[14c60477d40c4c19]::ty::SymbolName as core[f75c0b145cf50c74]::fmt::Debug>::fmt
+  41:     0x7ff98b3d8b6c - std::sys::windows::thread::Thread::new::ha5076e09aac49de3
+  42:     0x7ff9fe1c7344 - BaseThreadInitThunk
+  43:     0x7ffa001a26b1 - RtlUserThreadStart
+
+
+rustc version: 1.76.0-nightly (a1a37735c 2023-11-23)
+platform: x86_64-pc-windows-msvc
+
+query stack during panic:
+#0 [fn_abi_of_instance] computing call ABI of `core::ptr::drop_in_place::<core::option::Option<salsa::derived::slot::Memo<db::ParseMacroExpansionQuery>>> - shim(Some(core::option::Option<salsa::derived::slot::Memo<db::ParseMacroExpansionQuery>>))`
+end of query stack
