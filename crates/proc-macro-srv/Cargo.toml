@@ -26,6 +26,7 @@ stdx.workspace = true
 tt.workspace = true
 mbe.workspace = true
 paths.workspace = true
+base-db.workspace = true
 proc-macro-api.workspace = true
 
 [dev-dependencies]

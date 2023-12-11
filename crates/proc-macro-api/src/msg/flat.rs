@@ -37,13 +37,49 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use base_db::span::SpanData;
+use base_db::{
+    span::{ErasedFileAstId, SpanAnchor, SpanData, SyntaxContextId},
+    FileId,
+};
 use indexmap::IndexSet;
+use la_arena::RawIdx;
 use serde::{Deserialize, Serialize};
+use text_size::TextRange;
 
 use crate::msg::ENCODE_CLOSE_SPAN_VERSION;
 
-type SpanDataIndexMap = IndexSet<SpanData>;
+pub type SpanDataIndexMap = IndexSet<SpanData>;
+
+pub fn serialize_span_data_index_map(map: &SpanDataIndexMap) -> Vec<u32> {
+    map.iter()
+        .flat_map(|span| {
+            [
+                span.anchor.file_id.index(),
+                span.anchor.ast_id.into_raw().into_u32(),
+                span.range.start().into(),
+                span.range.end().into(),
+                span.ctx.into_u32(),
+            ]
+        })
+        .collect()
+}
+
+pub fn deserialize_span_data_index_map(map: &[u32]) -> SpanDataIndexMap {
+    debug_assert!(map.len() % 5 == 0);
+    map.chunks_exact(5)
+        .map(|span| {
+            let &[file_id, ast_id, start, end, e] = span else { unreachable!() };
+            SpanData {
+                anchor: SpanAnchor {
+                    file_id: FileId::from_raw(file_id),
+                    ast_id: ErasedFileAstId::from_raw(RawIdx::from_u32(ast_id)),
+                },
+                range: TextRange::new(start.into(), end.into()),
+                ctx: SyntaxContextId::from_u32(e),
+            }
+        })
+        .collect()
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TokenId(pub u32);
