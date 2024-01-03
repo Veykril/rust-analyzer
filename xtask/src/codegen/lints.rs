@@ -1,21 +1,15 @@
-//! Generates descriptor structures for unstable features from the unstable book
-//! and lints from rustc, rustdoc, and clippy.
+use std::path::PathBuf;
 use std::{borrow::Cow, fs, path::Path};
 
 use itertools::Itertools;
-use stdx::format_to;
-use test_utils::project_root;
 use xshell::{cmd, Shell};
 
-const DESTINATION: &str = "crates/ide-db/src/generated/lints.rs";
+use crate::codegen::{add_preamble, ensure_file_contents, list_files, project_root, reformat};
+use crate::flags;
 
-/// This clones rustc repo, and so is not worth to keep up-to-date. We update
-/// manually by un-ignoring the test from time to time.
-#[test]
-#[ignore]
-fn sourcegen_lint_completions() {
-    let sh = &Shell::new().unwrap();
-
+/// Generates descriptor structures for unstable features from the unstable book
+/// and lints from rustc, rustdoc, and clippy.
+pub(super) fn sourcegen_lint_completions(sh: &Shell) {
     let rust_repo = project_root().join("./target/rust");
     if rust_repo.exists() {
         cmd!(sh, "git -C {rust_repo} pull --rebase").run().unwrap();
@@ -73,10 +67,10 @@ pub struct LintGroup {
     .unwrap();
     generate_descriptor_clippy(&mut contents, &lints_json);
 
-    let contents = sourcegen::add_preamble("sourcegen_lints", sourcegen::reformat(contents));
+    let contents = add_preamble("sourcegen_lints", reformat(contents));
 
-    let destination = project_root().join(DESTINATION);
-    sourcegen::ensure_file_contents(destination.as_path(), &contents);
+    let destination = project_root().join("crates/ide-db/src/generated/lints.rs");
+    ensure_file_contents(destination.as_path(), &contents);
 }
 
 /// Parses the output of `rustdoc -Whelp` and prints `Lint` and `LintGroup` constants into `buf`.
@@ -212,7 +206,7 @@ fn find_and_slice<'a>(i: &'a str, p: &str) -> &'a str {
 fn generate_feature_descriptor(buf: &mut String, src_dir: &Path) {
     let mut features = ["language-features", "library-features"]
         .into_iter()
-        .flat_map(|it| sourcegen::list_files(&src_dir.join(it)))
+        .flat_map(|it| list_files(&src_dir.join(it)))
         // Get all `.md` files
         .filter(|path| path.extension() == Some("md".as_ref()))
         .map(|path| {

@@ -49,7 +49,6 @@ xshell.workspace = true
 # local deps
 test-utils.workspace = true
 test-fixture.workspace = true
-sourcegen.workspace = true
 
 [lints]
 workspace = true

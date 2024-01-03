@@ -50,6 +50,10 @@ xflags::xflags! {
         cmd bb {
             required suffix: String
         }
+        /// Codegen stuff.
+        cmd codegen {
+
+        }
     }
 }
 
@@ -71,6 +75,7 @@ pub enum XtaskCmd {
     PublishReleaseNotes(PublishReleaseNotes),
     Metrics(Metrics),
     Bb(Bb),
+    Codegen(Codegen),
 }
 
 #[derive(Debug)]
@@ -81,6 +86,9 @@ pub struct Install {
     pub mimalloc: bool,
     pub jemalloc: bool,
 }
+
+#[derive(Debug)]
+pub struct Codegen {}
 
 #[derive(Debug)]
 pub struct FuzzTests;

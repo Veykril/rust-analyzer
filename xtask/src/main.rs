@@ -17,6 +17,7 @@ mod release;
 mod dist;
 mod publish;
 mod metrics;
+mod codegen;
 
 use anyhow::bail;
 use std::{
@@ -39,6 +40,7 @@ fn main() -> anyhow::Result<()> {
         flags::XtaskCmd::Dist(cmd) => cmd.run(sh),
         flags::XtaskCmd::PublishReleaseNotes(cmd) => cmd.run(sh),
         flags::XtaskCmd::Metrics(cmd) => cmd.run(sh),
+        flags::XtaskCmd::Codegen(cmd) => cmd.run(sh),
         flags::XtaskCmd::Bb(cmd) => {
             {
                 let _d = sh.push_dir("./crates/rust-analyzer");

@@ -700,7 +700,6 @@ dependencies = [
  "profile",
  "rayon",
  "rustc-hash",
- "sourcegen",
  "span",
  "stdx",
  "syntax",
@@ -2356,6 +2355,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "flate2",
+ "itertools",
  "time",
  "write-json",
  "xflags",
