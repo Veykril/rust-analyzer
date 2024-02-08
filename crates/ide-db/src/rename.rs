@@ -24,7 +24,9 @@ use std::fmt;
 
 use base_db::{AnchoredPathBuf, FileId, FileRange};
 use either::Either;
-use hir::{FieldSource, HasSource, HirFileIdExt, InFile, ModuleSource, Semantics};
+use hir::{
+    FieldSource, HasSource, HirFileIdExt, InFile, ModuleSource, Semantics, TypeOrConstParamSource,
+};
 use span::SyntaxContextId;
 use stdx::{never, TupleExt};
 use syntax::{
@@ -168,8 +170,8 @@ impl Definition {
                     };
                     let src = x.source(sema.db)?;
                     let name = match &src.value {
-                        Either::Left(x) => x.name()?,
-                        Either::Right(_) => return None,
+                        TypeOrConstParamSource::TypeOrConstParam(x) => x.name()?,
+                        TypeOrConstParamSource::TraitOrAlias(_) => return None,
                     };
                     src.with_value(name.syntax())
                         .original_file_range_opt(sema.db)

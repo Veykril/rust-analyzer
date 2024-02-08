@@ -12,8 +12,11 @@ use hir_expand::{
 use intern::Interned;
 use la_arena::{Arena, ArenaMap, Idx};
 use once_cell::unsync::Lazy;
-use stdx::impl_from;
-use syntax::ast::{self, HasGenericParams, HasName, HasTypeBounds};
+use stdx::{impl_from, never};
+use syntax::{
+    ast::{self, HasAttrs, HasGenericParams, HasName, HasTypeBounds},
+    AstNode,
+};
 use triomphe::Arc;
 
 use crate::{
@@ -550,14 +553,59 @@ fn file_id_and_params_of(
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum TypeOrConstParamSource {
+    TypeOrConstParam(ast::TypeOrConstParam),
+    /// The implicit `Self` param of the trait or alias.
+    TraitOrAlias(ast::TraitOrAlias),
+}
+
+impl AstNode for TypeOrConstParamSource {
+    fn can_cast(kind: syntax::SyntaxKind) -> bool
+    where
+        Self: Sized,
+    {
+        ast::TypeOrConstParam::can_cast(kind) || ast::TraitOrAlias::can_cast(kind)
+    }
+
+    fn cast(syntax: syntax::SyntaxNode) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        if let Some(tocp) = ast::TypeOrConstParam::cast(syntax.clone()) {
+            return Some(TypeOrConstParamSource::TypeOrConstParam(tocp));
+        }
+        if let Some(ta) = ast::TraitOrAlias::cast(syntax) {
+            return Some(TypeOrConstParamSource::TraitOrAlias(ta));
+        }
+        None
+    }
+
+    fn syntax(&self) -> &syntax::SyntaxNode {
+        match self {
+            TypeOrConstParamSource::TypeOrConstParam(it) => it.syntax(),
+            TypeOrConstParamSource::TraitOrAlias(it) => it.syntax(),
+        }
+    }
+}
+
+impl HasAttrs for TypeOrConstParamSource {
+    fn attrs(&self) -> ast::AstChildren<ast::Attr> {
+        match self {
+            TypeOrConstParamSource::TypeOrConstParam(it) => it.attrs(),
+            TypeOrConstParamSource::TraitOrAlias(it) => it.attrs(),
+        }
+    }
+}
+
 impl HasChildSource<LocalTypeOrConstParamId> for GenericDefId {
-    type Value = Either<ast::TypeOrConstParam, ast::TraitOrAlias>;
+    type Value = TypeOrConstParamSource;
     fn child_source(
         &self,
         db: &dyn DefDatabase,
     ) -> InFile<ArenaMap<LocalTypeOrConstParamId, Self::Value>> {
         let generic_params = db.generic_params(*self);
-        let mut idx_iter = generic_params.type_or_consts.iter().map(|(idx, _)| idx);
+        let mut idx_iter = generic_params.type_or_consts.iter();
 
         let (file_id, generic_params_list) = file_id_and_params_of(*self, db);
 
@@ -568,21 +616,50 @@ impl HasChildSource<LocalTypeOrConstParamId> for GenericDefId {
         match *self {
             GenericDefId::TraitId(id) => {
                 let trait_ref = id.lookup(db).source(db).value;
-                let idx = idx_iter.next().unwrap();
-                params.insert(idx, Either::Right(ast::TraitOrAlias::Trait(trait_ref)));
+                let (idx, data) = idx_iter.next().unwrap();
+                assert!(data.is_trait_self());
+                params.insert(
+                    idx,
+                    TypeOrConstParamSource::TraitOrAlias(ast::TraitOrAlias::Trait(trait_ref)),
+                );
             }
             GenericDefId::TraitAliasId(id) => {
                 let alias = id.lookup(db).source(db).value;
-                let idx = idx_iter.next().unwrap();
-                params.insert(idx, Either::Right(ast::TraitOrAlias::TraitAlias(alias)));
+                let (idx, data) = idx_iter.next().unwrap();
+                assert!(data.is_trait_self());
+                params.insert(
+                    idx,
+                    TypeOrConstParamSource::TraitOrAlias(ast::TraitOrAlias::TraitAlias(alias)),
+                );
             }
             _ => {}
         }
 
-        if let Some(generic_params_list) = generic_params_list {
-            for (idx, ast_param) in idx_iter.zip(generic_params_list.type_or_const_params()) {
-                params.insert(idx, Either::Left(ast_param));
-            }
+        let mut gpl =
+            generic_params_list.as_ref().into_iter().flat_map(|it| it.type_or_const_params());
+
+        for (idx, tc) in idx_iter {
+            let source = match tc {
+                TypeOrConstParamData::TypeParamData(t) => match t.provenance {
+                    TypeParamProvenance::TypeParamList => match gpl.next() {
+                        Some(it) => TypeOrConstParamSource::TypeOrConstParam(it),
+                        None => continue,
+                    },
+                    TypeParamProvenance::TraitSelf => {
+                        never!();
+                        continue;
+                    }
+                    TypeParamProvenance::ArgumentImplTrait => {
+                        // FIXME: non trivial as these can come from macro expansions
+                        continue;
+                    }
+                },
+                TypeOrConstParamData::ConstParamData(_) => match gpl.next() {
+                    Some(it) => TypeOrConstParamSource::TypeOrConstParam(it),
+                    None => continue,
+                },
+            };
+            params.insert(idx, source);
         }
 
         InFile::new(file_id, params)

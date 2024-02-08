@@ -6,7 +6,7 @@ use arrayvec::ArrayVec;
 use either::Either;
 use hir::{
     db::ExpandDatabase, symbols::FileSymbol, AssocItem, FieldSource, HasContainer, HasSource,
-    HirDisplay, HirFileId, InFile, LocalSource, ModuleSource,
+    HirDisplay, HirFileId, InFile, LocalSource, ModuleSource, TypeOrConstParamSource,
 };
 use ide_db::{
     base_db::{FileId, FileRange},
@@ -589,12 +589,14 @@ impl TryToNav for hir::TypeParam {
         let name = self.name(db).to_smol_str();
 
         let value = match value {
-            Either::Left(ast::TypeOrConstParam::Type(x)) => Either::Left(x),
-            Either::Left(ast::TypeOrConstParam::Const(_)) => {
+            TypeOrConstParamSource::TypeOrConstParam(ast::TypeOrConstParam::Type(x)) => {
+                Either::Left(x)
+            }
+            TypeOrConstParamSource::TypeOrConstParam(ast::TypeOrConstParam::Const(_)) => {
                 never!();
                 return None;
             }
-            Either::Right(x) => Either::Right(x),
+            TypeOrConstParamSource::TraitOrAlias(x) => Either::Right(x),
         };
 
         let syntax = match &value {
@@ -652,7 +654,7 @@ impl TryToNav for hir::ConstParam {
         let name = self.name(db).to_smol_str();
 
         let value = match value {
-            Either::Left(ast::TypeOrConstParam::Const(x)) => x,
+            TypeOrConstParamSource::TypeOrConstParam(ast::TypeOrConstParam::Const(x)) => x,
             _ => {
                 never!();
                 return None;

@@ -110,6 +110,7 @@ pub use {
         attr::{builtin::AttributeTemplate, AttrSourceMap, Attrs, AttrsWithOwner},
         data::adt::StructKind,
         find_path::PrefixKind,
+        generics::TypeOrConstParamSource,
         import_map,
         lang_item::LangItem,
         nameres::{DefMap, ModuleSource},

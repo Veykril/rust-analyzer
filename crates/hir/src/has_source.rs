@@ -3,6 +3,7 @@
 use base_db::FileId;
 use either::Either;
 use hir_def::{
+    generics::TypeOrConstParamSource,
     nameres::{ModuleOrigin, ModuleSource},
     src::{HasChildSource, HasSource as _},
     Lookup, MacroId, VariantId,
@@ -185,7 +186,7 @@ impl HasSource for Impl {
 }
 
 impl HasSource for TypeOrConstParam {
-    type Ast = Either<ast::TypeOrConstParam, ast::TraitOrAlias>;
+    type Ast = TypeOrConstParamSource;
     fn source(self, db: &dyn HirDatabase) -> Option<InFile<Self::Ast>> {
         let child_source = self.id.parent.child_source(db.upcast());
         Some(child_source.map(|it| it[self.id.local_id].clone()))
