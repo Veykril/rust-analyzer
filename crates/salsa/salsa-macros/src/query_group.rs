@@ -34,7 +34,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
     let mut queries = vec![];
     for item in input.items {
         if let TraitItem::Fn(method) = item {
-            let query_name = method.sig.ident.to_string();
+            let query_name = method.sig.ident.clone();
 
             let mut storage = QueryStorage::Memoized;
             let mut cycle = None;
@@ -169,7 +169,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 let lookup_keys = vec![(parse_quote! { key }, value.clone())];
                 Some(Query {
                     query_type: lookup_query_type,
-                    query_name: format!("{}", lookup_fn_name),
+                    query_name: lookup_fn_name.clone(),
                     fn_name: lookup_fn_name,
                     receiver: self_receiver.clone(),
                     attrs: vec![], // FIXME -- some automatically generated docs on this method?
@@ -393,7 +393,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         };
         let keys = query.keys.iter().map(|(_, ty)| ty);
         let value = &query.value;
-        let query_name = &query.query_name;
+        let query_name = query.query_name.to_string();
 
         // Emit the query struct and implement the Query trait on it.
         output.extend(quote! {
@@ -704,7 +704,7 @@ fn filter_attrs(attrs: Vec<Attribute>) -> (Vec<Attribute>, Vec<SalsaAttr>) {
 struct Query {
     fn_name: Ident,
     receiver: syn::Receiver,
-    query_name: String,
+    query_name: Ident,
     attrs: Vec<syn::Attribute>,
     query_type: Ident,
     storage: QueryStorage,

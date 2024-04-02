@@ -14,7 +14,7 @@ use ide_db::{
     prime_caches, ChangeWithProcMacros, FxHashMap, RootDatabase,
 };
 use itertools::Itertools;
-use proc_macro_api::{MacroDylib, ProcMacroServer};
+use proc_macro_api::{msg, MacroDylib, ProcMacroServer};
 use project_model::{CargoConfig, PackageRoot, ProjectManifest, ProjectWorkspace};
 use span::Span;
 use vfs::{file_set::FileSetConfig, loader::Handle, AbsPath, AbsPathBuf, VfsPath};
@@ -406,9 +406,11 @@ impl ProcMacroExpander for Expander {
         def_site: Span,
         call_site: Span,
         mixed_site: Span,
+        callback_handler: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<tt::Subtree<Span>, ProcMacroExpansionError> {
         let env = env.iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
-        match self.0.expand(subtree, attrs, env, def_site, call_site, mixed_site) {
+        match self.0.expand(subtree, attrs, env, def_site, call_site, mixed_site, callback_handler)
+        {
             Ok(Ok(subtree)) => Ok(subtree),
             Ok(Err(err)) => Err(ProcMacroExpansionError::Panic(err.0)),
             Err(err) => Err(ProcMacroExpansionError::System(err.to_string())),

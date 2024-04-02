@@ -13,6 +13,7 @@ use hir_expand::{
         ProcMacro, ProcMacroExpander, ProcMacroExpansionError, ProcMacroKind, ProcMacros,
     },
 };
+use proc_macro_api::msg;
 use rustc_hash::FxHashMap;
 use span::{Edition, FileId, FilePosition, FileRange, Span};
 use test_utils::{
@@ -541,6 +542,7 @@ impl ProcMacroExpander for IdentityProcMacroExpander {
         _: Span,
         _: Span,
         _: Span,
+        _: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<Subtree<Span>, ProcMacroExpansionError> {
         Ok(subtree.clone())
     }
@@ -558,6 +560,7 @@ impl ProcMacroExpander for AttributeInputReplaceProcMacroExpander {
         _: Span,
         _: Span,
         _: Span,
+        _: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<Subtree<Span>, ProcMacroExpansionError> {
         attrs
             .cloned()
@@ -576,6 +579,7 @@ impl ProcMacroExpander for MirrorProcMacroExpander {
         _: Span,
         _: Span,
         _: Span,
+        _: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<Subtree<Span>, ProcMacroExpansionError> {
         fn traverse(input: &Subtree<Span>) -> Subtree<Span> {
             let mut token_trees = vec![];
@@ -606,6 +610,7 @@ impl ProcMacroExpander for ShortenProcMacroExpander {
         _: Span,
         _: Span,
         _: Span,
+        _: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<Subtree<Span>, ProcMacroExpansionError> {
         return Ok(traverse(input));
 

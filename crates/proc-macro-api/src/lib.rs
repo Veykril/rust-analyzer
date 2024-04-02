@@ -156,8 +156,10 @@ impl ProcMacro {
         def_site: Span,
         call_site: Span,
         mixed_site: Span,
+        callback_handler: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<Result<tt::Subtree<Span>, PanicMessage>, ServerError> {
-        let version = self.process.lock().unwrap_or_else(|e| e.into_inner()).version();
+        let process = &mut *self.process.lock().unwrap_or_else(|e| e.into_inner());
+        let version = process.version();
         let current_dir = env
             .iter()
             .find(|(name, _)| name == "CARGO_MANIFEST_DIR")
@@ -187,24 +189,28 @@ impl ProcMacro {
             },
         };
 
-        let response = self
-            .process
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .send_task(msg::Request::ExpandMacro(Box::new(task)))?;
-
-        match response {
-            msg::Response::ExpandMacro(it) => {
-                Ok(it.map(|tree| FlatTree::to_subtree_resolved(tree, version, &span_data_table)))
-            }
-            msg::Response::ExpandMacroExtended(it) => Ok(it.map(|resp| {
-                FlatTree::to_subtree_resolved(
-                    resp.tree,
-                    version,
-                    &deserialize_span_data_index_map(&resp.span_data_table),
-                )
-            })),
-            _ => Err(ServerError { message: "unexpected response".to_owned(), io: None }),
+        let mut request = msg::Request::ExpandMacro(Box::new(task));
+        loop {
+            let response = process.send_task(request)?;
+            return match response {
+                msg::Response::ExpandMacro(it) => {
+                    Ok(it
+                        .map(|tree| FlatTree::to_subtree_resolved(tree, version, &span_data_table)))
+                }
+                msg::Response::ExpandMacroExtended { field1: it } => Ok(it.map(|resp| {
+                    FlatTree::to_subtree_resolved(
+                        resp.tree,
+                        version,
+                        &deserialize_span_data_index_map(&resp.span_data_table),
+                    )
+                })),
+                msg::Response::ServerCallbackRequest(server_request) => {
+                    request =
+                        msg::Request::ServerCallbackResponse(callback_handler(server_request));
+                    continue;
+                }
+                _ => Err(ServerError { message: "unexpected response".to_owned(), io: None }),
+            };
         }
     }
 }

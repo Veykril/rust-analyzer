@@ -41,7 +41,7 @@ use paths::{Utf8Path, Utf8PathBuf};
 use proc_macro_api::{
     msg::{
         self, deserialize_span_data_index_map, serialize_span_data_index_map, ExpnGlobals,
-        SpanMode, TokenId, CURRENT_API_VERSION,
+        ServerCallbackRequest, ServerCallbackResponse, SpanMode, TokenId, CURRENT_API_VERSION,
     },
     ProcMacroKind,
 };
@@ -52,21 +52,44 @@ use crate::server::TokenStream;
 // see `build.rs`
 include!(concat!(env!("OUT_DIR"), "/rustc_version.rs"));
 
+pub type ReadResponse<'a> =
+    &'a mut (dyn FnMut() -> Result<ServerCallbackResponse, std::io::Error> + Send);
+pub type WriteRequest<'a> =
+    &'a mut (dyn Fn(ServerCallbackRequest) -> Result<(), std::io::Error> + Send);
+
 trait ProcMacroSrvSpan: Copy {
-    type Server: proc_macro::bridge::server::Server<TokenStream = TokenStream<Self>>;
-    fn make_server(call_site: Self, def_site: Self, mixed_site: Self) -> Self::Server;
+    type Server<'r, 'w>: proc_macro::bridge::server::Server<TokenStream = TokenStream<Self>>;
+    fn make_server<'r, 'w>(
+        call_site: Self,
+        def_site: Self,
+        mixed_site: Self,
+        read_response: ReadResponse<'r>,
+        write_request: WriteRequest<'w>,
+    ) -> Self::Server<'r, 'w>;
 }
 
 impl ProcMacroSrvSpan for TokenId {
-    type Server = server::token_id::TokenIdServer;
+    type Server<'r, 'w> = server::token_id::TokenIdServer;
 
-    fn make_server(call_site: Self, def_site: Self, mixed_site: Self) -> Self::Server {
+    fn make_server<'r, 'w>(
+        call_site: Self,
+        def_site: Self,
+        mixed_site: Self,
+        _: ReadResponse<'r>,
+        _: WriteRequest<'w>,
+    ) -> Self::Server<'r, 'w> {
         Self::Server { interner: &server::SYMBOL_INTERNER, call_site, def_site, mixed_site }
     }
 }
 impl ProcMacroSrvSpan for Span {
-    type Server = server::rust_analyzer_span::RaSpanServer;
-    fn make_server(call_site: Self, def_site: Self, mixed_site: Self) -> Self::Server {
+    type Server<'r, 'w> = server::rust_analyzer_span::RaSpanServer<'r, 'w>;
+    fn make_server<'r, 'w>(
+        call_site: Self,
+        def_site: Self,
+        mixed_site: Self,
+        read_response: ReadResponse<'r>,
+        write_request: WriteRequest<'w>,
+    ) -> Self::Server<'r, 'w> {
         Self::Server {
             interner: &server::SYMBOL_INTERNER,
             call_site,
@@ -74,6 +97,8 @@ impl ProcMacroSrvSpan for Span {
             mixed_site,
             tracked_env_vars: Default::default(),
             tracked_paths: Default::default(),
+            read_response,
+            write_request,
         }
     }
 }
@@ -98,6 +123,8 @@ impl ProcMacroSrv {
     pub fn expand(
         &mut self,
         task: msg::ExpandMacro,
+        read_response: ReadResponse<'_>,
+        write_request: WriteRequest<'_>,
     ) -> Result<(msg::FlatTree, Vec<u32>), msg::PanicMessage> {
         let span_mode = self.span_mode;
         let expander = self.expander(task.lib.as_ref()).map_err(|err| {
@@ -123,12 +150,25 @@ impl ProcMacroSrv {
         let ExpnGlobals { def_site, call_site, mixed_site, .. } = task.has_global_spans;
 
         let result = match span_mode {
-            SpanMode::Id => {
-                expand_id(task, expander, def_site, call_site, mixed_site).map(|it| (it, vec![]))
-            }
-            SpanMode::RustAnalyzer => {
-                expand_ra_span(task, expander, def_site, call_site, mixed_site)
-            }
+            SpanMode::Id => expand_id(
+                task,
+                expander,
+                def_site,
+                call_site,
+                mixed_site,
+                read_response,
+                write_request,
+            )
+            .map(|it| (it, vec![])),
+            SpanMode::RustAnalyzer => expand_ra_span(
+                task,
+                expander,
+                def_site,
+                call_site,
+                mixed_site,
+                read_response,
+                write_request,
+            ),
         };
 
         prev_env.rollback();
@@ -175,6 +215,8 @@ fn expand_id(
     def_site: usize,
     call_site: usize,
     mixed_site: usize,
+    read_response: ReadResponse<'_>,
+    write_request: WriteRequest<'_>,
 ) -> Result<msg::FlatTree, String> {
     let def_site = TokenId(def_site as u32);
     let call_site = TokenId(call_site as u32);
@@ -195,6 +237,8 @@ fn expand_id(
                         def_site,
                         call_site,
                         mixed_site,
+                        read_response,
+                        write_request,
                     )
                     .map(|it| msg::FlatTree::new_raw(&it, CURRENT_API_VERSION))
             });
@@ -217,6 +261,8 @@ fn expand_ra_span(
     def_site: usize,
     call_site: usize,
     mixed_site: usize,
+    read_response: ReadResponse<'_>,
+    write_request: WriteRequest<'_>,
 ) -> Result<(msg::FlatTree, Vec<u32>), String> {
     let mut span_data_table = deserialize_span_data_index_map(&task.span_data_table);
 
@@ -240,6 +286,8 @@ fn expand_ra_span(
                         def_site,
                         call_site,
                         mixed_site,
+                        read_response,
+                        write_request,
                     )
                     .map(|it| {
                         (

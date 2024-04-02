@@ -61,6 +61,8 @@ fn assert_expand_impl(
             def_site,
             call_site,
             mixed_site,
+            &mut || panic!(),
+            &mut |_| panic!(),
         )
         .unwrap();
     expect.assert_eq(&format!("{res:?}"));
@@ -89,7 +91,16 @@ fn assert_expand_impl(
     });
 
     let res = expander
-        .expand(macro_name, fixture.into_subtree(call_site), attr, def_site, call_site, mixed_site)
+        .expand(
+            macro_name,
+            fixture.into_subtree(call_site),
+            attr,
+            def_site,
+            call_site,
+            mixed_site,
+            &mut || panic!(),
+            &mut |_| panic!(),
+        )
         .unwrap();
     expect_s.assert_eq(&format!("{res:#?}"));
 }

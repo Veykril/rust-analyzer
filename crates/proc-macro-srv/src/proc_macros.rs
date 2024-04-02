@@ -4,7 +4,7 @@ use libloading::Library;
 use proc_macro::bridge;
 use proc_macro_api::{ProcMacroKind, RustCInfo};
 
-use crate::{dylib::LoadProcMacroDylibError, ProcMacroSrvSpan};
+use crate::{dylib::LoadProcMacroDylibError, ProcMacroSrvSpan, ReadResponse, WriteRequest};
 
 pub(crate) struct ProcMacros {
     exported_macros: Vec<bridge::client::ProcMacro>,
@@ -48,12 +48,15 @@ impl ProcMacros {
         def_site: S,
         call_site: S,
         mixed_site: S,
+        read_response: ReadResponse<'_>,
+        write_request: WriteRequest<'_>,
     ) -> Result<tt::Subtree<S>, crate::PanicMessage> {
         let parsed_body = crate::server::TokenStream::with_subtree(macro_body);
 
         let parsed_attributes = attributes.map_or_else(crate::server::TokenStream::new, |attr| {
             crate::server::TokenStream::with_subtree(attr)
         });
+        let server = S::make_server(call_site, def_site, mixed_site, read_response, write_request);
 
         for proc_macro in &self.exported_macros {
             match proc_macro {
@@ -62,7 +65,7 @@ impl ProcMacros {
                 {
                     let res = client.run(
                         &bridge::server::SameThread,
-                        S::make_server(call_site, def_site, mixed_site),
+                        server,
                         parsed_body,
                         cfg!(debug_assertions),
                     );
@@ -73,7 +76,7 @@ impl ProcMacros {
                 bridge::client::ProcMacro::Bang { name, client } if *name == macro_name => {
                     let res = client.run(
                         &bridge::server::SameThread,
-                        S::make_server(call_site, def_site, mixed_site),
+                        server,
                         parsed_body,
                         cfg!(debug_assertions),
                     );
@@ -84,7 +87,7 @@ impl ProcMacros {
                 bridge::client::ProcMacro::Attr { name, client } if *name == macro_name => {
                     let res = client.run(
                         &bridge::server::SameThread,
-                        S::make_server(call_site, def_site, mixed_site),
+                        server,
                         parsed_attributes,
                         parsed_body,
                         cfg!(debug_assertions),

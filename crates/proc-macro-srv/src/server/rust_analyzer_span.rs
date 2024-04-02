@@ -11,12 +11,16 @@ use std::{
 };
 
 use proc_macro::bridge::{self, server};
-use span::{Span, FIXUP_ERASED_FILE_AST_ID_MARKER};
+use proc_macro_api::msg::ServerCallbackRequest;
+use span::{FileId, Span, FIXUP_ERASED_FILE_AST_ID_MARKER};
 use tt::{TextRange, TextSize};
 
-use crate::server::{
-    delim_to_external, delim_to_internal, literal_with_stringify_parts,
-    token_stream::TokenStreamBuilder, Symbol, SymbolInternerRef, SYMBOL_INTERNER,
+use crate::{
+    server::{
+        delim_to_external, delim_to_internal, literal_with_stringify_parts,
+        token_stream::TokenStreamBuilder, Symbol, SymbolInternerRef, SYMBOL_INTERNER,
+    },
+    ReadResponse, WriteRequest,
 };
 mod tt {
     pub use tt::*;
@@ -32,10 +36,12 @@ mod tt {
 type TokenStream = crate::server::TokenStream<Span>;
 
 #[derive(Clone)]
-pub struct SourceFile;
+pub struct SourceFile {
+    file_id: FileId,
+}
 pub struct FreeFunctions;
 
-pub struct RaSpanServer {
+pub struct RaSpanServer<'r, 'w> {
     pub(crate) interner: SymbolInternerRef,
     // FIXME: Report this back to the caller to track as dependencies
     pub tracked_env_vars: HashMap<Box<str>, Option<Box<str>>>,
@@ -44,9 +50,11 @@ pub struct RaSpanServer {
     pub call_site: Span,
     pub def_site: Span,
     pub mixed_site: Span,
+    pub read_response: ReadResponse<'r>,
+    pub write_request: WriteRequest<'w>,
 }
 
-impl server::Types for RaSpanServer {
+impl server::Types for RaSpanServer<'_, '_> {
     type FreeFunctions = FreeFunctions;
     type TokenStream = TokenStream;
     type SourceFile = SourceFile;
@@ -54,11 +62,10 @@ impl server::Types for RaSpanServer {
     type Symbol = Symbol;
 }
 
-impl server::FreeFunctions for RaSpanServer {
+impl server::FreeFunctions for RaSpanServer<'_, '_> {
     fn injected_env_var(&mut self, _: &str) -> Option<std::string::String> {
         None
     }
-
     fn track_env_var(&mut self, var: &str, value: Option<&str>) {
         self.tracked_env_vars.insert(var.into(), value.map(Into::into));
     }
@@ -142,7 +149,7 @@ impl server::FreeFunctions for RaSpanServer {
     }
 }
 
-impl server::TokenStream for RaSpanServer {
+impl server::TokenStream for RaSpanServer<'_, '_> {
     fn is_empty(&mut self, stream: &Self::TokenStream) -> bool {
         stream.is_empty()
     }
@@ -290,27 +297,35 @@ impl server::TokenStream for RaSpanServer {
     }
 }
 
-impl server::SourceFile for RaSpanServer {
-    fn eq(&mut self, _file1: &Self::SourceFile, _file2: &Self::SourceFile) -> bool {
-        // FIXME
-        true
+impl server::SourceFile for RaSpanServer<'_, '_> {
+    fn eq(&mut self, file1: &Self::SourceFile, file2: &Self::SourceFile) -> bool {
+        file1.file_id == file2.file_id
     }
-    fn path(&mut self, _file: &Self::SourceFile) -> String {
-        // FIXME
-        String::new()
+    fn path(&mut self, file: &Self::SourceFile) -> String {
+        (|| {
+            if let Err(e) = (self.write_request)(ServerCallbackRequest::SourceFilePath {
+                file_id: file.file_id.index(),
+            }) {
+                return Err(e);
+            }
+            match (self.read_response)()? {
+                proc_macro_api::msg::ServerCallbackResponse::SourceFilePath { path } => Ok(path),
+                _ => Ok("unexpected ServerCallbackResponse".into()),
+            }
+        })()
+        .unwrap_or_else(|it| it.to_string())
     }
-    fn is_real(&mut self, _file: &Self::SourceFile) -> bool {
+    fn is_real(&mut self, _: &Self::SourceFile) -> bool {
         true
     }
 }
 
-impl server::Span for RaSpanServer {
+impl server::Span for RaSpanServer<'_, '_> {
     fn debug(&mut self, span: Self::Span) -> String {
         format!("{:?}", span)
     }
-    fn source_file(&mut self, _span: Self::Span) -> Self::SourceFile {
-        // FIXME stub, requires db
-        SourceFile {}
+    fn source_file(&mut self, span: Self::Span) -> Self::SourceFile {
+        SourceFile { file_id: span.anchor.file_id }
     }
     fn save_span(&mut self, _span: Self::Span) -> usize {
         // FIXME, quote is incompatible with third-party tools
@@ -338,8 +353,16 @@ impl server::Span for RaSpanServer {
         None
     }
     fn source(&mut self, span: Self::Span) -> Self::Span {
-        // FIXME requires db, returns the top level call site
-        span
+        (|| {
+            if let Err(e) = (self.write_request)(ServerCallbackRequest::CallSiteForCtx { span }) {
+                return Err(e);
+            }
+            Ok(match (self.read_response)()? {
+                proc_macro_api::msg::ServerCallbackResponse::CallSiteForCtx { span } => span,
+                _ => span,
+            })
+        })()
+        .unwrap_or(span)
     }
     fn byte_range(&mut self, span: Self::Span) -> Range<usize> {
         // FIXME requires db to resolve the ast id, THIS IS NOT INCREMENTAL
@@ -448,14 +471,14 @@ impl server::Span for RaSpanServer {
     }
 }
 
-impl server::Symbol for RaSpanServer {
+impl server::Symbol for RaSpanServer<'_, '_> {
     fn normalize_and_validate_ident(&mut self, string: &str) -> Result<Self::Symbol, ()> {
         // FIXME: nfc-normalize and validate idents
         Ok(<Self as server::Server>::intern_symbol(string))
     }
 }
 
-impl server::Server for RaSpanServer {
+impl server::Server for RaSpanServer<'_, '_> {
     fn globals(&mut self) -> bridge::ExpnGlobals<Self::Span> {
         bridge::ExpnGlobals {
             def_site: self.def_site,

@@ -315,6 +315,9 @@ impl ProcMacroExpander for IdentityWhenValidProcMacroExpander {
         _: Span,
         _: Span,
         _: Span,
+        _: &dyn Fn(
+            hir_expand::proc_macro::ServerCallbackRequest,
+        ) -> hir_expand::proc_macro::ServerCallbackResponse,
     ) -> Result<Subtree, ProcMacroExpansionError> {
         let (parse, _) =
             ::mbe::token_tree_to_syntax_node(subtree, ::mbe::TopEntryPoint::MacroItems);

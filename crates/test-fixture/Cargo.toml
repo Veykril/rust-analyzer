@@ -17,5 +17,8 @@ rustc-hash.workspace = true
 span.workspace = true
 stdx.workspace = true
 
+# FIXME Remove this
+proc-macro-api.workspace = true
+
 [lints]
 workspace = true

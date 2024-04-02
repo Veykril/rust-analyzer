@@ -5,6 +5,7 @@ use std::io::{self, BufRead, Write};
 
 use paths::Utf8PathBuf;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use span::{Span, SpanData, SyntaxContextId};
 
 use crate::ProcMacroKind;
 
@@ -25,13 +26,17 @@ pub const CURRENT_API_VERSION: u32 = RUST_ANALYZER_SPAN_SUPPORT;
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Request {
     /// Since [`NO_VERSION_CHECK_VERSION`]
-    ListMacros { dylib_path: Utf8PathBuf },
+    ListMacros {
+        dylib_path: Utf8PathBuf,
+    },
     /// Since [`NO_VERSION_CHECK_VERSION`]
     ExpandMacro(Box<ExpandMacro>),
     /// Since [`VERSION_CHECK_VERSION`]
     ApiVersionCheck {},
     /// Since [`RUST_ANALYZER_SPAN_SUPPORT`]
     SetConfig(ServerConfig),
+
+    ServerCallbackResponse(ServerCallbackResponse),
 }
 
 #[derive(Copy, Clone, Default, Debug, Serialize, Deserialize)]
@@ -52,7 +57,55 @@ pub enum Response {
     /// Since [`RUST_ANALYZER_SPAN_SUPPORT`]
     SetConfig(ServerConfig),
     /// Since [`RUST_ANALYZER_SPAN_SUPPORT`]
-    ExpandMacroExtended(Result<ExpandMacroExtended, PanicMessage>),
+    ExpandMacroExtended {
+        field1: Result<ExpandMacroExtended, PanicMessage>,
+    },
+
+    ServerCallbackRequest(ServerCallbackRequest),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ServerCallbackRequest {
+    SourceFilePath {
+        file_id: u32,
+    },
+    CallSiteForCtx {
+        #[serde(with = "serde_span::SpanDef")]
+        span: Span,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ServerCallbackResponse {
+    SourceFilePath {
+        path: String,
+    },
+    CallSiteForCtx {
+        #[serde(with = "serde_span::SpanDef")]
+        span: Span,
+    },
+}
+
+mod serde_span {
+    use serde::{Deserialize, Serialize};
+    use span::{ErasedFileAstId, FileId, Span, SpanAnchor, SyntaxContextId};
+    use tt::TextRange;
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "Span")]
+    pub struct SpanDef {
+        pub range: TextRange,
+        #[serde(with = "SpanAnchorDef")]
+        pub anchor: SpanAnchor,
+        pub ctx: SyntaxContextId,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(remote = "SpanAnchor")]
+    pub struct SpanAnchorDef {
+        pub file_id: FileId,
+        pub ast_id: ErasedFileAstId,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

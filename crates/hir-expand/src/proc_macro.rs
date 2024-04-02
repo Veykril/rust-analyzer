@@ -4,12 +4,15 @@ use core::fmt;
 use std::{panic::RefUnwindSafe, sync};
 
 use base_db::{CrateId, Env};
+use proc_macro_api::msg;
 use rustc_hash::FxHashMap;
-use span::Span;
+use span::{HirFileIdRepr, MacroFileId, Span, SpanAnchor};
 use stdx::never;
 use syntax::SmolStr;
 
-use crate::{db::ExpandDatabase, tt, ExpandError, ExpandResult};
+use crate::{db::ExpandDatabase, tt, ExpandError, ExpandResult, MacroFileIdExt};
+
+pub use msg::{ServerCallbackRequest, ServerCallbackResponse};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ProcMacroId(u32);
@@ -36,6 +39,7 @@ pub trait ProcMacroExpander: fmt::Debug + Send + Sync + RefUnwindSafe {
         def_site: Span,
         call_site: Span,
         mixed_site: Span,
+        callback_handler: &dyn Fn(msg::ServerCallbackRequest) -> msg::ServerCallbackResponse,
     ) -> Result<tt::Subtree, ProcMacroExpansionError>;
 }
 
@@ -144,8 +148,52 @@ impl CustomProcMacroExpander {
                 let krate_graph = db.crate_graph();
                 // Proc macros have access to the environment variables of the invoking crate.
                 let env = &krate_graph[calling_crate].env;
-                match proc_macro.expander.expand(tt, attr_arg, env, def_site, call_site, mixed_site)
-                {
+                match proc_macro.expander.expand(
+                    tt,
+                    attr_arg,
+                    env,
+                    def_site,
+                    call_site,
+                    mixed_site,
+                    &|msg| match msg {
+                        msg::ServerCallbackRequest::SourceFilePath { file_id } => {
+                            // FIXME: We deliberately don't have access to paths in this layer
+                            msg::ServerCallbackResponse::SourceFilePath {
+                                path: format!("path for {file_id:?} unavailable"),
+                            }
+                        }
+                        ServerCallbackRequest::CallSiteForCtx { span } => {
+                            msg::ServerCallbackResponse::CallSiteForCtx {
+                                span: match db.lookup_intern_syntax_context(span.ctx).outer_expn {
+                                    Some(call_id) => {
+                                        let mut call = db.lookup_intern_macro_call(call_id);
+                                        loop {
+                                            match call.kind.file_id().repr() {
+                                                HirFileIdRepr::FileId(file_id) => {
+                                                    break Span {
+                                                        range: call.to_relative_range(db),
+                                                        anchor: SpanAnchor {
+                                                            file_id,
+                                                            ast_id: call.kind.erased_ast_id(),
+                                                        },
+                                                        ctx: call.ctxt,
+                                                    };
+                                                }
+                                                HirFileIdRepr::MacroFile(MacroFileId {
+                                                    macro_call_id,
+                                                }) => {
+                                                    call =
+                                                        db.lookup_intern_macro_call(macro_call_id);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    None => span,
+                                },
+                            }
+                        }
+                    },
+                ) {
                     Ok(t) => ExpandResult::ok(t),
                     Err(err) => match err {
                         // Don't discard the item in case something unexpected happened while expanding attributes

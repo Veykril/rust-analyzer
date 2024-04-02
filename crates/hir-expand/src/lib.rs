@@ -295,17 +295,7 @@ impl HirFileIdExt for HirFileId {
     }
 
     fn original_call_node(self, db: &dyn ExpandDatabase) -> Option<InRealFile<SyntaxNode>> {
-        let mut call = db.lookup_intern_macro_call(self.macro_file()?.macro_call_id).to_node(db);
-        loop {
-            match call.file_id.repr() {
-                HirFileIdRepr::FileId(file_id) => {
-                    break Some(InRealFile { file_id, value: call.value })
-                }
-                HirFileIdRepr::MacroFile(MacroFileId { macro_call_id }) => {
-                    call = db.lookup_intern_macro_call(macro_call_id).to_node(db);
-                }
-            }
-        }
+        Some(self.macro_file()?.original_call_node(db))
     }
 
     /// Return expansion information if it is a macro-expansion file
@@ -331,6 +321,7 @@ pub trait MacroFileIdExt {
     fn expansion_level(self, db: &dyn ExpandDatabase) -> u32;
     /// If this is a macro call, returns the syntax node of the call.
     fn call_node(self, db: &dyn ExpandDatabase) -> InFile<SyntaxNode>;
+    fn original_call_node(self, db: &dyn ExpandDatabase) -> InRealFile<SyntaxNode>;
     fn parent(self, db: &dyn ExpandDatabase) -> HirFileId;
 
     fn expansion_info(self, db: &dyn ExpandDatabase) -> ExpansionInfo;
@@ -353,6 +344,19 @@ pub trait MacroFileIdExt {
 impl MacroFileIdExt for MacroFileId {
     fn call_node(self, db: &dyn ExpandDatabase) -> InFile<SyntaxNode> {
         db.lookup_intern_macro_call(self.macro_call_id).to_node(db)
+    }
+    fn original_call_node(self, db: &dyn ExpandDatabase) -> InRealFile<SyntaxNode> {
+        let mut call = db.lookup_intern_macro_call(self.macro_call_id);
+        loop {
+            match call.kind.file_id().repr() {
+                HirFileIdRepr::FileId(file_id) => {
+                    break InRealFile { file_id, value: call.to_node(db).value }
+                }
+                HirFileIdRepr::MacroFile(MacroFileId { macro_call_id }) => {
+                    call = db.lookup_intern_macro_call(macro_call_id);
+                }
+            }
+        }
     }
     fn expansion_level(self, db: &dyn ExpandDatabase) -> u32 {
         let mut level = 0;
@@ -541,6 +545,41 @@ impl MacroCallLoc {
                     })
                 } else {
                     ast_id.with_value(ast_id.to_node(db).syntax().clone())
+                }
+            }
+        }
+    }
+
+    pub fn to_relative_range(&self, db: &dyn ExpandDatabase) -> TextRange {
+        match self.kind {
+            MacroCallKind::FnLike { ast_id, .. } => ast_id.to_range(db),
+            MacroCallKind::Derive { ast_id, derive_attr_index, .. } => {
+                // FIXME: handle `cfg_attr`
+                let adt = ast_id.to_node(db);
+                collect_attrs(&adt)
+                    .nth(derive_attr_index.ast_index())
+                    .and_then(|it| match it.1 {
+                        Either::Left(attr) => Some(attr.syntax().text_range()),
+                        Either::Right(_) => None,
+                    })
+                    .unwrap_or_else(|| adt.syntax().text_range())
+                    - adt.syntax().text_range().start()
+            }
+            MacroCallKind::Attr { ast_id, invoc_attr_index, .. } => {
+                if self.def.is_attribute_derive() {
+                    // FIXME: handle `cfg_attr`
+                    let item = ast_id.to_node(db);
+                    collect_attrs(&item)
+                        .nth(invoc_attr_index.ast_index())
+                        .and_then(|it| match it.1 {
+                            Either::Left(attr) => Some(attr.syntax().text_range()),
+                            Either::Right(_) => None,
+                        })
+                        .unwrap_or_else(|| item.syntax().text_range())
+                        - item.syntax().text_range().start()
+                } else {
+                    let range = ast_id.to_node(db).syntax().text_range();
+                    range - range.start()
                 }
             }
         }

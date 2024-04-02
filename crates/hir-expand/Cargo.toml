@@ -33,6 +33,9 @@ mbe.workspace = true
 limit.workspace = true
 span.workspace = true
 
+# FIXME Remove this
+proc-macro-api.workspace = true
+
 [dev-dependencies]
 expect-test = "1.4.0"
 

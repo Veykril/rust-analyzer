@@ -9,7 +9,7 @@ use paths::{AbsPath, Utf8Path, Utf8PathBuf};
 use proc_macro::bridge;
 use proc_macro_api::{read_dylib_info, ProcMacroKind};
 
-use crate::ProcMacroSrvSpan;
+use crate::{ProcMacroSrvSpan, ReadResponse, WriteRequest};
 
 const NEW_REGISTRAR_SYMBOL: &str = "_rustc_proc_macro_decls_";
 
@@ -145,7 +145,7 @@ impl Expander {
         Ok(Expander { inner: library })
     }
 
-    pub fn expand<S: ProcMacroSrvSpan>(
+    pub fn expand<'r, 'w, S: ProcMacroSrvSpan>(
         &self,
         macro_name: &str,
         macro_body: tt::Subtree<S>,
@@ -153,14 +153,22 @@ impl Expander {
         def_site: S,
         call_site: S,
         mixed_site: S,
+        read_response: ReadResponse<'r>,
+        write_request: WriteRequest<'w>,
     ) -> Result<tt::Subtree<S>, String>
     where
-        <S::Server as bridge::server::Types>::TokenStream: Default,
+        <S::Server<'r, 'w> as bridge::server::Types>::TokenStream: Default,
     {
-        let result = self
-            .inner
-            .proc_macros
-            .expand(macro_name, macro_body, attributes, def_site, call_site, mixed_site);
+        let result = self.inner.proc_macros.expand(
+            macro_name,
+            macro_body,
+            attributes,
+            def_site,
+            call_site,
+            mixed_site,
+            read_response,
+            write_request,
+        );
         result.map_err(|e| e.into_string().unwrap_or_default())
     }
 
