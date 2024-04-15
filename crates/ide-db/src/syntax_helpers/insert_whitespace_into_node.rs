@@ -61,7 +61,7 @@ pub fn insert_ws_into(syn: SyntaxNode) -> SyntaxNode {
 
         match tok.kind() {
             k if is_text(k)
-                && is_next(|it| !it.is_punct() || matches!(it, T![_] | T![#]), false) =>
+                && is_next(|it| it.is_punct().implies(matches!(it, T![_] | T![#])), false) =>
             {
                 mods.push(do_ws(after, tok));
             }

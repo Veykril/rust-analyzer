@@ -1476,8 +1476,9 @@ pub fn write_bounds_like_dyn_trait_with_prefix(
     default_sized: SizedByDefault,
 ) -> Result<(), HirDisplayError> {
     write!(f, "{prefix}")?;
-    if !predicates.is_empty()
-        || predicates.is_empty() && matches!(default_sized, SizedByDefault::Sized { .. })
+    if predicates
+        .is_empty()
+        .implies(predicates.is_empty() && matches!(default_sized, SizedByDefault::Sized { .. }))
     {
         write!(f, " ")?;
         write_bounds_like_dyn_trait(f, this, predicates, default_sized)
@@ -1957,7 +1958,7 @@ impl HirDisplay for Path {
         }
 
         for (seg_idx, segment) in self.segments().iter().enumerate() {
-            if !matches!(self.kind(), PathKind::Plain) || seg_idx > 0 {
+            if matches!(self.kind(), PathKind::Plain).implies(seg_idx > 0) {
                 write!(f, "::")?;
             }
             write!(f, "{}", segment.name.display(f.db.upcast()))?;

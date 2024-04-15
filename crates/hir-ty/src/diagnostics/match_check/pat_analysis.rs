@@ -383,7 +383,7 @@ impl<'p> PatCx for MatchCheckCtx<'p> {
                                 };
                                 let is_uninhabited = self.is_uninhabited(&ty);
                                 let private_uninhabited =
-                                    is_uninhabited && (!is_visible() || *is_non_exhaustive);
+                                    is_uninhabited && (is_visible().implies(*is_non_exhaustive));
                                 (ty, PrivateUninhabitedField(private_uninhabited))
                             })
                             .collect()

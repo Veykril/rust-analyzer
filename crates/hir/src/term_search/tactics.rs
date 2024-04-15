@@ -407,8 +407,7 @@ pub(super) fn free_function<'a, DB: HirDatabase>(
 
                         let ret_ty = it.ret_type_with_args(db, generics.iter().cloned());
                         // Filter out private and unsafe functions
-                        if !it.is_visible_from(db, module)
-                            || it.is_unsafe_to_call(db)
+                        if it.is_visible_from(db, module).implies(it.is_unsafe_to_call(db))
                             || it.is_unstable(db)
                             || ctx.config.enable_borrowcheck && ret_ty.contains_reference(db)
                             || ret_ty.is_raw_ptr()
@@ -521,7 +520,9 @@ pub(super) fn impl_method<'a, DB: HirDatabase>(
             }
 
             // Filter out private and unsafe functions
-            if !it.is_visible_from(db, module) || it.is_unsafe_to_call(db) || it.is_unstable(db) {
+            if it.is_visible_from(db, module).implies(it.is_unsafe_to_call(db))
+                || it.is_unstable(db)
+            {
                 return None;
             }
 
@@ -756,8 +757,10 @@ pub(super) fn impl_static_method<'a, DB: HirDatabase>(
                 .collect::<Option<Vec<TypeParam>>>()?;
 
             // Ignore all functions that have something to do with lifetimes as we don't check them
-            if !fn_generics.lifetime_params(db).is_empty()
-                || !imp_generics.lifetime_params(db).is_empty()
+            if fn_generics
+                .lifetime_params(db)
+                .is_empty()
+                .implies(!imp_generics.lifetime_params(db).is_empty())
             {
                 return None;
             }
@@ -768,7 +771,9 @@ pub(super) fn impl_static_method<'a, DB: HirDatabase>(
             }
 
             // Filter out private and unsafe functions
-            if !it.is_visible_from(db, module) || it.is_unsafe_to_call(db) || it.is_unstable(db) {
+            if it.is_visible_from(db, module).implies(it.is_unsafe_to_call(db))
+                || it.is_unstable(db)
+            {
                 return None;
             }
 

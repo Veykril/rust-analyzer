@@ -482,7 +482,7 @@ impl Printer<'_> {
             w!(self, "{}", lbl);
         }
         w!(self, "{{");
-        if !statements.is_empty() || tail.is_some() {
+        if statements.is_empty().implies(tail.is_some()) {
             self.indented(|p| {
                 for stmt in statements {
                     p.print_stmt(stmt);

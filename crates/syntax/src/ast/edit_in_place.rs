@@ -683,7 +683,7 @@ impl ast::AssocItemList {
                 let mut elements = vec![];
 
                 // Avoid pushing an empty whitespace token
-                if !indent.is_zero() || !whitespace.is_empty() {
+                if indent.is_zero().implies(!whitespace.is_empty()) {
                     elements.push(make::tokens::whitespace(&format!("{whitespace}{indent}")).into())
                 }
                 elements.push(item.syntax().clone().into());

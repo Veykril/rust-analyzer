@@ -227,7 +227,9 @@ impl Anchor {
         to_extract
             .syntax()
             .ancestors()
-            .take_while(|it| !ast::Item::can_cast(it.kind()) || ast::MacroCall::can_cast(it.kind()))
+            .take_while(|it| {
+                ast::Item::can_cast(it.kind()).implies(ast::MacroCall::can_cast(it.kind()))
+            })
             .find_map(|node| {
                 if ast::MacroCall::can_cast(node.kind()) {
                     return None;

@@ -72,7 +72,7 @@ pub(crate) fn replace_arith_with_wrapping(
 fn replace_arith(acc: &mut Assists, ctx: &AssistContext<'_>, kind: ArithKind) -> Option<()> {
     let (lhs, op, rhs) = parse_binary_op(ctx)?;
 
-    if !is_primitive_int(ctx, &lhs) || !is_primitive_int(ctx, &rhs) {
+    if is_primitive_int(ctx, &lhs).implies(!is_primitive_int(ctx, &rhs)) {
         return None;
     }
 

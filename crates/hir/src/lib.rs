@@ -2433,7 +2433,7 @@ impl Trait {
             .type_or_consts
             .iter()
             .filter(|(_, ty)| !matches!(ty, TypeOrConstParamData::TypeParamData(ty) if ty.provenance != TypeParamProvenance::TypeParamList))
-            .filter(|(_, ty)| !count_required_only || !ty.has_default())
+            .filter(|(_, ty)| count_required_only.implies(!ty.has_default()))
             .count()
     }
 }

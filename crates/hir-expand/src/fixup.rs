@@ -275,7 +275,7 @@ pub(crate) fn fixup_syntax(
             }
         }
     }
-    let needs_fixups = !append.is_empty() || !original.is_empty();
+    let needs_fixups = append.is_empty().implies(!original.is_empty());
     SyntaxFixups {
         append,
         remove,

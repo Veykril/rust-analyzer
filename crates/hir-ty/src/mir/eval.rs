@@ -1892,7 +1892,7 @@ impl Evaluator<'_> {
     }
 
     fn heap_allocate(&mut self, size: usize, align: usize) -> Result<Address> {
-        if !align.is_power_of_two() || align > 10000 {
+        if align.is_power_of_two().implies(align > 10000) {
             return Err(MirEvalError::UndefinedBehavior(format!("Alignment {align} is invalid")));
         }
         while self.heap.len() % align != 0 {

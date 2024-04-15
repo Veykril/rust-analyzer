@@ -1160,8 +1160,9 @@ pub(crate) fn handle_references(
                 .flat_map(|(file_id, refs)| {
                     refs.into_iter()
                         .filter(|&(_, category)| {
-                            (!exclude_imports || category != Some(ReferenceCategory::Import))
-                                && (!exclude_tests || category != Some(ReferenceCategory::Test))
+                            (exclude_imports.implies(category != Some(ReferenceCategory::Import)))
+                                && (exclude_tests
+                                    .implies(category != Some(ReferenceCategory::Test)))
                         })
                         .map(move |(range, _)| FileRange { file_id, range })
                 })
@@ -1942,8 +1943,7 @@ fn goto_type_action_links(
     snap: &GlobalStateSnapshot,
     nav_targets: &[HoverGotoTypeData],
 ) -> Option<lsp_ext::CommandLinkGroup> {
-    if !snap.config.hover_actions().goto_type_def
-        || nav_targets.is_empty()
+    if snap.config.hover_actions().goto_type_def.implies(nav_targets.is_empty())
         || !snap.config.client_commands().goto_location
     {
         return None;

@@ -259,7 +259,7 @@ impl SourceChangeBuilder {
         }
 
         let edit = mem::take(&mut self.edit).finish();
-        if !edit.is_empty() || snippet_edit.is_some() {
+        if edit.is_empty().implies(snippet_edit.is_some()) {
             self.source_change.insert_source_and_snippet_edit(self.file_id, edit, snippet_edit);
         }
     }

@@ -251,7 +251,7 @@ pub(super) fn keyword(
     config: &HoverConfig,
     token: &SyntaxToken,
 ) -> Option<HoverResult> {
-    if !token.kind().is_keyword() || !config.documentation || !config.keywords {
+    if token.kind().is_keyword().implies(!config.documentation) || !config.keywords {
         return None;
     }
     let parent = token.parent()?;

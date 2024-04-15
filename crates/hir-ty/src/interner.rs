@@ -253,7 +253,8 @@ impl chalk_ir::interner::Interner for Interner {
         c1: &Self::InternedConcreteConst,
         c2: &Self::InternedConcreteConst,
     ) -> bool {
-        !matches!(c1, ConstScalar::Bytes(..)) || !matches!(c2, ConstScalar::Bytes(..)) || (c1 == c2)
+        matches!(c1, ConstScalar::Bytes(..)).implies(!matches!(c2, ConstScalar::Bytes(..)))
+            || (c1 == c2)
     }
 
     fn intern_generic_arg(self, parameter: GenericArgData) -> Self::InternedGenericArg {
