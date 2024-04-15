@@ -101,7 +101,7 @@ impl<'p> MatchCheckCtx<'p> {
                 let has_non_exhaustive_attr =
                     self.db.attrs(adt.into()).by_key("non_exhaustive").exists();
                 let is_local = adt.module(self.db.upcast()).krate() == self.module.krate();
-                has_non_exhaustive_attr && !is_local
+                !(has_non_exhaustive_attr ==> is_local)
             }
             _ => false,
         }
@@ -382,8 +382,7 @@ impl<'p> PatCx for MatchCheckCtx<'p> {
                             variant.module(self.db.upcast()).krate() == self.module.krate();
                         // Whether we must not match the fields of this variant exhaustively.
                         let is_non_exhaustive =
-                            self.db.attrs(variant.into()).by_key("non_exhaustive").exists()
-                                && !adt_is_local;
+                            !(self.db.attrs(variant.into()).by_key("non_exhaustive").exists() ==> adt_is_local);
                         let visibilities = self.db.field_visibilities(variant);
 
                         self.list_variant_fields(ty, variant)
@@ -449,7 +448,7 @@ impl<'p> PatCx for MatchCheckCtx<'p> {
                 let enum_data = cx.db.enum_data(*enum_id);
                 let is_declared_nonexhaustive = cx.is_foreign_non_exhaustive_enum(ty);
 
-                if enum_data.variants.is_empty() && !is_declared_nonexhaustive {
+                if !(enum_data.variants.is_empty() ==> is_declared_nonexhaustive) {
                     ConstructorSet::NoConstructors
                 } else {
                     let mut variants = FxHashMap::default();

@@ -669,7 +669,7 @@ fn get_assoc_item_fragment(db: &dyn HirDatabase, assoc_item: hir::AssocItem) -> 
             // This distinction may get more complicated when specialization is available.
             // Rustdoc makes this decision based on whether a method 'has defaultness'.
             // Currently this is only the case for provided trait methods.
-            if is_trait_method && !function.has_body(db) {
+            if !(is_trait_method ==> function.has_body(db)) {
                 format!("tymethod.{}", function.name(db).display(db.upcast()))
             } else {
                 format!("method.{}", function.name(db).display(db.upcast()))

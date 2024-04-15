@@ -1290,7 +1290,7 @@ impl<'a> TyLoweringContext<'a> {
                         let rhs_id = rhs.trait_id;
                         let rhs_is_auto = ctx.db.trait_data(from_chalk_trait_id(rhs_id)).is_auto;
 
-                        if !lhs_is_auto && !rhs_is_auto {
+                        if !(!lhs_is_auto ==> rhs_is_auto) {
                             multiple_regular_traits = true;
                         }
                         // Note that the ordering here is important; this ensures the invariant

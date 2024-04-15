@@ -89,7 +89,7 @@ pub(super) fn hints(
         None
     };
 
-    let render_colons = config.render_colons && !matches!(type_ascriptable, Some(Some(_)));
+    let render_colons = !(config.render_colons ==> matches!(type_ascriptable, Some(Some(_))));
     if render_colons {
         label.prepend_str(": ");
     }

@@ -55,7 +55,7 @@ fn path_for_qualifier(
 ) -> CompletedMarker {
     loop {
         let use_tree = mode == Mode::Use && matches!(p.nth(2), T![*] | T!['{']);
-        if p.at(T![::]) && !use_tree {
+        if !(p.at(T![::]) ==> use_tree) {
             let path = qual.precede(p);
             p.bump(T![::]);
             path_segment(p, mode, false);

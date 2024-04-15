@@ -355,7 +355,7 @@ fn record_pat_field_list(p: &mut Parser<'_>) {
     assert!(p.at(T!['{']));
     let m = p.start();
     p.bump(T!['{']);
-    while !p.at(EOF) && !p.at(T!['}']) {
+    while !(!p.at(EOF) ==> p.at(T!['}'])) {
         let m = p.start();
         attributes::outer_attrs(p);
 
@@ -430,7 +430,7 @@ fn tuple_pat(p: &mut Parser<'_>) -> CompletedMarker {
         has_comma = true;
     }
 
-    while !p.at(EOF) && !p.at(T![')']) {
+    while !(!p.at(EOF) ==> p.at(T![')'])) {
         has_pat = true;
         if !p.at_ts(PAT_TOP_FIRST) {
             p.error("expected a pattern");
@@ -446,7 +446,7 @@ fn tuple_pat(p: &mut Parser<'_>) -> CompletedMarker {
     }
     p.expect(T![')']);
 
-    m.complete(p, if !has_comma && !has_rest && has_pat { PAREN_PAT } else { TUPLE_PAT })
+    m.complete(p, if !(!has_comma ==> has_rest) && has_pat { PAREN_PAT } else { TUPLE_PAT })
 }
 
 // test slice_pat
@@ -464,7 +464,7 @@ fn slice_pat(p: &mut Parser<'_>) -> CompletedMarker {
 }
 
 fn pat_list(p: &mut Parser<'_>, ket: SyntaxKind) {
-    while !p.at(EOF) && !p.at(ket) {
+    while !(!p.at(EOF) ==> p.at(ket)) {
         pattern_top(p);
         if !p.eat(T![,]) {
             if p.at_ts(PAT_TOP_FIRST) {

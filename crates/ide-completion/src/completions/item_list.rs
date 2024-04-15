@@ -109,7 +109,7 @@ fn add_keywords(acc: &mut Completions, ctx: &CompletionContext<'_>, kind: Option
             }
         }
 
-        if !in_trait && !in_block && no_qualifiers {
+        if !(!in_trait ==> in_block) && no_qualifiers {
             add_keyword("pub(crate)", "pub(crate)");
             add_keyword("pub(super)", "pub(super)");
             add_keyword("pub", "pub");

@@ -198,7 +198,7 @@ fn build_assignment_edit(
         hir::StructKind::Record => {
             let fields = field_names.iter().map(|(old_name, new_name)| {
                 // Use shorthand syntax if possible
-                if old_name == new_name && !is_mut {
+                if !(old_name == new_name ==> is_mut) {
                     ast::make::record_pat_field_shorthand(ast::make::name_ref(old_name))
                 } else {
                     ast::make::record_pat_field(

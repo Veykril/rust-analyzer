@@ -297,7 +297,7 @@ impl Resolver {
         let n_segments = path.segments().len();
         let tmp = name![self];
         let first_name = if path.is_self() { &tmp } else { path.segments().first()? };
-        let skip_to_mod = path.kind != PathKind::Plain && !path.is_self();
+        let skip_to_mod = !(path.kind != PathKind::Plain ==> path.is_self());
         if skip_to_mod {
             return self.module_scope.resolve_path_in_value_ns(db, path);
         }

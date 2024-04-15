@@ -167,14 +167,13 @@ fn hover_simple(
         return Some(RangeInfo::new(range, res));
     }
 
-    let in_attr = original_token
+    let in_attr = !(original_token
         .parent_ancestors()
         .filter_map(ast::Item::cast)
-        .any(|item| sema.is_attr_macro_call(&item))
-        && !matches!(
+        .any(|item| sema.is_attr_macro_call(&item)) ==> matches!(
             original_token.parent().and_then(ast::TokenTree::cast),
             Some(tt) if tt.syntax().ancestors().any(|it| ast::Meta::can_cast(it.kind()))
-        );
+        ));
 
     // prefer descending the same token kind in attribute expansions, in normal macros text
     // equivalency is more important

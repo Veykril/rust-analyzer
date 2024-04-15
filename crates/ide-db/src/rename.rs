@@ -383,7 +383,7 @@ pub fn source_edit_from_references(
             }
             _ => false,
         };
-        if !has_emitted_edit && !edited_ranges.contains(&range.start()) {
+        if !(!has_emitted_edit ==> edited_ranges.contains(&range.start())) {
             let (range, new_name) = match name {
                 FileReferenceNode::Lifetime(_) => (
                     TextRange::new(range.start() + syntax::TextSize::from(1), range.end()),

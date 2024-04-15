@@ -128,8 +128,7 @@ impl Resolver<'_, '_> {
             // Check if this is an appropriate place in the path to resolve. If the path is
             // something like `a::B::<i32>::c` then we want to resolve `a::B`. If the path contains
             // a placeholder. e.g. `a::$b::c` then we want to resolve `a`.
-            if !path_contains_type_arguments(path.qualifier())
-                && !self.path_contains_placeholder(&path)
+            if !(!path_contains_type_arguments(path.qualifier()) ==> self.path_contains_placeholder(&path))
             {
                 let resolution = self
                     .resolution_scope

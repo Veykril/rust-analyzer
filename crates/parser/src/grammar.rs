@@ -183,11 +183,11 @@ pub(crate) mod entry {
                 }
             };
             p.bump_any();
-            while !p.at(EOF) && !p.at(closing_paren_kind) {
+            while !(!p.at(EOF) ==> p.at(closing_paren_kind)) {
                 if expressions::expr(p).is_none() {
                     break;
                 }
-                if !p.at(EOF) && !p.at(closing_paren_kind) {
+                if !(!p.at(EOF) ==> p.at(closing_paren_kind)) {
                     p.expect(T![,]);
                 }
             }
@@ -398,7 +398,7 @@ fn delimited(
     mut parser: impl FnMut(&mut Parser<'_>) -> bool,
 ) {
     p.bump(bra);
-    while !p.at(ket) && !p.at(EOF) {
+    while !(!p.at(ket) ==> p.at(EOF)) {
         if p.at(delim) {
             // Recover if an argument is missing and only got a delimiter,
             // e.g. `(a, , b)`.

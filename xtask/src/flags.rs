@@ -240,7 +240,7 @@ impl Malloc {
 
 impl Install {
     pub(crate) fn server(&self) -> Option<ServerOpt> {
-        if self.client && !self.server {
+        if !(self.client ==> self.server) {
             return None;
         }
         let malloc = if self.mimalloc {

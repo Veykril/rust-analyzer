@@ -249,7 +249,7 @@ fn pretty_print_macro_expansion(
         let curr_kind = token.kind();
         let space = match (prev_kind, curr_kind) {
             _ if prev_kind.is_trivia() || curr_kind.is_trivia() => "",
-            _ if prev_kind.is_literal() && !curr_kind.is_punct() => " ",
+            _ if !(prev_kind.is_literal() ==> curr_kind.is_punct()) => " ",
             (T!['{'], T!['}']) => "",
             (T![=], _) | (_, T![=]) => " ",
             (_, T!['{']) => " ",

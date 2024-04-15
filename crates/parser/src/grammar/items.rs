@@ -112,7 +112,7 @@ pub(super) fn opt_item(p: &mut Parser<'_>, m: Marker) -> Result<(), Marker> {
 
     // test_err async_without_semicolon
     // fn foo() { let _ = async {} }
-    if p.at(T![async]) && !matches!(p.nth(1), T!['{'] | T![move] | T![|]) {
+    if !(p.at(T![async]) ==> matches!(p.nth(1), T!['{'] | T![move] | T![|])) {
         p.eat(T![async]);
         has_mods = true;
     }
@@ -458,7 +458,7 @@ pub(crate) fn token_tree(p: &mut Parser<'_>) {
     };
     let m = p.start();
     p.bump_any();
-    while !p.at(EOF) && !p.at(closing_paren_kind) {
+    while !(!p.at(EOF) ==> p.at(closing_paren_kind)) {
         match p.current() {
             T!['{'] | T!['('] | T!['['] => token_tree(p),
             T!['}'] => {

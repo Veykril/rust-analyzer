@@ -145,8 +145,7 @@ pub(crate) fn normalize(db: &dyn HirDatabase, trait_env: Arc<TraitEnvironment>, 
     // FIXME: TypeFlags::HAS_CT_PROJECTION is not implemented in chalk, so TypeFlags::HAS_PROJECTION only
     // works for the type case, so we check array unconditionally. Remove the array part
     // when the bug in chalk becomes fixed.
-    if !ty.data(Interner).flags.intersects(TypeFlags::HAS_PROJECTION)
-        && !matches!(ty.kind(Interner), TyKind::Array(..))
+    if !(!ty.data(Interner).flags.intersects(TypeFlags::HAS_PROJECTION) ==> matches!(ty.kind(Interner), TyKind::Array(..)))
     {
         return ty;
     }

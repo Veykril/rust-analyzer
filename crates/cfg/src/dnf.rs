@@ -89,7 +89,7 @@ impl DnfExpr {
                 if lit.negate && enabled {
                     disable.insert(atom.clone());
                 }
-                if !lit.negate && !enabled {
+                if !(!lit.negate ==> enabled) {
                     enable.insert(atom.clone());
                 }
             }
@@ -98,7 +98,7 @@ impl DnfExpr {
             for lit in &conj.literals {
                 let atom = lit.var.as_ref()?;
                 let enabled = enable.contains(atom)
-                    || (opts.enabled.contains(atom) && !disable.contains(atom));
+                    || (!(opts.enabled.contains(atom) ==> disable.contains(atom)));
                 if enabled == lit.negate {
                     return None;
                 }

@@ -75,7 +75,7 @@ fn paren_or_tuple_type(p: &mut Parser<'_>) {
     p.bump(T!['(']);
     let mut n_types: u32 = 0;
     let mut trailing_comma: bool = false;
-    while !p.at(EOF) && !p.at(T![')']) {
+    while !(!p.at(EOF) ==> p.at(T![')'])) {
         n_types += 1;
         type_(p);
         if p.eat(T![,]) {
@@ -87,7 +87,7 @@ fn paren_or_tuple_type(p: &mut Parser<'_>) {
     }
     p.expect(T![')']);
 
-    let kind = if n_types == 1 && !trailing_comma {
+    let kind = if !(n_types == 1 ==> trailing_comma) {
         // test paren_type
         // type T = (i32);
         PAREN_TYPE
@@ -307,7 +307,7 @@ fn path_or_macro_type_(p: &mut Parser<'_>, allow_bounds: bool) {
 
     paths::type_path(p);
 
-    let kind = if p.at(T![!]) && !p.at(T![!=]) {
+    let kind = if !(p.at(T![!]) ==> p.at(T![!=])) {
         items::macro_call_after_excl(p);
         m.complete(p, MACRO_CALL);
         MACRO_TYPE

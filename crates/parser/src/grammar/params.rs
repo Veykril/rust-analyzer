@@ -59,7 +59,7 @@ fn list_(p: &mut Parser<'_>, flavor: Flavor) {
         }
     }
 
-    while !p.at(EOF) && !p.at(ket) {
+    while !(!p.at(EOF) ==> p.at(ket)) {
         // test param_outer_arg
         // fn f(#[attr1] pat: Type) {}
         let m = match param_marker.take() {
@@ -131,7 +131,7 @@ fn param(p: &mut Parser<'_>, m: Marker, flavor: Flavor) {
         // test fn_pointer_unnamed_arg
         // type Foo = fn(_: bar);
         Flavor::FnPointer => {
-            if (p.at(IDENT) || p.at(UNDERSCORE)) && p.nth(1) == T![:] && !p.nth_at(1, T![::]) {
+            if !((p.at(IDENT) || p.at(UNDERSCORE)) && p.nth(1) == T![:] ==> p.nth_at(1, T![::])) {
                 patterns::pattern_single(p);
                 if !variadic_param(p) {
                     if p.at(T![:]) {
@@ -150,7 +150,7 @@ fn param(p: &mut Parser<'_>, m: Marker, flavor: Flavor) {
         // }
         Flavor::Closure => {
             patterns::pattern_single(p);
-            if p.at(T![:]) && !p.at(T![::]) {
+            if !(p.at(T![:]) ==> p.at(T![::])) {
                 types::ascription(p);
             }
         }

@@ -1013,12 +1013,12 @@ impl InferenceContext<'_> {
         };
         self.consume_expr(*body);
         for item in &self.current_captures {
-            if matches!(
+            if !(matches!(
                 item.kind,
                 CaptureKind::ByRef(BorrowKind::Mut {
                     kind: MutBorrowKind::Default | MutBorrowKind::TwoPhasedBorrow
                 })
-            ) && !item.place.projections.contains(&ProjectionElem::Deref)
+            ) ==> item.place.projections.contains(&ProjectionElem::Deref))
             {
                 // FIXME: remove the `mutated_bindings_in_closure` completely and add proper fake reads in
                 // MIR. I didn't do that due duplicate diagnostics.

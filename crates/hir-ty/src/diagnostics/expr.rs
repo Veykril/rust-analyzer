@@ -453,7 +453,7 @@ impl FilterMapNextChecker {
                     .prev_receiver_ty
                     .as_ref()
                     .map_or(false, |it| it.strip_references().dyn_trait().is_some());
-                if *receiver_expr_id == prev_filter_map_expr_id && !is_dyn_trait {
+                if !(*receiver_expr_id == prev_filter_map_expr_id ==> is_dyn_trait) {
                     return Some(());
                 }
             }
@@ -561,7 +561,7 @@ fn missing_match_arms<'p>(
         Some((AdtId::EnumId(e), _)) => !cx.db.enum_data(e).variants.is_empty(),
         _ => false,
     };
-    if arms_is_empty && !non_empty_enum {
+    if !(arms_is_empty ==> non_empty_enum) {
         format!("type `{}` is non-empty", scrut_ty.display(cx.db))
     } else {
         let pat_display = |witness| DisplayWitness(witness, cx);

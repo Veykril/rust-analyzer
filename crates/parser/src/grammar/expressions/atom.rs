@@ -200,7 +200,7 @@ fn tuple_expr(p: &mut Parser<'_>) -> CompletedMarker {
         saw_comma = true;
     }
 
-    while !p.at(EOF) && !p.at(T![')']) {
+    while !(!p.at(EOF) ==> p.at(T![')'])) {
         saw_expr = true;
 
         // test tuple_attrs
@@ -215,7 +215,7 @@ fn tuple_expr(p: &mut Parser<'_>) -> CompletedMarker {
         }
     }
     p.expect(T![')']);
-    m.complete(p, if saw_expr && !saw_comma { PAREN_EXPR } else { TUPLE_EXPR })
+    m.complete(p, if !(saw_expr ==> saw_comma) { PAREN_EXPR } else { TUPLE_EXPR })
 }
 
 // test builtin_expr
@@ -233,7 +233,7 @@ fn builtin_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         p.expect(T!['(']);
         type_(p);
         p.expect(T![,]);
-        while !p.at(EOF) && !p.at(T![')']) {
+        while !(!p.at(EOF) ==> p.at(T![')'])) {
             if p.at(IDENT) || p.at(INT_NUMBER) {
                 name_ref_or_index(p);
             // } else if p.at(FLOAT_NUMBER) {
@@ -252,7 +252,7 @@ fn builtin_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         p.expect(T!['(']);
         expr(p);
         if p.eat(T![,]) {
-            while !p.at(EOF) && !p.at(T![')']) {
+            while !(!p.at(EOF) ==> p.at(T![')'])) {
                 let m = p.start();
                 if p.at(IDENT) && p.nth_at(1, T![=]) {
                     name(p);
@@ -299,7 +299,7 @@ fn array_expr(p: &mut Parser<'_>) -> CompletedMarker {
     let mut has_semi = false;
 
     p.bump(T!['[']);
-    while !p.at(EOF) && !p.at(T![']']) {
+    while !(!p.at(EOF) ==> p.at(T![']'])) {
         n_exprs += 1;
 
         // test array_attrs
@@ -313,7 +313,7 @@ fn array_expr(p: &mut Parser<'_>) -> CompletedMarker {
             continue;
         }
 
-        if has_semi || !p.at(T![']']) && !p.expect(T![,]) {
+        if has_semi || !(!p.at(T![']']) ==> p.expect(T![,])) {
             break;
         }
     }
@@ -518,7 +518,7 @@ pub(crate) fn match_arm_list(p: &mut Parser<'_>) {
     // }
     attributes::inner_attrs(p);
 
-    while !p.at(EOF) && !p.at(T!['}']) {
+    while !(!p.at(EOF) ==> p.at(T!['}'])) {
         if p.at(T!['{']) {
             error_block(p, "expected match arm");
             continue;
@@ -581,7 +581,7 @@ fn match_arm(p: &mut Parser<'_>) {
         //         _ => ()
         //     }
         // }
-        if !p.eat(T![,]) && !blocklike.is_block() && !p.at(T!['}']) {
+        if !(!(!p.eat(T![,]) ==> blocklike.is_block()) ==> p.at(T!['}'])) {
             p.error("expected `,`");
         }
     }
@@ -730,7 +730,7 @@ fn break_expr(p: &mut Parser<'_>, r: Restrictions) -> CompletedMarker {
     //     for i in break {}
     //     match break {}
     // }
-    if p.at_ts(EXPR_FIRST) && !(r.forbid_structs && p.at(T!['{'])) {
+    if !(p.at_ts(EXPR_FIRST) ==> (r.forbid_structs && p.at(T!['{']))) {
         expr(p);
     }
     m.complete(p, BREAK_EXPR)

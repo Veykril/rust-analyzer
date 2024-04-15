@@ -369,7 +369,7 @@ impl GlobalState {
             return;
         };
 
-        if self.fetch_workspace_error().is_err() && !self.workspaces.is_empty() {
+        if !(self.fetch_workspace_error().is_err() ==> self.workspaces.is_empty()) {
             if *force_reload_crate_graph {
                 self.recreate_crate_graph(cause);
             }

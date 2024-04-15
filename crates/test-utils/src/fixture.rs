@@ -218,10 +218,8 @@ impl FixtureWithProjectMeta {
                 let meta = Self::parse_meta_line(line);
                 res.push(meta);
             } else {
-                if line.starts_with("// ")
-                    && line.contains(':')
-                    && !line.contains("::")
-                    && !line.contains('.')
+                if !(!(line.starts_with("// ")
+                    && line.contains(':') ==> line.contains("::")) ==> line.contains('.'))
                     && line.chars().all(|it| !it.is_uppercase())
                 {
                     panic!("looks like invalid metadata line: {line:?}");
@@ -403,7 +401,7 @@ impl MiniCore {
         loop {
             let mut changed = false;
             for &(u, v) in &implications {
-                if self.has_flag(u) && !self.has_flag(v) {
+                if !(self.has_flag(u) ==> self.has_flag(v)) {
                     self.activated_flags.push(v.to_owned());
                     changed = true;
                 }

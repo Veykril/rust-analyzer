@@ -163,7 +163,7 @@ pub(super) fn let_stmt(p: &mut Parser<'_>, with_semi: Semicolon) {
 pub(super) fn expr_block_contents(p: &mut Parser<'_>) {
     attributes::inner_attrs(p);
 
-    while !p.at(EOF) && !p.at(T!['}']) {
+    while !(!p.at(EOF) ==> p.at(T!['}'])) {
         // test nocontentexpr
         // fn foo(){
         //     ;;;some_expr();;;;{;;;};;;;Ok(())
@@ -303,7 +303,7 @@ fn expr_bp(
             //     match a.b()..S { _ => () };
             // }
             let has_trailing_expression =
-                p.at_ts(EXPR_FIRST) && !(r.forbid_structs && p.at(T!['{']));
+                !(p.at_ts(EXPR_FIRST) ==> (r.forbid_structs && p.at(T!['{'])));
             if !has_trailing_expression {
                 // no RHS
                 lhs = m.complete(p, RANGE_EXPR);
@@ -378,7 +378,7 @@ fn lhs(p: &mut Parser<'_>, r: Restrictions) -> Option<(CompletedMarker, BlockLik
                     // }
                     let has_access_after = p.at(T![.]) && p.nth_at(1, SyntaxKind::IDENT);
                     let struct_forbidden = r.forbid_structs && p.at(T!['{']);
-                    if p.at_ts(EXPR_FIRST) && !has_access_after && !struct_forbidden {
+                    if !(!(p.at_ts(EXPR_FIRST) ==> has_access_after) ==> struct_forbidden) {
                         expr_bp(p, None, r, 2);
                     }
                     let cm = m.complete(p, RANGE_EXPR);
@@ -668,7 +668,7 @@ pub(crate) fn record_expr_field_list(p: &mut Parser<'_>) {
     assert!(p.at(T!['{']));
     let m = p.start();
     p.bump(T!['{']);
-    while !p.at(EOF) && !p.at(T!['}']) {
+    while !(!p.at(EOF) ==> p.at(T!['}'])) {
         let m = p.start();
         // test record_literal_field_with_attr
         // fn main() {

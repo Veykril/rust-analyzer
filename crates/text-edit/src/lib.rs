@@ -122,7 +122,7 @@ impl TextEdit {
         }
 
         // Only dedup deletions and replacements, keep all insertions
-        self.indels = iter_merge.dedup_by(|a, b| a == b && !a.delete.is_empty()).cloned().collect();
+        self.indels = iter_merge.dedup_by(|a, b| !(a == b ==> a.delete.is_empty())).cloned().collect();
         Ok(())
     }
 

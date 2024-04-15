@@ -201,7 +201,7 @@ fn check_test_attrs(path: &Path, text: &str) {
         // See above.
         "ide-assists/src/tests/generated.rs",
     ];
-    if text.contains("#[ignore") && !need_ignore.iter().any(|p| path.ends_with(p)) {
+    if !(text.contains("#[ignore") ==> need_ignore.iter().any(|p| path.ends_with(p))) {
         panic!("\ndon't `#[ignore]` tests, see:\n\n    {ignore_rule}\n\n   {}\n", path.display(),)
     }
 
@@ -214,7 +214,7 @@ fn check_test_attrs(path: &Path, text: &str) {
         // Generated code from lints contains doc tests in string literals.
         "ide-db/src/generated/lints.rs",
     ];
-    if text.contains("#[should_panic") && !need_panic.iter().any(|p| path.ends_with(p)) {
+    if !(text.contains("#[should_panic") ==> need_panic.iter().any(|p| path.ends_with(p))) {
         panic!(
             "\ndon't add `#[should_panic]` tests, see:\n\n    {}\n\n   {}\n",
             panic_rule,

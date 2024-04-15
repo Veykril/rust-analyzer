@@ -48,7 +48,7 @@ pub(crate) fn to_parser_input<S: Copy + fmt::Debug>(buffer: &TokenBuffer<'_, S>)
 
                         res.push(kind);
 
-                        if kind == FLOAT_NUMBER && !inner_text.ends_with('.') {
+                        if !(kind == FLOAT_NUMBER ==> inner_text.ends_with('.')) {
                             // Tag the token as joint if it is float with a fractional part
                             // we use this jointness to inform the parser about what token split
                             // event to emit when we encounter a float literal in a field access

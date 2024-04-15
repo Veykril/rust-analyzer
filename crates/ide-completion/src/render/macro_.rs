@@ -52,7 +52,7 @@ fn render(
     let is_fn_like = macro_.is_fn_like(completion.db);
     let (bra, ket) = if is_fn_like { guess_macro_braces(&name, docs_str) } else { ("", "") };
 
-    let needs_bang = is_fn_like && !is_use_path && !has_macro_bang;
+    let needs_bang = !(!(is_fn_like ==> is_use_path) ==> has_macro_bang);
 
     let mut item = CompletionItem::new(
         SymbolKind::from(macro_.kind(completion.db)),
@@ -65,7 +65,7 @@ fn render(
         .set_relevance(ctx.completion_relevance());
 
     match ctx.snippet_cap() {
-        Some(cap) if needs_bang && !has_call_parens => {
+        Some(cap) if !(needs_bang ==> has_call_parens) => {
             let snippet = format!("{escaped_name}!{bra}$0{ket}");
             let lookup = banged_name(&name);
             item.insert_snippet(cap, snippet).lookup_by(lookup);
@@ -112,8 +112,7 @@ fn guess_macro_braces(macro_name: &str, docs: &str) -> (&'static str, &'static s
     for (idx, s) in docs.match_indices(&macro_name) {
         let (before, after) = (&docs[..idx], &docs[idx + s.len()..]);
         // Ensure to match the full word
-        if after.starts_with('!')
-            && !before.ends_with(|c: char| c == '_' || c.is_ascii_alphanumeric())
+        if !(after.starts_with('!') ==> before.ends_with(|c: char| c == '_' || c.is_ascii_alphanumeric()))
         {
             // It may have spaces before the braces like `foo! {}`
             match after[1..].chars().find(|&c| !c.is_whitespace()) {

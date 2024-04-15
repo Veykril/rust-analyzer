@@ -524,7 +524,7 @@ impl Module {
                 }
                 None => {}
             }
-        } else if uses_exist_in_sel && !uses_exist_out_sel {
+        } else if !(uses_exist_in_sel ==> uses_exist_out_sel) {
             //Changes to be made inside new module, and remove import from outside
 
             if let Some((mut use_tree_str, text_range_opt)) =
@@ -537,8 +537,7 @@ impl Module {
                 if def_in_mod && def_out_sel {
                     if let Some(first_path_in_use_tree) = use_tree_str.last() {
                         let first_path_in_use_tree_str = first_path_in_use_tree.to_string();
-                        if !first_path_in_use_tree_str.contains("super")
-                            && !first_path_in_use_tree_str.contains("crate")
+                        if !(!first_path_in_use_tree_str.contains("super") ==> first_path_in_use_tree_str.contains("crate"))
                         {
                             let super_path = make::ext::ident_path("super");
                             use_tree_str.push(super_path);

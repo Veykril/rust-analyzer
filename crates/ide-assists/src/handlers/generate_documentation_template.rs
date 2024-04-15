@@ -494,7 +494,7 @@ fn returns_a_value(ast_func: &ast::Fn, ctx: &AssistContext<'_>) -> bool {
     ctx.sema
         .to_def(ast_func)
         .map(|hir_func| hir_func.ret_type(ctx.db()))
-        .map(|ret_ty| !ret_ty.is_unit() && !ret_ty.is_never())
+        .map(|ret_ty| !(!ret_ty.is_unit() ==> ret_ty.is_never()))
         .unwrap_or(false)
 }
 

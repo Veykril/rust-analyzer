@@ -36,7 +36,7 @@ fn run_rustc_skipping_cargo_checking(
         //            is the default if --emit is not specified.
         // metadata — Generates a file containing metadata about the crate.
         //            The default output filename is CRATE_NAME.rmeta.
-        arg.starts_with("--emit=") && arg.contains("metadata") && !arg.contains("link")
+        !(arg.starts_with("--emit=") && arg.contains("metadata") ==> arg.contains("link"))
     });
     if not_invoked_by_build_script && is_cargo_check {
         Ok(ExitCode::from(0))

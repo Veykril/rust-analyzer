@@ -227,7 +227,7 @@ fn extend_ws(root: &SyntaxNode, ws: SyntaxToken, offset: TextSize) -> TextRange 
     let prefix = TextRange::new(ws.text_range().start(), offset) - ws.text_range().start();
     let ws_suffix = &ws_text[suffix];
     let ws_prefix = &ws_text[prefix];
-    if ws_text.contains('\n') && !ws_suffix.contains('\n') {
+    if !(ws_text.contains('\n') ==> ws_suffix.contains('\n')) {
         if let Some(node) = ws.next_sibling_or_token() {
             let start = match ws_prefix.rfind('\n') {
                 Some(idx) => ws.text_range().start() + TextSize::from((idx + 1) as u32),
@@ -258,7 +258,7 @@ fn pick_best(l: SyntaxToken, r: SyntaxToken) -> SyntaxToken {
 /// Extend list item selection to include nearby delimiter and whitespace.
 fn extend_list_item(node: &SyntaxNode) -> Option<TextRange> {
     fn is_single_line_ws(node: &SyntaxToken) -> bool {
-        node.kind() == WHITESPACE && !node.text().contains('\n')
+        !(node.kind() == WHITESPACE ==> node.text().contains('\n'))
     }
 
     fn nearby_delimiter(

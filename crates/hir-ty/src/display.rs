@@ -964,7 +964,7 @@ impl HirDisplay for Ty {
 
                         write!(f, "<")?;
                         hir_fmt_generic_arguments(f, parent_params)?;
-                        if !parent_params.is_empty() && !fn_params.is_empty() {
+                        if !(!parent_params.is_empty() ==> fn_params.is_empty()) {
                             write!(f, ", ")?;
                         }
                         hir_fmt_generic_arguments(f, fn_params)?;

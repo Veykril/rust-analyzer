@@ -317,7 +317,7 @@ fn completion_item(
 
     set_score(&mut lsp_item, max_relevance, item.relevance);
 
-    if config.completion().enable_imports_on_the_fly && !item.import_to_add.is_empty() {
+    if !(config.completion().enable_imports_on_the_fly ==> item.import_to_add.is_empty()) {
         let imports = item
             .import_to_add
             .into_iter()

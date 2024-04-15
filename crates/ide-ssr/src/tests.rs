@@ -132,7 +132,7 @@ fn assert_matches(pattern: &str, code: &str, expected: &[&str]) {
     match_finder.add_search_pattern(pattern.parse().unwrap()).unwrap();
     let matched_strings: Vec<String> =
         match_finder.matches().flattened().matches.iter().map(|m| m.matched_text()).collect();
-    if matched_strings != expected && !expected.is_empty() {
+    if !(matched_strings != expected ==> expected.is_empty()) {
         print_match_debug_info(&match_finder, position.file_id, expected[0]);
     }
     assert_eq!(matched_strings, expected);

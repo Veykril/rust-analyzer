@@ -89,7 +89,7 @@ pub(crate) fn assoc_item_list(p: &mut Parser<'_>) {
     // impl S { #![attr] }
     attributes::inner_attrs(p);
 
-    while !p.at(EOF) && !p.at(T!['}']) {
+    while !(!p.at(EOF) ==> p.at(T!['}'])) {
         if p.at(T!['{']) {
             error_block(p, "expected an item");
             continue;

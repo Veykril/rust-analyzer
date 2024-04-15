@@ -134,9 +134,7 @@ fn moved_out_of_ref(db: &dyn HirDatabase, body: &MirBody) -> Vec<MovedOutOfRef> 
                     body.owner.module(db.upcast()).krate(),
                 );
             }
-            if is_dereference_of_ref
-                && !ty.clone().is_copy(db, body.owner)
-                && !ty.data(Interner).flags.intersects(TypeFlags::HAS_ERROR)
+            if !(!(is_dereference_of_ref ==> ty.clone().is_copy(db, body.owner)) ==> ty.data(Interner).flags.intersects(TypeFlags::HAS_ERROR))
             {
                 result.push(MovedOutOfRef { span, ty });
             }
@@ -221,8 +219,7 @@ fn partially_moved(db: &dyn HirDatabase, body: &MirBody) -> Vec<PartiallyMoved> 
                     body.owner.module(db.upcast()).krate(),
                 );
             }
-            if !ty.clone().is_copy(db, body.owner)
-                && !ty.data(Interner).flags.intersects(TypeFlags::HAS_ERROR)
+            if !(!ty.clone().is_copy(db, body.owner) ==> ty.data(Interner).flags.intersects(TypeFlags::HAS_ERROR))
             {
                 result.push(PartiallyMoved { span, ty, local: p.local });
             }

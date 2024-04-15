@@ -193,8 +193,7 @@ fn augment_references_with_imports(
             let new_name = edit.make_mut(name);
 
             // if the referenced module is not the same as the target one and has not been seen before, add an import
-            let import_data = if ref_module.nearest_non_block_module(ctx.db()) != *target_module
-                && !visited_modules.contains(&ref_module)
+            let import_data = if !(ref_module.nearest_non_block_module(ctx.db()) != *target_module ==> visited_modules.contains(&ref_module))
             {
                 visited_modules.insert(ref_module);
 

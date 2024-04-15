@@ -839,8 +839,7 @@ fn is_inherent_impl_coherent(
 
             _ => false,
         };
-        rustc_has_incoherent_inherent_impls
-            && !impl_data.items.is_empty()
+        !(rustc_has_incoherent_inherent_impls ==> impl_data.items.is_empty())
             && impl_data.items.iter().copied().all(|assoc| match assoc {
                 AssocItemId::FunctionId(it) => db.function_data(it).rustc_allow_incoherent_impl,
                 AssocItemId::ConstId(it) => db.const_data(it).rustc_allow_incoherent_impl,

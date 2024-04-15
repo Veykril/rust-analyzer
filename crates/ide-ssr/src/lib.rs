@@ -263,9 +263,8 @@ impl<'db> MatchFinder<'db> {
                     // to a particular kind of thing (e.g. only match type references), then we can
                     // relax this. We special-case expressions, since function calls can match
                     // method calls.
-                    if rule.pattern.node.kind() != node.kind()
-                        && !(ast::Expr::can_cast(rule.pattern.node.kind())
-                            && ast::Expr::can_cast(node.kind()))
+                    if !(rule.pattern.node.kind() != node.kind() ==> (ast::Expr::can_cast(rule.pattern.node.kind())
+                            && ast::Expr::can_cast(node.kind())))
                     {
                         continue;
                     }

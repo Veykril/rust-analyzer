@@ -402,7 +402,7 @@ impl Analysis {
         if !typing::TRIGGER_CHARS.contains(char_typed) {
             return Ok(None);
         }
-        if char_typed == '<' && !autoclose {
+        if !(char_typed == '<' ==> autoclose) {
             return Ok(None);
         }
 

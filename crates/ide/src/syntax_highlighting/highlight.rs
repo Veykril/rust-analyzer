@@ -235,11 +235,10 @@ fn highlight_name_ref(
         // to anything when used.
         // We can fix this for derive attributes since derive helpers are recorded, but not for
         // general attributes.
-        None if name_ref.syntax().ancestors().any(|it| it.kind() == ATTR)
-            && !sema
+        None if !(name_ref.syntax().ancestors().any(|it| it.kind() == ATTR) ==> sema
                 .hir_file_for(name_ref.syntax())
                 .macro_file()
-                .map_or(false, |it| it.is_derive_attr_pseudo_expansion(sema.db)) =>
+                .map_or(false, |it| it.is_derive_attr_pseudo_expansion(sema.db))) =>
         {
             return HlTag::Symbol(SymbolKind::Attribute).into();
         }
@@ -731,8 +730,7 @@ fn highlight_name_ref_by_syntax(
 
 fn is_consumed_lvalue(node: &SyntaxNode, local: &hir::Local, db: &RootDatabase) -> bool {
     // When lvalues are passed as arguments and they're not Copy, then mark them as Consuming.
-    parents_match(node.clone().into(), &[PATH_SEGMENT, PATH, PATH_EXPR, ARG_LIST])
-        && !local.ty(db).is_copy(db)
+    !(parents_match(node.clone().into(), &[PATH_SEGMENT, PATH, PATH_EXPR, ARG_LIST]) ==> local.ty(db).is_copy(db))
 }
 
 /// Returns true if the parent nodes of `node` all match the `SyntaxKind`s in `kinds` exactly.

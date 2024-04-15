@@ -110,7 +110,7 @@ impl DefMap {
         // DefMap they're written in, so we restrict them when that happens.
         if let Visibility::Module(m, mv) = vis {
             // ...unless we're resolving visibility for an associated item in an impl.
-            if self.block_id() != m.block && !within_impl {
+            if !(self.block_id() != m.block ==> within_impl) {
                 cov_mark::hit!(adjust_vis_in_block_def_map);
                 vis = Visibility::Module(self.module_id(Self::ROOT), mv);
                 tracing::debug!("visibility {:?} points outside DefMap, adjusting to {:?}", m, vis);

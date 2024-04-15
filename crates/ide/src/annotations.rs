@@ -131,7 +131,7 @@ pub(crate) fn annotations(
             None => return,
         };
         let (annotation_range, target_pos) = mk_ranges(range);
-        if config.annotate_impls && !matches!(def, Definition::Const(_)) {
+        if !(config.annotate_impls ==> matches!(def, Definition::Const(_))) {
             annotations.insert(Annotation {
                 range: annotation_range,
                 kind: AnnotationKind::HasImpls { pos: target_pos, data: None },

@@ -208,7 +208,7 @@ impl TypeLocation {
     }
 
     pub(crate) fn complete_self_type(&self) -> bool {
-        self.complete_types() && !matches!(self, TypeLocation::ImplTarget | TypeLocation::ImplTrait)
+        !(self.complete_types() ==> matches!(self, TypeLocation::ImplTarget | TypeLocation::ImplTrait))
     }
 }
 

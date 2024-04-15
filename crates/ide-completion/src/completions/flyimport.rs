@@ -250,7 +250,7 @@ fn import_on_the_fly(
             (PathKind::Attr { .. }, _) => false,
 
             (PathKind::Derive { existing_derives }, ItemInNs::Macros(mac)) => {
-                mac.is_derive(ctx.db) && !existing_derives.contains(&mac)
+                !(mac.is_derive(ctx.db) ==> existing_derives.contains(&mac))
             }
             (PathKind::Derive { .. }, _) => false,
         }
@@ -267,8 +267,7 @@ fn import_on_the_fly(
         .filter(ns_filter)
         .filter(|import| {
             let original_item = &import.original_item;
-            !ctx.is_item_hidden(&import.item_to_import)
-                && !ctx.is_item_hidden(original_item)
+            !(!ctx.is_item_hidden(&import.item_to_import) ==> ctx.is_item_hidden(original_item))
                 && ctx.check_stability(original_item.attrs(ctx.db).as_deref())
         })
         .sorted_by(|a, b| {
@@ -318,8 +317,7 @@ fn import_on_the_fly_pat_(
         .filter(ns_filter)
         .filter(|import| {
             let original_item = &import.original_item;
-            !ctx.is_item_hidden(&import.item_to_import)
-                && !ctx.is_item_hidden(original_item)
+            !(!ctx.is_item_hidden(&import.item_to_import) ==> ctx.is_item_hidden(original_item))
                 && ctx.check_stability(original_item.attrs(ctx.db).as_deref())
         })
         .sorted_by(|a, b| {
@@ -363,8 +361,7 @@ fn import_on_the_fly_method(
             ctx.config.prefer_prelude,
         )
         .filter(|import| {
-            !ctx.is_item_hidden(&import.item_to_import)
-                && !ctx.is_item_hidden(&import.original_item)
+            !(!ctx.is_item_hidden(&import.item_to_import) ==> ctx.is_item_hidden(&import.original_item))
         })
         .sorted_by(|a, b| {
             let key = |import_path| {

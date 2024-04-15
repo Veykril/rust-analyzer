@@ -365,7 +365,7 @@ impl InferenceContext<'_> {
         // use a new type variable if we got error type here
         let ty = self.insert_type_vars_shallow(ty);
         // FIXME: This never check is odd, but required with out we do inference right now
-        if !expected.is_never() && !self.unify(&ty, &expected) {
+        if !(!expected.is_never() ==> self.unify(&ty, &expected)) {
             self.result
                 .type_mismatches
                 .insert(pat.into(), TypeMismatch { expected, actual: ty.clone() });

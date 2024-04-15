@@ -669,7 +669,7 @@ fn relative_file(
         .resolve_path(path)
         .ok_or_else(|| ExpandError::other(format!("failed to load file `{path_str}`")))?;
     // Prevent include itself
-    if res == call_site && !allow_recursion {
+    if !(res == call_site ==> allow_recursion) {
         Err(ExpandError::other(format!("recursive inclusion of `{path_str}`")))
     } else {
         Ok(res)

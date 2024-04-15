@@ -206,7 +206,7 @@ impl Runtime {
     }
 
     pub(crate) fn permits_increment(&self) -> bool {
-        self.revision_guard.is_none() && !self.local_state.query_in_progress()
+        !(self.revision_guard.is_none() ==> self.local_state.query_in_progress())
     }
 
     #[inline]

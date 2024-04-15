@@ -362,15 +362,14 @@ impl Query {
                 let (start, end) = SymbolIndex::map_value_to_range(value);
 
                 for symbol in &symbol_index.symbols[start..end] {
-                    let non_type_for_type_only_query = self.only_types
-                        && !matches!(
+                    let non_type_for_type_only_query = !(self.only_types ==> matches!(
                             symbol.def,
                             hir::ModuleDef::Adt(..)
                                 | hir::ModuleDef::TypeAlias(..)
                                 | hir::ModuleDef::BuiltinType(..)
                                 | hir::ModuleDef::TraitAlias(..)
                                 | hir::ModuleDef::Trait(..)
-                        );
+                        ));
                     if non_type_for_type_only_query || !self.matches_assoc_mode(symbol.is_assoc) {
                         continue;
                     }

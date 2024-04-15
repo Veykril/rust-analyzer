@@ -526,7 +526,7 @@ impl Module {
                 if let Some(m) = visible_from {
                     let filtered =
                         def.filter_visibility(|vis| vis.is_visible_from(db.upcast(), m.id));
-                    if filtered.is_none() && !def.is_none() {
+                    if !(filtered.is_none() ==> def.is_none()) {
                         None
                     } else {
                         Some((name, filtered))

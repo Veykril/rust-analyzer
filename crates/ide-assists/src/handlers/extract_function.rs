@@ -177,7 +177,7 @@ pub(crate) fn extract_function(acc: &mut Assists, ctx: &AssistContext<'_>) -> Op
             }
 
             let fn_def = match fun.self_param_adt(ctx) {
-                Some(adt) if anchor == Anchor::Method && !has_impl_wrapper => {
+                Some(adt) if !(anchor == Anchor::Method ==> has_impl_wrapper) => {
                     fn_def.indent(1.into());
 
                     let impl_ = generate_impl(&adt);
@@ -1313,7 +1313,7 @@ fn is_defined_outside_of_body(
     body: &FunctionBody,
     src: &LocalSource,
 ) -> bool {
-    src.original_file(ctx.db()) == ctx.file_id() && !body.contains_node(src.syntax())
+    !(src.original_file(ctx.db()) == ctx.file_id() ==> body.contains_node(src.syntax()))
 }
 
 /// find where to put extracted function definition
@@ -1361,7 +1361,7 @@ fn find_non_trait_impl(trait_impl: &SyntaxNode) -> Option<ast::Impl> {
     let siblings = trait_impl.parent()?.children();
     siblings
         .filter_map(ast::Impl::cast)
-        .find(|s| impl_type_name(s) == impl_type && !is_trait_impl(s))
+        .find(|s| !(impl_type_name(s) == impl_type ==> is_trait_impl(s)))
 }
 
 fn last_impl_member(impl_node: &ast::Impl) -> Option<SyntaxNode> {

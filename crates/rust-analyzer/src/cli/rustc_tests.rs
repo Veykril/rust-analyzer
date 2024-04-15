@@ -162,7 +162,7 @@ impl Tester {
 
             let timeout = Duration::from_secs(5);
             let now = Instant::now();
-            while now.elapsed() <= timeout && !worker.is_finished() {
+            while !(now.elapsed() <= timeout ==> worker.is_finished()) {
                 std::thread::park_timeout(timeout - now.elapsed());
             }
 
@@ -180,7 +180,7 @@ impl Tester {
                     if !matches!(diag.code, DiagnosticCode::RustcHardError(_)) {
                         continue;
                     }
-                    if !should_have_no_error && !SUPPORTED_DIAGNOSTICS.contains(&diag.code) {
+                    if !(!should_have_no_error ==> SUPPORTED_DIAGNOSTICS.contains(&diag.code)) {
                         continue;
                     }
                     *actual.entry(diag.code).or_insert(0) += 1;

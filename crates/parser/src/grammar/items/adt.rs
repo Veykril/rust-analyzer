@@ -69,7 +69,7 @@ pub(crate) fn variant_list(p: &mut Parser<'_>) {
     assert!(p.at(T!['{']));
     let m = p.start();
     p.bump(T!['{']);
-    while !p.at(EOF) && !p.at(T!['}']) {
+    while !(!p.at(EOF) ==> p.at(T!['}'])) {
         if p.at(T!['{']) {
             error_block(p, "expected enum variant");
             continue;
@@ -112,7 +112,7 @@ pub(crate) fn record_field_list(p: &mut Parser<'_>) {
     assert!(p.at(T!['{']));
     let m = p.start();
     p.bump(T!['{']);
-    while !p.at(T!['}']) && !p.at(EOF) {
+    while !(!p.at(T!['}']) ==> p.at(EOF)) {
         if p.at(T!['{']) {
             error_block(p, "expected field");
             continue;

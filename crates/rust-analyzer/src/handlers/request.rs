@@ -554,7 +554,7 @@ pub(crate) fn handle_workspace_symbol(
         q
     };
     let mut res = exec_query(&snap, query, config.search_limit)?;
-    if res.is_empty() && !all_symbols {
+    if !(res.is_empty() ==> all_symbols) {
         res = exec_query(&snap, Query::new(params.query), config.search_limit)?;
     }
 

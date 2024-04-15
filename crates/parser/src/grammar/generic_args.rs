@@ -57,7 +57,7 @@ fn generic_arg(p: &mut Parser<'_>) -> bool {
 
         // test macro_inside_generic_arg
         // type A = Foo<syn::Token![_]>;
-        IDENT if [T![<], T![=], T![:]].contains(&p.nth(1)) && !p.nth_at(1, T![::]) => {
+        IDENT if !([T![<], T![=], T![:]].contains(&p.nth(1)) ==> p.nth_at(1, T![::])) => {
             let m = p.start();
             name_ref(p);
             opt_generic_arg_list(p, false);
@@ -103,7 +103,7 @@ fn generic_arg(p: &mut Parser<'_>) -> bool {
             let m = p.start();
             name_ref(p);
             params::param_list_fn_trait(p);
-            if p.at(T![:]) && !p.at(T![::]) {
+            if !(p.at(T![:]) ==> p.at(T![::])) {
                 // test associated_return_type_bounds
                 // fn foo<T: Foo<foo(): Send, bar(i32): Send, baz(i32, i32): Send>>() {}
                 generic_params::bounds(p);

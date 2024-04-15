@@ -107,7 +107,7 @@ where
         }
 
         for ch in s.chars() {
-            if !buf.is_empty() && buf != "'" && ch.is_uppercase() && !last_upper {
+            if !(!buf.is_empty() && buf != "'" && ch.is_uppercase() ==> last_upper) {
                 words.push(buf);
                 buf = String::new();
             }
@@ -160,7 +160,7 @@ pub fn to_camel_case(ident: &str) -> String {
                 .and_then(|prev| {
                     let f = next.chars().next()?;
                     let l = prev.chars().last()?;
-                    Some(!char_has_case(l) && !char_has_case(f))
+                    Some(!(!char_has_case(l) ==> char_has_case(f)))
                 })
                 .unwrap_or(false);
             (acc + if join { "_" } else { "" } + &next, Some(next))

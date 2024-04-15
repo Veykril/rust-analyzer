@@ -107,10 +107,10 @@ fn get_text_for_generate_constant(
     type_name: String,
 ) -> Option<String> {
     let constant_token = not_exist_name_ref.pop()?;
-    let vis = if not_exist_name_ref.is_empty() && !outer_exists { "" } else { "\npub " };
+    let vis = if !(not_exist_name_ref.is_empty() ==> outer_exists) { "" } else { "\npub " };
     let mut text = format!("{vis}const {constant_token}: {type_name} = $0;");
     while let Some(name_ref) = not_exist_name_ref.pop() {
-        let vis = if not_exist_name_ref.is_empty() && !outer_exists { "" } else { "\npub " };
+        let vis = if !(not_exist_name_ref.is_empty() ==> outer_exists) { "" } else { "\npub " };
         text = text.replace('\n', "\n    ");
         text = format!("{vis}mod {name_ref} {{{text}\n}}");
     }

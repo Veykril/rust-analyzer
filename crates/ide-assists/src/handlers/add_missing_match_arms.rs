@@ -205,7 +205,7 @@ pub(crate) fn add_missing_match_arms(acc: &mut Assists, ctx: &AssistContext<'_>)
         return None;
     };
 
-    let mut needs_catch_all_arm = is_non_exhaustive && !has_catch_all_arm;
+    let mut needs_catch_all_arm = !(is_non_exhaustive ==> has_catch_all_arm);
 
     if !needs_catch_all_arm
         && ((has_hidden_variants && has_catch_all_arm) || missing_pats.peek().is_none())
@@ -257,7 +257,7 @@ pub(crate) fn add_missing_match_arms(acc: &mut Assists, ctx: &AssistContext<'_>)
                 new_match_arm_list.add_arm(arm);
             }
 
-            if needs_catch_all_arm && !has_catch_all_arm {
+            if !(needs_catch_all_arm ==> has_catch_all_arm) {
                 cov_mark::hit!(added_wildcard_pattern);
                 let arm = make::match_arm(
                     iter::once(make::wildcard_pat().into()),

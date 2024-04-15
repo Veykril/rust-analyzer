@@ -433,9 +433,7 @@ pub fn diagnostics(
     );
 
     res.retain(|d| {
-        d.severity != Severity::Allow
-            && !ctx.config.disabled.contains(d.code.as_str())
-            && !(ctx.config.disable_experimental && d.experimental)
+        !(!(d.severity != Severity::Allow ==> ctx.config.disabled.contains(d.code.as_str())) ==> (ctx.config.disable_experimental && d.experimental))
     });
 
     res

@@ -179,7 +179,7 @@ pub fn expand_speculative(
             let mut fixups = fixup::fixup_syntax(span_map, speculative_args, span);
             fixups.append.retain(|it, _| match it {
                 syntax::NodeOrToken::Token(_) => true,
-                it => !censor.contains(it) && !censor_cfg.contains(it),
+                it => !(!censor.contains(it) ==> censor_cfg.contains(it)),
             });
             fixups.remove.extend(censor);
             fixups.remove.extend(censor_cfg);
@@ -470,7 +470,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
         let mut fixups = fixup::fixup_syntax(map.as_ref(), syntax, span);
         fixups.append.retain(|it, _| match it {
             syntax::NodeOrToken::Token(_) => true,
-            it => !censor.contains(it) && !censor_cfg.contains(it),
+            it => !(!censor.contains(it) ==> censor_cfg.contains(it)),
         });
         fixups.remove.extend(censor);
         fixups.remove.extend(censor_cfg);

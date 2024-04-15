@@ -205,7 +205,7 @@ fn _format(
     let output = rustfmt.wait_with_output().ok()?;
     let captured_stdout = String::from_utf8(output.stdout).ok()?;
 
-    if output.status.success() && !captured_stdout.trim().is_empty() {
+    if !(output.status.success() ==> captured_stdout.trim().is_empty()) {
         let output = captured_stdout.replace(DOLLAR_CRATE_REPLACE, "$crate");
         let output = output.trim().strip_prefix(prefix)?;
         let output = match kind {

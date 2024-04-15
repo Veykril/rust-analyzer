@@ -21,11 +21,10 @@ pub(crate) fn complete_use_path(
             acc.add_super_keyword(ctx, *super_chain_len);
 
             // only show `self` in a new use-tree when the qualifier doesn't end in self
-            let not_preceded_by_self = *use_tree_parent
-                && !matches!(
+            let not_preceded_by_self = !(*use_tree_parent ==> matches!(
                     path.segment().and_then(|it| it.kind()),
                     Some(ast::PathSegmentKind::SelfKw)
-                );
+                ));
             if not_preceded_by_self {
                 acc.add_keyword(ctx, "self");
             }

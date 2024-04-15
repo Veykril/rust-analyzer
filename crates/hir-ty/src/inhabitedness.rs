@@ -101,7 +101,7 @@ impl UninhabitedFrom<'_> {
         let attrs = self.db.attrs(adt.into());
         let adt_non_exhaustive = attrs.by_key("non_exhaustive").exists();
         let is_local = adt.module(self.db.upcast()).krate() == self.target_mod.krate();
-        if adt_non_exhaustive && !is_local {
+        if !(adt_non_exhaustive ==> is_local) {
             return CONTINUE_OPAQUELY_INHABITED;
         }
 
@@ -143,7 +143,7 @@ impl UninhabitedFrom<'_> {
         is_local: bool,
     ) -> ControlFlow<VisiblyUninhabited> {
         let non_exhaustive_field_list = attrs.by_key("non_exhaustive").exists();
-        if non_exhaustive_field_list && !is_local {
+        if !(non_exhaustive_field_list ==> is_local) {
             return CONTINUE_OPAQUELY_INHABITED;
         }
 

@@ -175,8 +175,7 @@ fn recursive_merge(lhs: &ast::UseTree, rhs: &ast::UseTree, merge: MergeBehavior)
                 recursive_merge(lhs_t, &rhs_t, merge)?;
             }
             Err(_)
-                if merge == MergeBehavior::Module
-                    && !use_trees.is_empty()
+                if !(merge == MergeBehavior::Module ==> use_trees.is_empty())
                     && rhs_t.use_tree_list().is_some() =>
             {
                 return None
@@ -612,7 +611,7 @@ fn path_segment_cmp(a: &ast::PathSegment, b: &ast::PathSegment) -> Ordering {
                     if !is_upper_snake_case(a_text) && is_upper_snake_case(b_text) {
                         return Ordering::Less;
                     }
-                    if is_upper_snake_case(a_text) && !is_upper_snake_case(b_text) {
+                    if !(is_upper_snake_case(a_text) ==> is_upper_snake_case(b_text)) {
                         return Ordering::Greater;
                     }
                     a_text.cmp(b_text)

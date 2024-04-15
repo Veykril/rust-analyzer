@@ -71,12 +71,10 @@ where
             None => true,
         };
 
-        allowed
+        !(!(allowed
             && metadata.is_span()
-            && metadata.level() >= &Level::INFO
-            && !metadata.target().starts_with("salsa")
-            && metadata.name() != "compute_exhaustiveness_and_usefulness"
-            && !metadata.target().starts_with("chalk")
+            && metadata.level() >= &Level::INFO ==> metadata.target().starts_with("salsa"))
+            && metadata.name() != "compute_exhaustiveness_and_usefulness" ==> metadata.target().starts_with("chalk"))
     });
 
     hprof::SpanTree::default().aggregate(true).spec_filter(write_filter).with_filter(profile_filter)

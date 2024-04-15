@@ -89,7 +89,7 @@ pub(crate) fn unmerge_match_arm(acc: &mut Assists, ctx: &AssistContext<'_>) -> O
                 .find(|it| !it.is_trivia())
                     == Some(T![,]);
             let has_arms_after = neighbor(&match_arm, Direction::Next).is_some();
-            if !has_comma_after && !has_arms_after {
+            if !(!has_comma_after ==> has_arms_after) {
                 insert_after_old_arm.push(make::token(T![,]).into());
             }
 

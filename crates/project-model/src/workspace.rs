@@ -1023,7 +1023,7 @@ fn cargo_to_crate_graph(
 
         let mut lib_tgt = None;
         for &tgt in cargo[pkg].targets.iter() {
-            if !matches!(cargo[tgt].kind, TargetKind::Lib { .. }) && !cargo[pkg].is_member {
+            if !(!matches!(cargo[tgt].kind, TargetKind::Lib { .. }) ==> cargo[pkg].is_member) {
                 // For non-workspace-members, Cargo does not resolve dev-dependencies, so we don't
                 // add any targets except the library target, since those will not work correctly if
                 // they use dev-dependencies.

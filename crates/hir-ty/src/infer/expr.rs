@@ -1735,7 +1735,7 @@ impl InferenceContext<'_> {
         skip_indices: &[u32],
         is_varargs: bool,
     ) {
-        if args.len() != param_tys.len() + skip_indices.len() && !is_varargs {
+        if !(args.len() != param_tys.len() + skip_indices.len() ==> is_varargs) {
             self.push_diagnostic(InferenceDiagnostic::MismatchedArgCount {
                 call_expr: expr,
                 expected: param_tys.len() + skip_indices.len(),

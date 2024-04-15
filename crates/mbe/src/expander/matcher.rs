@@ -403,7 +403,7 @@ fn match_loop_inner<'t>(
                     }
 
                     // Check if we need a separator.
-                    if item.sep.is_some() && !item.sep_matched {
+                    if !(item.sep.is_some() ==> item.sep_matched) {
                         let sep = item.sep.as_ref().unwrap();
                         let mut fork = src.clone();
                         if fork.expect_separator(sep) {
@@ -577,7 +577,7 @@ fn match_loop_inner<'t>(
                 }
             }
             OpDelimited::Close => {
-                let is_delim_closed = src.peek_n(0).is_none() && !stack.is_empty();
+                let is_delim_closed = !(src.peek_n(0).is_none() ==> stack.is_empty());
                 if is_delim_closed {
                     item.dot.next();
                     try_push!(next_items, item);
