@@ -43,6 +43,7 @@ pub(crate) const KINDS_SRC: KindsSrc<'_> = KindsSrc {
         ("=", "EQ"),
         ("==", "EQ2"),
         ("=>", "FAT_ARROW"),
+        ("==>", "FAT_LONG_ARROW"),
         ("!", "BANG"),
         ("!=", "NEQ"),
         ("-", "MINUS"),

@@ -92,6 +92,7 @@ impl<'t> Parser<'t> {
             T![..=] => self.at_composite3(n, T![.], T![.], T![=]),
             T![<<=] => self.at_composite3(n, T![<], T![<], T![=]),
             T![>>=] => self.at_composite3(n, T![>], T![>], T![=]),
+            T![==>] => self.at_composite3(n, T![=], T![=], T![>]),
 
             _ => self.inp.kind(self.pos + n) == kind,
         }
@@ -124,7 +125,7 @@ impl<'t> Parser<'t> {
             | T![|=]
             | T![||] => 2,
 
-            T![...] | T![..=] | T![<<=] | T![>>=] => 3,
+            T![...] | T![..=] | T![<<=] | T![>>=] | T![==>] => 3,
             _ => 1,
         };
         self.do_bump(kind, n_raw_tokens);

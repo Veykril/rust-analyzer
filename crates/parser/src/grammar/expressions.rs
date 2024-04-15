@@ -211,6 +211,7 @@ fn current_op(p: &Parser<'_>) -> (u8, SyntaxKind, Associativity) {
         T![>] if p.at(T![>>])  => (9,  T![>>],  Left),
         T![>] if p.at(T![>=])  => (5,  T![>=],  Left),
         T![>]                  => (5,  T![>],   Left),
+        T![=] if p.at(T![==>])  => (2,  T![==>],  Right),
         T![=] if p.at(T![==])  => (5,  T![==],  Left),
         T![=] if !p.at(T![=>]) => (1,  T![=],   Right),
         T![<] if p.at(T![<=])  => (5,  T![<=],  Left),
