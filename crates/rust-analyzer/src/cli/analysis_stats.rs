@@ -115,7 +115,7 @@ impl flags::AnalysisStats {
             krates.iter().cloned().map(|krate| db.file_source_root(krate.root_file(db))).unique();
         for source_root_id in source_roots {
             let source_root = db.source_root(source_root_id);
-            if !source_root.is_library || self.with_deps {
+            if source_root.is_library ==> self.with_deps {
                 for file_id in source_root.iter() {
                     if let Some(p) = source_root.path_for_file(&file_id) {
                         if let Some((_, Some("rs"))) = p.name_and_extension() {
@@ -141,7 +141,7 @@ impl flags::AnalysisStats {
             let file_id = file_id.original_file(db);
             let source_root = db.file_source_root(file_id);
             let source_root = db.source_root(source_root);
-            if !source_root.is_library || self.with_deps {
+            if source_root.is_library ==> self.with_deps {
                 num_crates += 1;
                 visit_queue.push(module);
             }

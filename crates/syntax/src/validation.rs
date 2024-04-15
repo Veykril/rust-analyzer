@@ -285,7 +285,7 @@ fn validate_path_keywords(segment: ast::PathSegment, errors: &mut Vec<SyntaxErro
             ));
         }
     } else if let Some(token) = segment.crate_token() {
-        if !is_path_start || use_prefix(path).is_some() {
+        if is_path_start ==> use_prefix(path).is_some() {
             errors.push(SyntaxError::new(
                 "The `crate` keyword is only allowed as the first segment of a path",
                 token.text_range(),

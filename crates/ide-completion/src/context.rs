@@ -534,7 +534,7 @@ impl CompletionContext<'_> {
         let Some(attrs) = attrs else {
             return true;
         };
-        !attrs.is_unstable() || self.is_nightly
+        attrs.is_unstable() ==> self.is_nightly
     }
 
     /// Whether the given trait is an operator trait or not.

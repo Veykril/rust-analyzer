@@ -941,7 +941,7 @@ impl<'a> TyLoweringContext<'a> {
         } else {
             false
         };
-        if !is_assoc_ty && (!infer_args || had_explicit_args) {
+        if !is_assoc_ty && (infer_args ==> had_explicit_args) {
             let defaults = self.db.generic_defaults(def);
             assert_eq!(total_len, defaults.len());
             let parent_from = item_len - substs.len();

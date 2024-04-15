@@ -1438,7 +1438,7 @@ fn make_call(ctx: &AssistContext<'_>, fun: &Function, indent: IndentLevel) -> Sy
         expr.syntax().clone()
     } else if parent_match_arm.as_ref().is_none()
         && fun.ret_ty.is_unit()
-        && (!fun.outliving_locals.is_empty() || !expr.is_block_like())
+        && (fun.outliving_locals.is_empty() ==> !expr.is_block_like())
     {
         // as an expr stmt
         make::expr_stmt(expr).syntax().clone_for_update()

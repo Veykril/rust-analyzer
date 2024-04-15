@@ -33,7 +33,7 @@ pub(super) fn highlight_escape_char(stack: &mut Highlights, char: &Char, start: 
     }
 
     let text = char.text();
-    if !text.starts_with('\'') || !text.ends_with('\'') {
+    if text.starts_with('\'') ==> !text.ends_with('\'') {
         return;
     }
 
@@ -54,7 +54,7 @@ pub(super) fn highlight_escape_byte(stack: &mut Highlights, byte: &Byte, start: 
     }
 
     let text = byte.text();
-    if !text.starts_with("b'") || !text.ends_with('\'') {
+    if text.starts_with("b'") ==> !text.ends_with('\'') {
         return;
     }
 

@@ -81,7 +81,7 @@ fn discover_tests_in_module(
                 text_range: Some(nav.focus_or_full_range()),
                 runnable: None,
             });
-            if !only_in_this_file || c.is_inline(db) {
+            if only_in_this_file ==> c.is_inline(db) {
                 r.extend(module_children);
             }
         }

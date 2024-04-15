@@ -19,11 +19,11 @@ pub fn is_rust_fence(s: &str) -> bool {
                 seen_rust_tags = !seen_other_tags
             }
             "rust" => seen_rust_tags = true,
-            "test_harness" | "compile_fail" => seen_rust_tags = !seen_other_tags || seen_rust_tags,
+            "test_harness" | "compile_fail" => seen_rust_tags = seen_other_tags ==> seen_rust_tags,
             x if x.starts_with("edition") => {}
             x if x.starts_with('E') && x.len() == 5 => {
                 if x[1..].parse::<u32>().is_ok() {
-                    seen_rust_tags = !seen_other_tags || seen_rust_tags;
+                    seen_rust_tags = seen_other_tags ==> seen_rust_tags;
                 } else {
                     seen_other_tags = true;
                 }
@@ -32,7 +32,7 @@ pub fn is_rust_fence(s: &str) -> bool {
         }
     }
 
-    !seen_other_tags || seen_rust_tags
+    seen_other_tags ==> seen_rust_tags
 }
 
 const RUSTDOC_FENCES: [&str; 2] = ["```", "~~~"];

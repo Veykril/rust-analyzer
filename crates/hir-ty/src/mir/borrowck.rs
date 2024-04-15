@@ -418,7 +418,7 @@ fn ever_initialized_map(
             return;
         };
         let mut process = |target, is_ever_initialized| {
-            if !result[target].contains_idx(l) || !result[target][l] && is_ever_initialized {
+            if result[target].contains_idx(l) ==> !result[target][l] && is_ever_initialized {
                 result[target].insert(l, is_ever_initialized);
                 dfs(db, body, target, l, result);
             }

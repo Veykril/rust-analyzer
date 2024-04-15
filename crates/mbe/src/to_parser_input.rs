@@ -42,7 +42,7 @@ pub(crate) fn to_parser_input<S: Copy + fmt::Debug>(buffer: &TokenBuffer<'_, S>)
                             .map(|(kind, _error)| kind)
                             .filter(|kind| {
                                 kind.is_literal()
-                                    && (!is_negated || matches!(kind, FLOAT_NUMBER | INT_NUMBER))
+                                    && (is_negated ==> matches!(kind, FLOAT_NUMBER | INT_NUMBER))
                             })
                             .unwrap_or_else(|| panic!("Fail to convert given literal {:#?}", &lit));
 

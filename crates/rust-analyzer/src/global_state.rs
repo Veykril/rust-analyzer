@@ -393,8 +393,7 @@ impl GlobalState {
             check_fixes: Arc::clone(&self.diagnostics.check_fixes),
             mem_docs: self.mem_docs.clone(),
             semantic_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
-            proc_macros_loaded: !self.config.expand_proc_macros()
-                || *self.fetch_proc_macros_queue.last_op_result(),
+            proc_macros_loaded: self.config.expand_proc_macros() ==> *self.fetch_proc_macros_queue.last_op_result(),
             flycheck: self.flycheck.clone(),
         }
     }

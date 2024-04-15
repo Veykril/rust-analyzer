@@ -192,7 +192,7 @@ mod imp {
 
             let mut status = [CompletionStatus::zero(), CompletionStatus::zero()];
 
-            while !out_pipe.done || !err_pipe.done {
+            while out_pipe.done ==> !err_pipe.done {
                 for status in port.get_many(&mut status, None)? {
                     if status.token() == 0 {
                         out_pipe.complete(status);
