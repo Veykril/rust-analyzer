@@ -123,7 +123,7 @@ impl Runtime {
 
     /// Read current value of the revision counter.
     #[inline]
-    pub(crate) fn current_revision(&self) -> Revision {
+    pub fn current_revision(&self) -> Revision {
         self.shared_state.revisions[0].load()
     }
 

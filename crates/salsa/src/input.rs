@@ -14,6 +14,7 @@ use crate::{DatabaseKeyIndex, QueryDb};
 use indexmap::map::Entry;
 use parking_lot::RwLock;
 use std::iter;
+use std::mem;
 use tracing::debug;
 
 /// Input queries store the result plus a list of the other queries
@@ -138,6 +139,7 @@ where
 impl<Q> InputQueryStorageOps<Q> for InputStorage<Q>
 where
     Q: Query,
+    Q::Value: Eq,
 {
     fn set(&self, runtime: &mut Runtime, key: &Q::Key, value: Q::Value, durability: Durability) {
         tracing::debug!("{:?}({:?}) = {:?} ({:?})", Q::default(), key, value, durability);
@@ -169,6 +171,12 @@ where
             match slots.entry(key.clone()) {
                 Entry::Occupied(entry) => {
                     let mut slot_stamped_value = entry.get().stamped_value.write();
+                    if slot_stamped_value.durability == durability
+                        && slot_stamped_value.value == stamped_value.value
+                    {
+                        // no change here
+                        return None;
+                    }
                     let old_durability = slot_stamped_value.durability;
                     *slot_stamped_value = stamped_value;
                     Some(old_durability)
@@ -325,9 +333,18 @@ where
             let stamped_value = StampedValue { value, durability, changed_at: next_revision };
 
             match &mut *stamped_value_slot {
+                // FIXME: Do this here as well. r-a currently has CrateGraph use this, which doesn't
+                // implement Eq though. SO we should make this configurable (would be nice if one
+                // could specialize on such a bound...)
+                // Some(slot_stamped_value)
+                //     if slot_stamped_value.durability == durability
+                //         && slot_stamped_value.value == stamped_value.value =>
+                // {
+                //     // no change here
+                //     None
+                // }
                 Some(slot_stamped_value) => {
-                    let old_durability = slot_stamped_value.durability;
-                    *slot_stamped_value = stamped_value;
+                    let old_durability = mem::replace(slot_stamped_value, stamped_value).durability;
                     Some(old_durability)
                 }
 

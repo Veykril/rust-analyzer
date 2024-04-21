@@ -118,6 +118,7 @@ macro_rules! impl_intern_value_trivial {
     };
 }
 impl_intern_value_trivial!(String);
+
 #[derive(Debug)]
 struct Slot<V> {
     /// DatabaseKeyIndex for this slot.

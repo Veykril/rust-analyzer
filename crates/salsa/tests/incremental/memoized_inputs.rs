@@ -1,3 +1,5 @@
+use salsa::Database;
+
 use crate::implementation::{TestContext, TestContextImpl};
 
 #[salsa::query_group(MemoizedInputs)]
@@ -57,7 +59,7 @@ fn revalidate() {
 }
 
 /// Test that invoking `set` on an input with the same value still
-/// triggers a new revision.
+/// triggers a new revision but not a recomputation.
 #[test]
 fn set_after_no_change() {
     let db = &mut TestContextImpl::default();
@@ -68,9 +70,11 @@ fn set_after_no_change() {
     let v = db.max();
     assert_eq!(v, 44);
     db.assert_log(&["Max invoked"]);
+    let rev = db.salsa_runtime().current_revision();
 
     db.set_input1(44);
     let v = db.max();
     assert_eq!(v, 44);
-    db.assert_log(&["Max invoked"]);
+    assert_ne!(rev, db.salsa_runtime().current_revision(), "revision should have changed");
+    db.assert_log(&[]);
 }
