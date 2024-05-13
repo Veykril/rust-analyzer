@@ -1,6 +1,8 @@
 //! Conversion lsp_types types to rust-analyzer specific ones.
+use core::fmt;
+
 use anyhow::format_err;
-use ide::{Annotation, AnnotationKind, AssistKind, LineCol};
+use ide::{Annotation, AnnotationKind, AssistKind, Cancellable, LineCol};
 use ide_db::{
     base_db::{FileId, FilePosition, FileRange},
     line_index::WideLineCol,
@@ -9,17 +11,26 @@ use syntax::{TextRange, TextSize};
 use vfs::AbsPathBuf;
 
 use crate::{
-    global_state::GlobalStateSnapshot,
+    global_state::{GlobalStateSnapshot, UrlToFileError},
     line_index::{LineIndex, PositionEncoding},
     lsp_ext,
 };
 
-pub(crate) fn abs_path(url: &lsp_types::Url) -> anyhow::Result<AbsPathBuf> {
-    let path = url.to_file_path().map_err(|()| anyhow::format_err!("url is not a file"))?;
-    Ok(AbsPathBuf::try_from(path).unwrap())
+#[derive(Debug)]
+pub(crate) struct NotAFile(lsp_types::Url);
+
+impl fmt::Display for NotAFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not an absolute file: {}", self.0)
+    }
 }
 
-pub(crate) fn vfs_path(url: &lsp_types::Url) -> anyhow::Result<vfs::VfsPath> {
+pub(crate) fn abs_path(url: &lsp_types::Url) -> Result<AbsPathBuf, NotAFile> {
+    let path = url.to_file_path().map_err(|()| NotAFile(url.clone()))?;
+    AbsPathBuf::try_from(path).map_err(|_| NotAFile(url.clone()))
+}
+
+pub(crate) fn vfs_path(url: &lsp_types::Url) -> Result<vfs::VfsPath, NotAFile> {
     abs_path(url).map(vfs::VfsPath::from)
 }
 
@@ -42,6 +53,20 @@ pub(crate) fn offset(
     Ok(text_size)
 }
 
+pub(crate) fn offset_clamped(line_index: &LineIndex, position: lsp_types::Position) -> TextSize {
+    let line_col = match line_index.encoding {
+        PositionEncoding::Utf8 => LineCol { line: position.line, col: position.character },
+        PositionEncoding::Wide(enc) => {
+            let line_col = WideLineCol { line: position.line, col: position.character };
+            line_index.index.to_utf8(enc, line_col).unwrap_or_else(|| {
+                tracing::warn!("Invalid wide col offset received");
+                LineCol { line: position.line, col: 0 }
+            })
+        }
+    };
+    line_index.index.offset_clamped(line_col)
+}
+
 pub(crate) fn text_range(
     line_index: &LineIndex,
     range: lsp_types::Range,
@@ -54,7 +79,19 @@ pub(crate) fn text_range(
     }
 }
 
-pub(crate) fn file_id(snap: &GlobalStateSnapshot, url: &lsp_types::Url) -> anyhow::Result<FileId> {
+pub(crate) fn text_range_clamped(line_index: &LineIndex, range: lsp_types::Range) -> TextRange {
+    let start = offset_clamped(line_index, range.start);
+    let end = offset_clamped(line_index, range.end);
+    match end < start {
+        true => TextRange::new(start, start),
+        false => TextRange::new(start, end),
+    }
+}
+
+pub(crate) fn file_id(
+    snap: &GlobalStateSnapshot,
+    url: &lsp_types::Url,
+) -> Result<FileId, UrlToFileError> {
     snap.url_to_file_id(url)
 }
 
@@ -66,6 +103,38 @@ pub(crate) fn file_position(
     let line_index = snap.file_line_index(file_id)?;
     let offset = offset(&line_index, tdpp.position)?;
     Ok(FilePosition { file_id, offset })
+}
+
+pub(crate) fn file_position_clamped(
+    snap: &GlobalStateSnapshot,
+    tdpp: lsp_types::TextDocumentPositionParams,
+) -> anyhow::Result<FilePosition> {
+    let file_id = file_id(snap, &tdpp.text_document.uri)?;
+    let line_index = snap.file_line_index(file_id)?;
+    let offset = offset_clamped(&line_index, tdpp.position);
+    Ok(FilePosition { file_id, offset })
+}
+
+pub(crate) fn file_range_clamped(
+    snap: &GlobalStateSnapshot,
+    text_document_identifier: &lsp_types::TextDocumentIdentifier,
+    range: lsp_types::Range,
+) -> Result<Cancellable<FileRange>, UrlToFileError> {
+    file_range_uri_clamped(snap, &text_document_identifier.uri, range)
+}
+
+pub(crate) fn file_range_uri_clamped(
+    snap: &GlobalStateSnapshot,
+    document: &lsp_types::Url,
+    range: lsp_types::Range,
+) -> Result<Cancellable<FileRange>, UrlToFileError> {
+    let file_id = file_id(snap, document)?;
+    let line_index = match snap.file_line_index(file_id) {
+        Ok(line_index) => line_index,
+        Err(cancelled) => return Ok(Err(cancelled)),
+    };
+    let range = text_range_clamped(&line_index, range);
+    Ok(Ok(FileRange { file_id, range }))
 }
 
 pub(crate) fn file_range(
@@ -114,25 +183,24 @@ pub(crate) fn annotation(
                 return Ok(None);
             }
             let pos @ FilePosition { file_id, .. } =
-                file_position(snap, params.text_document_position_params)?;
+                file_position_clamped(snap, params.text_document_position_params)?;
             let line_index = snap.file_line_index(file_id)?;
-
-            Ok(Annotation {
-                range: text_range(&line_index, range)?,
-                kind: AnnotationKind::HasImpls { pos, data: None },
-            })
+            let Ok(range) = text_range(&line_index, range) else {
+                return Ok(None);
+            };
+            Ok(Annotation { range, kind: AnnotationKind::HasImpls { pos, data: None } })
         }
         lsp_ext::CodeLensResolveDataKind::References(params) => {
             if snap.url_file_version(&params.text_document.uri) != Some(data.version) {
                 return Ok(None);
             }
-            let pos @ FilePosition { file_id, .. } = file_position(snap, params)?;
+            let pos @ FilePosition { file_id, .. } = file_position_clamped(snap, params)?;
             let line_index = snap.file_line_index(file_id)?;
 
-            Ok(Annotation {
-                range: text_range(&line_index, range)?,
-                kind: AnnotationKind::HasReferences { pos, data: None },
-            })
+            let Ok(range) = text_range(&line_index, range) else {
+                return Ok(None);
+            };
+            Ok(Annotation { range, kind: AnnotationKind::HasReferences { pos, data: None } })
         }
     }
     .map(Some)

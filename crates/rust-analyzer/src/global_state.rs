@@ -3,7 +3,7 @@
 //!
 //! Each tick provides an immutable snapshot of the state as `WorldSnapshot`.
 
-use std::{collections::hash_map::Entry, time::Instant};
+use std::{collections::hash_map::Entry, error, fmt, time::Instant};
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use flycheck::FlycheckHandle;
@@ -31,7 +31,10 @@ use crate::{
     config::{Config, ConfigError},
     diagnostics::{CheckFixes, DiagnosticCollection},
     line_index::{LineEndings, LineIndex},
-    lsp::{from_proto, to_proto::url_from_abs_path},
+    lsp::{
+        from_proto::{self, NotAFile},
+        to_proto::url_from_abs_path,
+    },
     lsp_ext,
     main_loop::Task,
     mem_docs::MemDocs,
@@ -473,7 +476,7 @@ impl GlobalStateSnapshot {
         RwLockReadGuard::map(self.vfs.read(), |(it, _)| it)
     }
 
-    pub(crate) fn url_to_file_id(&self, url: &Url) -> anyhow::Result<FileId> {
+    pub(crate) fn url_to_file_id(&self, url: &Url) -> Result<FileId, UrlToFileError> {
         url_to_file_id(&self.vfs_read(), url)
     }
 
@@ -537,8 +540,24 @@ pub(crate) fn file_id_to_url(vfs: &vfs::Vfs, id: FileId) -> Url {
     url_from_abs_path(path)
 }
 
-pub(crate) fn url_to_file_id(vfs: &vfs::Vfs, url: &Url) -> anyhow::Result<FileId> {
-    let path = from_proto::vfs_path(url)?;
-    let res = vfs.file_id(&path).ok_or_else(|| anyhow::format_err!("file not found: {path}"))?;
+#[derive(Debug)]
+pub(crate) enum UrlToFileError {
+    FileNotFound(vfs::VfsPath),
+    NotAFile(NotAFile),
+}
+
+impl error::Error for UrlToFileError {}
+impl fmt::Display for UrlToFileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UrlToFileError::FileNotFound(path) => write!(f, "file not found: {path}"),
+            UrlToFileError::NotAFile(it) => write!(f, "{it}"),
+        }
+    }
+}
+
+pub(crate) fn url_to_file_id(vfs: &vfs::Vfs, url: &Url) -> Result<FileId, UrlToFileError> {
+    let path = from_proto::vfs_path(url).map_err(UrlToFileError::NotAFile)?;
+    let res = vfs.file_id(&path).ok_or(UrlToFileError::FileNotFound(path))?;
     Ok(res)
 }

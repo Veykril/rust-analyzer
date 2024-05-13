@@ -133,7 +133,21 @@ impl LineIndex {
 
     /// Transforms the `LineCol` into a `TextSize`.
     pub fn offset(&self, line_col: LineCol) -> Option<TextSize> {
-        self.start_offset(line_col.line as usize).map(|start| start + TextSize::from(line_col.col))
+        self.start_offset(line_col.line as usize)
+            .map(|start| start + TextSize::from(line_col.col))
+            .filter(|&it| it <= self.len)
+    }
+
+    /// Transforms the `LineCol` into a `TextSize`, clamping the character to its containing line's
+    /// bounds.
+    pub fn offset_clamped(&self, line_col: LineCol) -> TextSize {
+        let line_start = self
+            .start_offset(line_col.line as usize)
+            .unwrap_or_else(|| self.newlines.last().copied().unwrap_or(TextSize::from(0)));
+        let line_end = self
+            .start_offset(line_col.line as usize + 1)
+            .unwrap_or_else(|| self.newlines.last().copied().unwrap_or(TextSize::from(0)));
+        (line_start + TextSize::from(line_col.col)).min(line_end)
     }
 
     fn start_offset(&self, line: usize) -> Option<TextSize> {

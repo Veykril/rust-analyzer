@@ -373,7 +373,7 @@ pub(crate) fn handle_join_lines(
 
     let mut res = TextEdit::default();
     for range in params.ranges {
-        let range = from_proto::text_range(&line_index, range)?;
+        let range = from_proto::text_range_clamped(&line_index, range);
         let edit = snap.analysis.join_lines(&config, FileRange { file_id, range })?;
         match res.union(edit) {
             Ok(()) => (),
@@ -1065,7 +1065,9 @@ pub(crate) fn handle_hover(
         PositionOrRange::Position(position) => Range::new(position, position),
         PositionOrRange::Range(range) => range,
     };
-    let file_range = from_proto::file_range(&snap, &params.text_document, range)?;
+    let Ok(file_range) = from_proto::file_range(&snap, &params.text_document, range) else {
+        return Ok(None);
+    };
 
     let hover = snap.config.hover();
     let info = match snap.analysis.hover(&hover, file_range)? {
@@ -1221,7 +1223,9 @@ pub(crate) fn handle_code_action(
 
     let file_id = from_proto::file_id(&snap, &params.text_document.uri)?;
     let line_index = snap.file_line_index(file_id)?;
-    let frange = from_proto::file_range(&snap, &params.text_document, params.range)?;
+    let Ok(frange) = from_proto::file_range(&snap, &params.text_document, params.range) else {
+        return Ok(None);
+    };
     let source_root = snap.analysis.source_root(file_id)?;
 
     let mut assists_config = snap.config.assist(Some(source_root));
@@ -1498,11 +1502,11 @@ pub(crate) fn handle_inlay_hints(
 ) -> anyhow::Result<Option<Vec<InlayHint>>> {
     let _p = tracing::span!(tracing::Level::INFO, "handle_inlay_hints").entered();
     let document_uri = &params.text_document.uri;
-    let FileRange { file_id, range } = from_proto::file_range(
+    let FileRange { file_id, range } = from_proto::file_range_clamped(
         &snap,
         &TextDocumentIdentifier::new(document_uri.to_owned()),
         params.range,
-    )?;
+    )??;
     let line_index = snap.file_line_index(file_id)?;
     let source_root = snap.analysis.source_root(file_id)?;
     let range = TextRange::new(
@@ -1609,7 +1613,9 @@ pub(crate) fn handle_call_hierarchy_incoming(
     let item = params.item;
 
     let doc = TextDocumentIdentifier::new(item.uri);
-    let frange = from_proto::file_range(&snap, &doc, item.selection_range)?;
+    let Ok(frange) = from_proto::file_range(&snap, &doc, item.selection_range) else {
+        return Ok(None);
+    };
     let fpos = FilePosition { file_id: frange.file_id, offset: frange.range.start() };
 
     let call_items = match snap.analysis.incoming_calls(fpos)? {
@@ -1644,7 +1650,9 @@ pub(crate) fn handle_call_hierarchy_outgoing(
     let item = params.item;
 
     let doc = TextDocumentIdentifier::new(item.uri);
-    let frange = from_proto::file_range(&snap, &doc, item.selection_range)?;
+    let Ok(frange) = from_proto::file_range(&snap, &doc, item.selection_range) else {
+        return Ok(None);
+    };
     let fpos = FilePosition { file_id: frange.file_id, offset: frange.range.start() };
 
     let call_items = match snap.analysis.outgoing_calls(fpos)? {
@@ -1752,7 +1760,7 @@ pub(crate) fn handle_semantic_tokens_range(
 ) -> anyhow::Result<Option<SemanticTokensRangeResult>> {
     let _p = tracing::span!(tracing::Level::INFO, "handle_semantic_tokens_range").entered();
 
-    let frange = from_proto::file_range(&snap, &params.text_document, params.range)?;
+    let frange = from_proto::file_range_clamped(&snap, &params.text_document, params.range)??;
     let text = snap.analysis.file_text(frange.file_id)?;
     let line_index = snap.file_line_index(frange.file_id)?;
     let source_root = snap.analysis.source_root(frange.file_id)?;
@@ -2082,7 +2090,9 @@ fn run_rustfmt(
                     .into());
                 }
 
-                let frange = from_proto::file_range(snap, &text_document, range)?;
+                let Ok(frange) = from_proto::file_range(snap, &text_document, range) else {
+                    return Ok(None);
+                };
                 let start_line = line_index.index.line_col(frange.range.start()).line;
                 let end_line = line_index.index.line_col(frange.range.end()).line;
 
