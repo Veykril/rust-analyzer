@@ -3,6 +3,7 @@
 //! `TokenTree`.
 
 pub mod buffer;
+pub mod flat_tt;
 pub mod iter;
 
 use std::fmt;

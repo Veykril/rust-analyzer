@@ -11,6 +11,7 @@ use triomphe::Arc;
 use crate::{
     attrs::RawAttrs,
     db::ExpandDatabase,
+    flat_tt,
     hygiene::{apply_mark, Transparency},
     tt, AstId, ExpandError, ExpandResult, Lookup,
 };
@@ -108,16 +109,17 @@ impl DeclarativeMacroExpander {
         let transparency = |node| {
             // ... would be nice to have the item tree here
             let attrs = RawAttrs::new(db, node, map.as_ref()).filter(db, def_crate);
-            match &*attrs
+            let next = attrs
                 .iter()
                 .find(|it| {
                     it.path.as_ident().and_then(|it| it.as_str())
                         == Some("rustc_macro_transparency")
                 })?
                 .token_tree_value()?
-                .token_trees
-            {
-                [tt::TokenTree::Leaf(tt::Leaf::Ident(i)), ..] => match &*i.text {
+                .iter_token_trees()
+                .next();
+            match next {
+                Some(flat_tt::TokenTree::Leaf(tt::Leaf::Ident(i))) => match &*i.text {
                     "transparent" => Some(Transparency::Transparent),
                     "semitransparent" => Some(Transparency::SemiTransparent),
                     "opaque" => Some(Transparency::Opaque),

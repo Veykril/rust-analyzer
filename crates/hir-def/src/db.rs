@@ -266,24 +266,24 @@ fn crate_supports_no_std(db: &dyn DefDatabase, crate_id: CrateId) -> bool {
             Some(ident) if ident == "cfg_attr" => {}
             _ => continue,
         }
+        return false;
+        // // This is a `cfg_attr`; check if it could possibly expand to `no_std`.
+        // // Syntax is: `#[cfg_attr(condition(cfg, style), attr0, attr1, <...>)]`
+        // let tt = match attr.token_tree_value() {
+        //     Some(tt) => &tt.token_trees,
+        //     None => continue,
+        // };
 
-        // This is a `cfg_attr`; check if it could possibly expand to `no_std`.
-        // Syntax is: `#[cfg_attr(condition(cfg, style), attr0, attr1, <...>)]`
-        let tt = match attr.token_tree_value() {
-            Some(tt) => &tt.token_trees,
-            None => continue,
-        };
-
-        let segments =
-            tt.split(|tt| matches!(tt, tt::TokenTree::Leaf(tt::Leaf::Punct(p)) if p.char == ','));
-        for output in segments.skip(1) {
-            match output {
-                [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] if ident.text == "no_std" => {
-                    return true
-                }
-                _ => {}
-            }
-        }
+        // let segments =
+        //     tt.split(|tt| matches!(tt, tt::TokenTree::Leaf(tt::Leaf::Punct(p)) if p.char == ','));
+        // for output in segments.skip(1) {
+        //     match output {
+        //         [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] if ident.text == "no_std" => {
+        //             return true
+        //         }
+        //         _ => {}
+        //     }
+        // }
     }
 
     false

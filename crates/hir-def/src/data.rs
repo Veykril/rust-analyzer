@@ -91,12 +91,13 @@ impl FunctionData {
         }
 
         let attrs = item_tree.attrs(db, krate, ModItem::from(loc.id.value).into());
-        let legacy_const_generics_indices = attrs
-            .by_key("rustc_legacy_const_generics")
-            .tt_values()
-            .next()
-            .map(parse_rustc_legacy_const_generics)
-            .unwrap_or_default();
+        // let legacy_const_generics_indices = attrs
+        //     .by_key("rustc_legacy_const_generics")
+        //     .tt_values()
+        //     .next()
+        //     .map(parse_rustc_legacy_const_generics)
+        //     .unwrap_or_default();
+        let legacy_const_generics_indices = Box::new([]);
         let rustc_allow_incoherent_impl = attrs.by_key("rustc_allow_incoherent_impl").exists();
 
         Arc::new(FunctionData {
@@ -396,7 +397,9 @@ impl Macro2Data {
             .by_key("rustc_builtin_macro")
             .tt_values()
             .next()
-            .and_then(|attr| parse_macro_name_and_helper_attrs(&attr.token_trees))
+            .and_then(|attr| {
+                parse_macro_name_and_helper_attrs(&hir_expand::flat_tt::unflatten(attr).token_trees)
+            })
             .map(|(_, helpers)| helpers);
 
         Arc::new(Macro2Data {

@@ -57,9 +57,14 @@ pub use crate::files::{AstId, ErasedAstId, InFile, InMacroFile, InRealFile};
 pub use mbe::{DeclarativeMacro, ValueResult};
 pub use span::{HirFileId, MacroCallId, MacroFileId};
 
+pub mod flat_tt {
+    pub use ::tt::flat_tt::*;
+    pub type Subtree = ::tt::flat_tt::Subtree<span::Span>;
+}
+
 pub mod tt {
+    pub use ::tt::{DelimiterKind, Spacing};
     pub use span::Span;
-    pub use tt::{DelimiterKind, Spacing};
 
     pub type Delimiter = ::tt::Delimiter<Span>;
     pub type DelimSpan = ::tt::DelimSpan<Span>;
@@ -232,7 +237,7 @@ pub enum MacroCallKind {
         ast_id: AstId<ast::Item>,
         // FIXME: This shouldn't be here, we can derive this from `invoc_attr_index`
         // but we need to fix the `cfg_attr` handling first.
-        attr_args: Option<Arc<tt::Subtree>>,
+        attr_args: Option<Arc<flat_tt::Subtree>>,
         /// Syntactical index of the invoking `#[attribute]`.
         ///
         /// Outer attributes are counted first, then inner attributes. This does not support

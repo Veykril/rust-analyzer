@@ -7,7 +7,7 @@ use cfg::{CfgExpr, CfgOptions};
 use either::Either;
 use hir_expand::{
     attrs::{collect_attrs, Attr, AttrId, RawAttrs},
-    HirFileId, InFile,
+    flat_tt, HirFileId, InFile,
 };
 use la_arena::{ArenaMap, Idx, RawIdx};
 use mbe::DelimiterKind;
@@ -125,7 +125,10 @@ impl Attrs {
     }
 
     pub fn cfg(&self) -> Option<CfgExpr> {
-        let mut cfgs = self.by_key("cfg").tt_values().map(CfgExpr::parse);
+        let mut cfgs = self
+            .by_key("cfg")
+            .tt_values()
+            .map(|it| CfgExpr::parse(&hir_expand::flat_tt::unflatten(it)));
         let first = cfgs.next()?;
         match cfgs.next() {
             Some(second) => {
@@ -137,7 +140,7 @@ impl Attrs {
     }
 
     pub fn cfgs(&self) -> impl Iterator<Item = CfgExpr> + '_ {
-        self.by_key("cfg").tt_values().map(CfgExpr::parse)
+        self.by_key("cfg").tt_values().map(|it| CfgExpr::parse(&hir_expand::flat_tt::unflatten(it)))
     }
 
     pub(crate) fn is_cfg_enabled(&self, cfg_options: &CfgOptions) -> bool {
@@ -156,21 +159,24 @@ impl Attrs {
     }
 
     pub fn has_doc_hidden(&self) -> bool {
-        self.by_key("doc").tt_values().any(|tt| {
-            tt.delimiter.kind == DelimiterKind::Parenthesis &&
-                matches!(&*tt.token_trees, [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] if ident.text == "hidden")
-        })
+        // self.by_key("doc").tt_values().any(|tt| {
+        //     tt.delimiter.kind == DelimiterKind::Parenthesis &&
+        //         matches!(&*tt.token_trees, [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] if ident.text == "hidden")
+        // })
+        false
     }
 
     pub fn has_doc_notable_trait(&self) -> bool {
-        self.by_key("doc").tt_values().any(|tt| {
-            tt.delimiter.kind == DelimiterKind::Parenthesis &&
-                matches!(&*tt.token_trees, [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] if ident.text == "notable_trait")
-        })
+        // self.by_key("doc").tt_values().any(|tt| {
+        //     tt.delimiter.kind == DelimiterKind::Parenthesis &&
+        //         matches!(&*tt.token_trees, [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] if ident.text == "notable_trait")
+        // })
+        false
     }
 
     pub fn doc_exprs(&self) -> impl Iterator<Item = DocExpr> + '_ {
-        self.by_key("doc").tt_values().map(DocExpr::parse)
+        // self.by_key("doc").tt_values().map(DocExpr::parse)
+        std::iter::empty()
     }
 
     pub fn doc_aliases(&self) -> impl Iterator<Item = SmolStr> + '_ {
@@ -560,7 +566,7 @@ pub struct AttrQuery<'attr> {
 }
 
 impl<'attr> AttrQuery<'attr> {
-    pub fn tt_values(self) -> impl Iterator<Item = &'attr crate::tt::Subtree> {
+    pub fn tt_values(self) -> impl Iterator<Item = &'attr flat_tt::Subtree> {
         self.attrs().filter_map(|attr| attr.token_tree_value())
     }
 
@@ -590,16 +596,17 @@ impl<'attr> AttrQuery<'attr> {
     ///       ^^^^^^^^^^^^^ key
     /// ```
     pub fn find_string_value_in_tt(self, key: &'attr str) -> Option<&SmolStr> {
-        self.tt_values().find_map(|tt| {
-            let name = tt.token_trees.iter()
-                .skip_while(|tt| !matches!(tt, tt::TokenTree::Leaf(tt::Leaf::Ident(tt::Ident { text, ..} )) if text == key))
-                .nth(2);
+        // self.tt_values().find_map(|tt| {
+        //     let name = tt.token_trees.iter()
+        //         .skip_while(|tt| !matches!(tt, tt::TokenTree::Leaf(tt::Leaf::Ident(tt::Ident { text, ..} )) if text == key))
+        //         .nth(2);
 
-            match name {
-                Some(tt::TokenTree::Leaf(tt::Leaf::Literal(tt::Literal{ ref text, ..}))) => Some(text),
-                _ => None
-            }
-        })
+        //     match name {
+        //         Some(tt::TokenTree::Leaf(tt::Leaf::Literal(tt::Literal{ ref text, ..}))) => Some(text),
+        //         _ => None
+        //     }
+        // })
+        None
     }
 }
 

@@ -5,6 +5,7 @@ use base_db::CrateId;
 use cfg::CfgExpr;
 use either::Either;
 use intern::Interned;
+use itertools::Itertools;
 use mbe::{syntax_node_to_token_tree, DelimiterKind, DocCommentDesugarMode, Punct};
 use smallvec::{smallvec, SmallVec};
 use span::{Span, SyntaxContextId};
@@ -12,6 +13,7 @@ use syntax::unescape;
 use syntax::{ast, format_smolstr, match_ast, AstNode, AstToken, SmolStr, SyntaxNode};
 use triomphe::ThinArc;
 
+use crate::flat_tt;
 use crate::{
     db::ExpandDatabase,
     mod_path::ModPath,
@@ -134,6 +136,7 @@ impl RawAttrs {
                         Some(it) => it,
                         _ => return smallvec![attr.clone()],
                     };
+                    let subtree = &flat_tt::unflatten(subtree);
 
                     let (cfg, parts) = match parse_cfg_attr_input(subtree) {
                         Some(it) => it,
@@ -208,7 +211,7 @@ pub enum AttrInput {
     /// `#[attr = "string"]`
     Literal(tt::Literal),
     /// `#[attr(subtree)]`
-    TokenTree(Box<tt::Subtree>),
+    TokenTree(Box<flat_tt::Subtree>),
 }
 
 impl fmt::Display for AttrInput {
@@ -245,7 +248,7 @@ impl Attr {
                 span,
                 DocCommentDesugarMode::ProcMacro,
             );
-            Some(Box::new(AttrInput::TokenTree(Box::new(tree))))
+            Some(Box::new(AttrInput::TokenTree(flat_tt::flatten_b(&tree))))
         } else {
             None
         };
@@ -281,7 +284,7 @@ impl Attr {
 
         let input = match input.first() {
             Some(tt::TokenTree::Subtree(tree)) => {
-                Some(Box::new(AttrInput::TokenTree(Box::new(tree.clone()))))
+                Some(Box::new(AttrInput::TokenTree(flat_tt::flatten_b(tree))))
             }
             Some(tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct { char: '=', .. }))) => {
                 let input = match input.get(1) {
@@ -331,8 +334,8 @@ impl Attr {
     /// #[path(ident)]
     pub fn single_ident_value(&self) -> Option<&tt::Ident> {
         match self.input.as_deref()? {
-            AttrInput::TokenTree(tt) => match &*tt.token_trees {
-                [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] => Some(ident),
+            AttrInput::TokenTree(tt) => match tt.iter_token_trees().next_tuple() {
+                Some((flat_tt::TokenTree::Leaf(tt::Leaf::Ident(ident)),)) => Some(ident),
                 _ => None,
             },
             _ => None,
@@ -340,7 +343,7 @@ impl Attr {
     }
 
     /// #[path TokenTree]
-    pub fn token_tree_value(&self) -> Option<&Subtree> {
+    pub fn token_tree_value(&self) -> Option<&flat_tt::Subtree> {
         match self.input.as_deref()? {
             AttrInput::TokenTree(tt) => Some(tt),
             _ => None,
@@ -353,6 +356,7 @@ impl Attr {
         db: &'a dyn ExpandDatabase,
     ) -> Option<impl Iterator<Item = (ModPath, Span)> + 'a> {
         let args = self.token_tree_value()?;
+        let args = flat_tt::unflatten(args);
 
         if args.delimiter.kind != DelimiterKind::Parenthesis {
             return None;
@@ -365,12 +369,12 @@ impl Attr {
                 Some((ModPath::from_tt(db, tts)?, span))
             });
 
-        Some(paths)
+        Some(paths.collect_vec().into_iter())
     }
 
     pub fn cfg(&self) -> Option<CfgExpr> {
         if *self.path.as_ident()? == crate::name![cfg] {
-            self.token_tree_value().map(CfgExpr::parse)
+            self.token_tree_value().map(|it| CfgExpr::parse(&flat_tt::unflatten(it)))
         } else {
             None
         }

@@ -13,6 +13,7 @@ use hir_expand::{
     builtin_attr_macro::find_builtin_attr,
     builtin_derive_macro::find_builtin_derive,
     builtin_fn_macro::find_builtin_macro,
+    flat_tt,
     name::{name, AsName, Name},
     proc_macro::CustomProcMacroExpander,
     ExpandTo, HirFileId, InFile, MacroCallId, MacroCallKind, MacroDefId, MacroDefKind,
@@ -2122,8 +2123,8 @@ impl ModCollector<'_, '_> {
 
         let is_export = export_attr.exists();
         let local_inner = if is_export {
-            export_attr.tt_values().flat_map(|it| it.token_trees.iter()).any(|it| match it {
-                tt::TokenTree::Leaf(tt::Leaf::Ident(ident)) => {
+            export_attr.tt_values().flat_map(|it| it.iter_token_trees()).any(|it| match it {
+                flat_tt::TokenTree::Leaf(tt::Leaf::Ident(ident)) => {
                     ident.text.contains("local_inner_macros")
                 }
                 _ => false,
@@ -2144,8 +2145,8 @@ impl ModCollector<'_, '_> {
                 None => {
                     let explicit_name =
                         attrs.by_key("rustc_builtin_macro").tt_values().next().and_then(|tt| {
-                            match tt.token_trees.first() {
-                                Some(tt::TokenTree::Leaf(tt::Leaf::Ident(name))) => Some(name),
+                            match tt.iter_token_trees().next() {
+                                Some(flat_tt::TokenTree::Leaf(tt::Leaf::Ident(name))) => Some(name),
                                 _ => None,
                             }
                         });
@@ -2215,7 +2216,7 @@ impl ModCollector<'_, '_> {
                     // in which case rustc ignores the helper attributes from the latter, but it
                     // "doesn't make sense in practice" (see rust-lang/rust#87027).
                     if let Some((name, helpers)) =
-                        parse_macro_name_and_helper_attrs(&attr.token_trees)
+                        parse_macro_name_and_helper_attrs(&flat_tt::unflatten(attr).token_trees)
                     {
                         // NOTE: rustc overrides the name if the macro name if it's different from the
                         // macro name, but we assume it isn't as there's no such case yet. FIXME if

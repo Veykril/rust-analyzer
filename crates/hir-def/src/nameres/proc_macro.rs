@@ -37,7 +37,7 @@ impl Attrs {
             Some(ProcMacroDef { name: func_name.clone(), kind: ProcMacroKind::Attr })
         } else if self.by_key("proc_macro_derive").exists() {
             let derive = self.by_key("proc_macro_derive").tt_values().next()?;
-            let def = parse_macro_name_and_helper_attrs(&derive.token_trees)
+            let def = parse_macro_name_and_helper_attrs(&hir_expand::flat_tt::unflatten(derive).token_trees)
                 .map(|(name, helpers)| ProcMacroDef { name, kind: ProcMacroKind::Derive { helpers } });
 
             if def.is_none() {

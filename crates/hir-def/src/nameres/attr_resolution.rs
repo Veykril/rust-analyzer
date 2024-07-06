@@ -110,8 +110,8 @@ pub(super) fn attr_macro_as_call_id(
 ) -> MacroCallId {
     let arg = match macro_attr.input.as_deref() {
         Some(AttrInput::TokenTree(tt)) => {
-            let mut tt = tt.as_ref().clone();
-            tt.delimiter.kind = tt::DelimiterKind::Invisible;
+            let mut tt = tt.clone();
+            tt.set_delimiter_kind(tt::DelimiterKind::Invisible);
             Some(tt)
         }
 
@@ -123,7 +123,7 @@ pub(super) fn attr_macro_as_call_id(
         krate,
         MacroCallKind::Attr {
             ast_id: item_attr.ast_id,
-            attr_args: arg.map(Arc::new),
+            attr_args: arg.map(Arc::from),
             invoc_attr_index: macro_attr.id,
         },
         macro_attr.ctxt,

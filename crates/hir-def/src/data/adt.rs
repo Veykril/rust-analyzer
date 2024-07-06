@@ -95,7 +95,11 @@ fn repr_from_value(
     item_tree: &ItemTree,
     of: AttrOwner,
 ) -> Option<ReprOptions> {
-    item_tree.attrs(db, krate, of).by_key("repr").tt_values().find_map(parse_repr_tt)
+    item_tree
+        .attrs(db, krate, of)
+        .by_key("repr")
+        .tt_values()
+        .find_map(|it| parse_repr_tt(&hir_expand::flat_tt::unflatten(it)))
 }
 
 fn parse_repr_tt(tt: &Subtree) -> Option<ReprOptions> {

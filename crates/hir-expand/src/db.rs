@@ -16,6 +16,7 @@ use crate::{
     cfg_process,
     declarative::DeclarativeMacroExpander,
     fixup::{self, SyntaxFixupUndoInfo},
+    flat_tt,
     hygiene::{span_with_call_site_ctxt, span_with_def_site_ctxt, span_with_mixed_site_ctxt},
     proc_macro::ProcMacros,
     span_map::{RealSpanMap, SpanMap, SpanMapRef},
@@ -25,7 +26,7 @@ use crate::{
     MacroFileId,
 };
 /// This is just to ensure the types of smart_macro_arg and macro_arg are the same
-type MacroArgResult = (Arc<tt::Subtree>, SyntaxFixupUndoInfo, Span);
+type MacroArgResult = (Arc<flat_tt::Subtree>, SyntaxFixupUndoInfo, Span);
 /// Total limit on the number of tokens produced by any macro invocation.
 ///
 /// If an invocation produces more tokens than this limit, it will not be stored in the database and
@@ -406,7 +407,8 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
         ..
     } = &loc
     {
-        return (eager.arg.clone(), SyntaxFixupUndoInfo::NONE, eager.span);
+        let arg = flat_tt::flatten(&eager.arg);
+        return (arg, SyntaxFixupUndoInfo::NONE, eager.span);
     }
 
     let (parse, map) = parse_with_map(db, loc.kind.file_id());
@@ -422,10 +424,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
 
             let dummy_tt = |kind| {
                 (
-                    Arc::new(tt::Subtree {
-                        delimiter: tt::Delimiter { open: span, close: span, kind },
-                        token_trees: Box::default(),
-                    }),
+                    flat_tt::Subtree::empty(tt::Delimiter { open: span, close: span, kind }),
                     SyntaxFixupUndoInfo::default(),
                     span,
                 )
@@ -474,7 +473,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
                 // proc macros expect their inputs without parentheses, MBEs expect it with them included
                 tt.delimiter.kind = tt::DelimiterKind::Invisible;
             }
-            return (Arc::new(tt), SyntaxFixupUndoInfo::NONE, span);
+            return (flat_tt::flatten(&tt).into(), SyntaxFixupUndoInfo::NONE, span);
         }
         // MacroCallKind::Derive should not be here. As we are getting the argument for the derive macro
         MacroCallKind::Derive { .. } => {
@@ -533,7 +532,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
         tt.delimiter.kind = tt::DelimiterKind::Invisible;
     }
 
-    (Arc::new(tt), undo_info, span)
+    (flat_tt::flatten(&tt).into(), undo_info, span)
 }
 
 // FIXME: Censoring info should be calculated by the caller! Namely by name resolution
@@ -597,6 +596,7 @@ fn macro_expand(
                 db.macro_arg_considering_derives(macro_call_id, &loc.kind);
 
             let arg = &*macro_arg;
+            let arg = &flat_tt::unflatten(&arg);
             let res =
                 match loc.def.kind {
                     MacroDefKind::Declarative(id) => db
@@ -617,8 +617,10 @@ fn macro_expand(
                         // As such we just return the input subtree here.
                         let eager = match &loc.kind {
                             MacroCallKind::FnLike { eager: None, .. } => {
-                                return ExpandResult::ok(CowArc::Arc(macro_arg.clone()))
-                                    .zip_val(None);
+                                return ExpandResult::ok(CowArc::Arc(Arc::new(
+                                    flat_tt::unflatten(&macro_arg),
+                                )))
+                                .zip_val(None);
                             }
                             MacroCallKind::FnLike { eager: Some(eager), .. } => Some(&**eager),
                             _ => None,
@@ -686,6 +688,9 @@ fn expand_proc_macro(db: &dyn ExpandDatabase, id: MacroCallId) -> ExpandResult<A
         _ => None,
     };
 
+    let attr_arg = attr_arg.map(flat_tt::unflatten);
+    let attr_arg = attr_arg.as_ref();
+    let macro_arg = &flat_tt::unflatten(&macro_arg);
     let ExpandResult { value: mut tt, err } = {
         let span = db.proc_macro_span(ast);
         expander.expand(

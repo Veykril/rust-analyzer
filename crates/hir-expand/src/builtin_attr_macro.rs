@@ -1,4 +1,5 @@
 //! Builtin attributes.
+use ::tt::flat_tt;
 use span::{MacroCallId, Span};
 
 use crate::{db::ExpandDatabase, name, tt, ExpandResult, MacroCallKind};
@@ -111,6 +112,7 @@ fn derive_expand(
             return ExpandResult::ok(tt::Subtree::empty(tt::DelimSpan { open: span, close: span }))
         }
     };
+    let derives = &flat_tt::unflatten(derives);
     pseudo_derive_attr_expansion(tt, derives, span)
 }
 

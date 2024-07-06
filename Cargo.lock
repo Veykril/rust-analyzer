@@ -2225,9 +2225,11 @@ name = "tt"
 version = "0.0.0"
 dependencies = [
  "arrayvec",
+ "expect-test",
  "smol_str",
  "stdx",
  "text-size",
+ "triomphe",
 ]
 
 [[package]]
