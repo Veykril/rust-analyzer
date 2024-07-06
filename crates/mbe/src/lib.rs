@@ -7,6 +7,7 @@
 //! `hir_def::macro_expansion_tests::mbe`.
 
 mod expander;
+mod flat_tt;
 mod parser;
 mod syntax_bridge;
 mod to_parser_input;
@@ -14,9 +15,9 @@ mod to_parser_input;
 #[cfg(test)]
 mod benchmark;
 
+use flat_tt::iter::TtIter;
 use span::{Edition, Span, SyntaxContextId};
 use stdx::impl_from;
-use tt::iter::TtIter;
 
 use std::fmt;
 
@@ -143,7 +144,7 @@ impl DeclarativeMacro {
 
     /// The old, `macro_rules! m {}` flavor.
     pub fn parse_macro_rules(
-        tt: &tt::Subtree<Span>,
+        tt: &flat_tt::Subtree<Span>,
         edition: impl Copy + Fn(SyntaxContextId) -> Edition,
         // FIXME: Remove this once we drop support for rust 1.76 (defaults to true then)
         new_meta_vars: bool,
@@ -184,7 +185,7 @@ impl DeclarativeMacro {
 
     /// The new, unstable `macro m {}` flavor.
     pub fn parse_macro2(
-        tt: &tt::Subtree<Span>,
+        tt: &flat_tt::Subtree<Span>,
         edition: impl Copy + Fn(SyntaxContextId) -> Edition,
         // FIXME: Remove this once we drop support for rust 1.76 (defaults to true then)
         new_meta_vars: bool,
@@ -193,7 +194,7 @@ impl DeclarativeMacro {
         let mut rules = Vec::new();
         let mut err = None;
 
-        if tt::DelimiterKind::Brace == tt.delimiter.kind {
+        if tt::DelimiterKind::Brace == tt.delimiter().kind {
             cov_mark::hit!(parse_macro_def_rules);
             while src.len() > 0 {
                 let rule = match Rule::parse(edition, &mut src, true, new_meta_vars) {
@@ -248,12 +249,12 @@ impl DeclarativeMacro {
 
     pub fn expand(
         &self,
-        tt: &tt::Subtree<Span>,
+        tt: &flat_tt::Subtree<Span>,
         marker: impl Fn(&mut Span) + Copy,
         new_meta_vars: bool,
         call_site: Span,
         def_site_edition: Edition,
-    ) -> ExpandResult<(tt::Subtree<Span>, MatchedArmIndex)> {
+    ) -> ExpandResult<(flat_tt::Tree<Span>, MatchedArmIndex)> {
         expander::expand_rules(&self.rules, tt, marker, new_meta_vars, call_site, def_site_edition)
     }
 }
@@ -359,61 +360,4 @@ impl<T: Default, E> From<Result<T, E>> for ValueResult<T, E> {
     fn from(result: Result<T, E>) -> Self {
         result.map_or_else(Self::only_err, Self::ok)
     }
-}
-
-fn expect_fragment<S: Copy + fmt::Debug>(
-    tt_iter: &mut TtIter<'_, S>,
-    entry_point: ::parser::PrefixEntryPoint,
-    edition: ::parser::Edition,
-) -> ExpandResult<Option<tt::TokenTree<S>>> {
-    use ::parser;
-    let buffer = tt::buffer::TokenBuffer::from_tokens(tt_iter.as_slice());
-    let parser_input = to_parser_input::to_parser_input(&buffer);
-    let tree_traversal = entry_point.parse(&parser_input, edition);
-    let mut cursor = buffer.begin();
-    let mut error = false;
-    for step in tree_traversal.iter() {
-        match step {
-            parser::Step::Token { kind, mut n_input_tokens } => {
-                if kind == ::parser::SyntaxKind::LIFETIME_IDENT {
-                    n_input_tokens = 2;
-                }
-                for _ in 0..n_input_tokens {
-                    cursor = cursor.bump_subtree();
-                }
-            }
-            parser::Step::FloatSplit { .. } => {
-                // FIXME: We need to split the tree properly here, but mutating the token trees
-                // in the buffer is somewhat tricky to pull off.
-                cursor = cursor.bump_subtree();
-            }
-            parser::Step::Enter { .. } | parser::Step::Exit => (),
-            parser::Step::Error { .. } => error = true,
-        }
-    }
-
-    let err = if error || !cursor.is_root() {
-        Some(ExpandError::binding_error(format!("expected {entry_point:?}")))
-    } else {
-        None
-    };
-
-    let mut curr = buffer.begin();
-    let mut res = vec![];
-
-    while curr != cursor {
-        let Some(token) = curr.token_tree() else { break };
-        res.push(token.cloned());
-        curr = curr.bump();
-    }
-
-    *tt_iter = TtIter::new_iter(tt_iter.as_slice()[res.len()..].iter());
-    let res = match &*res {
-        [] | [_] => res.pop(),
-        [first, ..] => Some(tt::TokenTree::Subtree(tt::Subtree {
-            delimiter: Delimiter::invisible_spanned(first.first_span()),
-            token_trees: res.into_boxed_slice(),
-        })),
-    };
-    ExpandResult { value: res, err }
 }

@@ -7,6 +7,7 @@ use tt::Delimiter;
 
 use crate::{
     expander::{Binding, Bindings, Fragment},
+    flat_tt,
     parser::{MetaVarKind, Op, RepeatKind, Separator},
     CountError, ExpandError, ExpandResult, MetaTemplate,
 };
@@ -48,17 +49,14 @@ impl Bindings {
         }
         match b {
             Binding::Fragment(f @ (Fragment::Path(sub) | Fragment::Expr(sub))) => {
-                let tt::Subtree { delimiter, token_trees } = sub;
                 marker(&mut span);
-                let subtree = tt::Subtree {
-                    delimiter: tt::Delimiter {
-                        // FIXME split span
-                        open: span,
-                        close: span,
-                        kind: delimiter.kind,
-                    },
-                    token_trees: token_trees.clone(),
-                };
+                let mut subtree = sub.clone();
+                subtree.set_delimiter(tt::Delimiter {
+                    // FIXME split span
+                    open: span,
+                    close: span,
+                    kind: subtree.delimiter().kind,
+                });
                 Ok(match f {
                     Fragment::Tokens(_) | Fragment::Empty => unreachable!(),
                     Fragment::Expr(_) => Fragment::Expr,
@@ -71,21 +69,16 @@ impl Bindings {
             Binding::Missing(it) => Ok({
                 marker(&mut span);
                 match it {
-                    MetaVarKind::Stmt => {
-                        Fragment::Tokens(tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct {
-                            span,
-                            char: ';',
-                            spacing: tt::Spacing::Alone,
-                        })))
-                    }
-                    MetaVarKind::Block => Fragment::Tokens(tt::TokenTree::Subtree(tt::Subtree {
-                        delimiter: tt::Delimiter {
+                    MetaVarKind::Stmt => Fragment::Tokens(flat_tt::TokenTreeOwned::Leaf(
+                        tt::Leaf::Punct(tt::Punct { span, char: ';', spacing: tt::Spacing::Alone }),
+                    )),
+                    MetaVarKind::Block => Fragment::Tokens(flat_tt::TokenTreeOwned::Subtree(
+                        flat_tt::Subtree::empty(tt::Delimiter {
                             open: span,
                             close: span,
                             kind: tt::DelimiterKind::Brace,
-                        },
-                        token_trees: Box::new([]),
-                    })),
+                        }),
+                    )),
                     // FIXME: Meta and Item should get proper defaults
                     MetaVarKind::Meta | MetaVarKind::Item | MetaVarKind::Tt | MetaVarKind::Vis => {
                         Fragment::Empty
@@ -95,33 +88,29 @@ impl Bindings {
                     | MetaVarKind::Pat
                     | MetaVarKind::PatParam
                     | MetaVarKind::Expr
-                    | MetaVarKind::Ident => {
-                        Fragment::Tokens(tt::TokenTree::Leaf(tt::Leaf::Ident(tt::Ident {
-                            text: SmolStr::new_static("missing"),
-                            span,
-                        })))
-                    }
-                    MetaVarKind::Lifetime => {
-                        Fragment::Tokens(tt::TokenTree::Subtree(tt::Subtree {
-                            delimiter: tt::Delimiter::invisible_spanned(span),
-                            token_trees: Box::new([
-                                tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct {
+                    | MetaVarKind::Ident => Fragment::Tokens(flat_tt::TokenTreeOwned::Leaf(
+                        tt::Leaf::Ident(tt::Ident { text: SmolStr::new_static("missing"), span }),
+                    )),
+                    MetaVarKind::Lifetime => Fragment::Tokens(flat_tt::TokenTreeOwned::Subtree(
+                        flat_tt::Subtree::new_boxed_leafs(
+                            tt::Delimiter::invisible_spanned(span),
+                            [
+                                flat_tt::TokenTreeOwned::Leaf(tt::Leaf::Punct(tt::Punct {
                                     char: '\'',
                                     span,
                                     spacing: tt::Spacing::Joint,
                                 })),
-                                tt::TokenTree::Leaf(tt::Leaf::Ident(tt::Ident {
+                                flat_tt::TokenTreeOwned::Leaf(tt::Leaf::Ident(tt::Ident {
                                     text: SmolStr::new_static("missing"),
                                     span,
                                 })),
-                            ]),
-                        }))
-                    }
+                            ],
+                        ),
+                    )),
                     MetaVarKind::Literal => {
-                        Fragment::Tokens(tt::TokenTree::Leaf(tt::Leaf::Ident(tt::Ident {
-                            text: SmolStr::new_static("\"missing\""),
-                            span,
-                        })))
+                        Fragment::Tokens(flat_tt::TokenTreeOwned::Leaf(tt::Leaf::Ident(
+                            tt::Ident { text: SmolStr::new_static("\"missing\""), span },
+                        )))
                     }
                 }
             }),
@@ -141,9 +130,9 @@ pub(super) fn transcribe(
     marker: impl Fn(&mut Span) + Copy,
     new_meta_vars: bool,
     call_site: Span,
-) -> ExpandResult<tt::Subtree<Span>> {
+) -> ExpandResult<flat_tt::Tree<Span>> {
     let mut ctx = ExpandCtx { bindings, nesting: Vec::new(), new_meta_vars, call_site };
-    let mut arena: Vec<tt::TokenTree<Span>> = Vec::new();
+    let mut arena: Vec<flat_tt::TokenTreeOwned<Span>> = Vec::new();
     expand_subtree(&mut ctx, template, None, &mut arena, marker)
 }
 
@@ -170,9 +159,9 @@ fn expand_subtree(
     ctx: &mut ExpandCtx<'_>,
     template: &MetaTemplate,
     delimiter: Option<Delimiter<Span>>,
-    arena: &mut Vec<tt::TokenTree<Span>>,
+    arena: &mut Vec<flat_tt::TokenTreeOwned<Span>>,
     marker: impl Fn(&mut Span) + Copy,
-) -> ExpandResult<tt::Subtree<Span>> {
+) -> ExpandResult<flat_tt::Tree<Span>> {
     // remember how many elements are in the arena now - when returning, we want to drain exactly how many elements we added. This way, the recursive uses of the arena get their own "view" of the arena, but will reuse the allocation
     let start_elements = arena.len();
     let mut err = None;
@@ -325,10 +314,10 @@ fn expand_subtree(
     // drain the elements added in this instance of expand_subtree
     let tts = arena.drain(start_elements..).collect();
     ExpandResult {
-        value: tt::Subtree {
-            delimiter: delimiter.unwrap_or_else(|| tt::Delimiter::invisible_spanned(ctx.call_site)),
-            token_trees: tts,
-        },
+        value: flat_tt::Tree::from_tts(
+            delimiter.unwrap_or_else(|| tt::Delimiter::invisible_spanned(ctx.call_site)),
+            tts,
+        ),
         err,
     }
 }
@@ -358,22 +347,25 @@ fn expand_var(
             //     }
             // ```
             // We just treat it a normal tokens
-            let tt = tt::Subtree {
-                delimiter: tt::Delimiter::invisible_spanned(id),
-                token_trees: Box::new([
+            let tt = flat_tt::Subtree::new_boxed_leafs(
+                tt::Delimiter::invisible_spanned(id),
+                [
                     tt::Leaf::from(tt::Punct { char: '$', spacing: tt::Spacing::Alone, span: id })
                         .into(),
                     tt::Leaf::from(tt::Ident { text: v.clone(), span: id }).into(),
-                ]),
-            }
+                ],
+            )
             .into();
             ExpandResult::ok(Fragment::Tokens(tt))
         }
         Err(e) => ExpandResult {
-            value: Fragment::Tokens(tt::TokenTree::Subtree(tt::Subtree::empty(tt::DelimSpan {
-                open: ctx.call_site,
-                close: ctx.call_site,
-            }))),
+            value: Fragment::Tokens(flat_tt::TokenTreeOwned::Subtree(flat_tt::Subtree::empty(
+                Delimiter {
+                    open: ctx.call_site,
+                    close: ctx.call_site,
+                    kind: tt::DelimiterKind::Invisible,
+                },
+            ))),
             err: Some(e),
         },
     }
@@ -384,10 +376,10 @@ fn expand_repeat(
     template: &MetaTemplate,
     kind: RepeatKind,
     separator: Option<&Separator>,
-    arena: &mut Vec<tt::TokenTree<Span>>,
+    arena: &mut Vec<flat_tt::TokenTreeOwned<Span>>,
     marker: impl Fn(&mut Span) + Copy,
 ) -> ExpandResult<Fragment> {
-    let mut buf: Vec<tt::TokenTree<Span>> = Vec::new();
+    let mut buf: Vec<flat_tt::TokenTreeOwned<Span>> = Vec::new();
     ctx.nesting.push(NestingState { idx: 0, at_end: false, hit: false });
     // Dirty hack to make macro-expansion terminate.
     // This should be replaced by a proper macro-by-example implementation
@@ -415,11 +407,7 @@ fn expand_repeat(
             );
             return ExpandResult {
                 value: Fragment::Tokens(
-                    tt::Subtree {
-                        delimiter: tt::Delimiter::invisible_spanned(ctx.call_site),
-                        token_trees: Box::new([]),
-                    }
-                    .into(),
+                    flat_tt::Subtree::empty(tt::Delimiter::invisible_spanned(ctx.call_site)).into(),
                 ),
                 err: Some(ExpandError::LimitExceeded),
             };
@@ -430,8 +418,8 @@ fn expand_repeat(
             continue;
         }
 
-        t.delimiter.kind = tt::DelimiterKind::Invisible;
-        push_subtree(&mut buf, t);
+        t.set_delimiter(Delimiter { kind: tt::DelimiterKind::Invisible, ..*t.delimiter() });
+        push_subtree(&mut buf, &t);
 
         if let Some(sep) = separator {
             has_seps = match sep {
@@ -464,11 +452,9 @@ fn expand_repeat(
 
     // Check if it is a single token subtree without any delimiter
     // e.g {Delimiter:None> ['>'] /Delimiter:None>}
-    let tt = tt::Subtree {
-        delimiter: tt::Delimiter::invisible_spanned(ctx.call_site),
-        token_trees: buf.into_boxed_slice(),
-    }
-    .into();
+    let tt =
+        flat_tt::Subtree::new_boxed_leafs(tt::Delimiter::invisible_spanned(ctx.call_site), buf)
+            .into();
 
     if RepeatKind::OneOrMore == kind && counter == 0 {
         return ExpandResult {
@@ -479,21 +465,25 @@ fn expand_repeat(
     ExpandResult { value: Fragment::Tokens(tt), err }
 }
 
-fn push_fragment(ctx: &ExpandCtx<'_>, buf: &mut Vec<tt::TokenTree<Span>>, fragment: Fragment) {
+fn push_fragment(
+    ctx: &ExpandCtx<'_>,
+    buf: &mut Vec<flat_tt::TokenTreeOwned<Span>>,
+    fragment: Fragment,
+) {
     match fragment {
-        Fragment::Tokens(tt::TokenTree::Subtree(tt)) => push_subtree(buf, tt),
+        Fragment::Tokens(flat_tt::TokenTreeOwned::Subtree(tt)) => push_subtree(buf, &tt),
         Fragment::Expr(sub) => {
-            push_subtree(buf, sub);
+            push_subtree(buf, &sub);
         }
-        Fragment::Path(tt) => fix_up_and_push_path_tt(ctx, buf, tt),
+        Fragment::Path(tt) => fix_up_and_push_path_tt(ctx, buf, &tt),
         Fragment::Tokens(tt) => buf.push(tt),
         Fragment::Empty => (),
     }
 }
 
-fn push_subtree(buf: &mut Vec<tt::TokenTree<Span>>, tt: tt::Subtree<Span>) {
-    match tt.delimiter.kind {
-        tt::DelimiterKind::Invisible => buf.extend(Vec::from(tt.token_trees)),
+fn push_subtree(buf: &mut Vec<flat_tt::TokenTreeOwned<Span>>, tt: &flat_tt::Subtree<Span>) {
+    match tt.delimiter().kind {
+        tt::DelimiterKind::Invisible => buf.extend(tt.iter_token_trees().map(ToOwned::to_owned)),
         _ => buf.push(tt.into()),
     }
 }
@@ -503,21 +493,22 @@ fn push_subtree(buf: &mut Vec<tt::TokenTree<Span>>, tt: tt::Subtree<Span>) {
 /// we need this fixup.
 fn fix_up_and_push_path_tt(
     ctx: &ExpandCtx<'_>,
-    buf: &mut Vec<tt::TokenTree<Span>>,
-    subtree: tt::Subtree<Span>,
+    buf: &mut Vec<flat_tt::TokenTreeOwned<Span>>,
+    subtree: &flat_tt::Subtree<Span>,
 ) {
-    stdx::always!(matches!(subtree.delimiter.kind, tt::DelimiterKind::Invisible));
+    stdx::always!(matches!(subtree.delimiter().kind, tt::DelimiterKind::Invisible));
     let mut prev_was_ident = false;
     // Note that we only need to fix up the top-level `TokenTree`s because the
     // context of the paths in the descendant `Subtree`s won't be changed by the
     // mbe transcription.
-    for tt in Vec::from(subtree.token_trees) {
+    for tt in subtree.iter_token_trees().map(ToOwned::to_owned) {
         if prev_was_ident {
             // Pedantically, `(T) -> U` in `FnOnce(T) -> U` is treated as a generic
             // argument list and thus needs `::` between it and `FnOnce`. However in
             // today's Rust this type of path *semantically* cannot appear as a
             // top-level expression-context path, so we can safely ignore it.
-            if let tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct { char: '<', .. })) = tt {
+            if let flat_tt::TokenTreeOwned::Leaf(tt::Leaf::Punct(tt::Punct { char: '<', .. })) = tt
+            {
                 buf.push(
                     tt::Leaf::Punct(tt::Punct {
                         char: ':',
@@ -536,7 +527,7 @@ fn fix_up_and_push_path_tt(
                 );
             }
         }
-        prev_was_ident = matches!(tt, tt::TokenTree::Leaf(tt::Leaf::Ident(_)));
+        prev_was_ident = matches!(tt, flat_tt::TokenTreeOwned::Leaf(tt::Leaf::Ident(_)));
         buf.push(tt);
     }
 }

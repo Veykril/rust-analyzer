@@ -1047,6 +1047,24 @@ version = "0.0.0"
 dependencies = [
  "arrayvec",
  "cov-mark",
+ "expect-test",
+ "parser",
+ "rustc-hash",
+ "smallvec",
+ "span",
+ "stdx",
+ "syntax",
+ "test-utils",
+ "tracing",
+ "tt",
+]
+
+[[package]]
+name = "mbe-next"
+version = "0.0.0"
+dependencies = [
+ "arrayvec",
+ "cov-mark",
  "parser",
  "rustc-hash",
  "smallvec",

@@ -7,18 +7,23 @@ mod transcriber;
 
 use rustc_hash::FxHashMap;
 use span::{Edition, Span};
+use stdx::itertools::Either;
 use syntax::SmolStr;
 
-use crate::{parser::MetaVarKind, ExpandError, ExpandResult, MatchedArmIndex};
+use crate::{
+    flat_tt::{self, Subtree, SubtreeView},
+    parser::MetaVarKind,
+    ExpandError, ExpandResult, MatchedArmIndex,
+};
 
 pub(crate) fn expand_rules(
     rules: &[crate::Rule],
-    input: &tt::Subtree<Span>,
+    input: &Subtree<Span>,
     marker: impl Fn(&mut Span) + Copy,
     new_meta_vars: bool,
     call_site: Span,
     def_site_edition: Edition,
-) -> ExpandResult<(tt::Subtree<Span>, MatchedArmIndex)> {
+) -> ExpandResult<(flat_tt::Tree<Span>, MatchedArmIndex)> {
     let mut match_: Option<(matcher::Match, &crate::Rule, usize)> = None;
     for (idx, rule) in rules.iter().enumerate() {
         let new_match = matcher::match_(&rule.lhs, input, def_site_edition);
@@ -56,13 +61,7 @@ pub(crate) fn expand_rules(
         ExpandResult { value: (value, idx.try_into().ok()), err: match_.err.or(transcribe_err) }
     } else {
         ExpandResult::new(
-            (
-                tt::Subtree {
-                    delimiter: tt::Delimiter::invisible_spanned(call_site),
-                    token_trees: Box::default(),
-                },
-                None,
-            ),
+            (flat_tt::Tree::empty(tt::Delimiter::invisible_spanned(call_site)), None),
             ExpandError::NoMatchingRule,
         )
     }
@@ -114,23 +113,25 @@ pub(crate) fn expand_rules(
 /// `tt::TokenTree`, where the index to select a particular `TokenTree` among
 /// many is not a plain `usize`, but a `&[usize]`.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct Bindings {
-    inner: FxHashMap<SmolStr, Binding>,
+struct Bindings<'tree> {
+    inner: FxHashMap<SmolStr, Binding<'tree>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Binding {
-    Fragment(Fragment),
-    Nested(Vec<Binding>),
+enum Binding<'tree> {
+    Fragment(Fragment<'tree>),
+    Nested(Vec<Binding<'tree>>),
     Empty,
     Missing(MetaVarKind),
 }
 
+// if we ever need to change this away from just borrowing, we can probably Cow it
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Fragment {
+enum Fragment<'tree> {
     Empty,
     /// token fragments are just copy-pasted into the output
-    Tokens(tt::TokenTree<Span>),
+    Tokens(SubtreeView<'tree, Span>),
     /// Expr ast fragments are surrounded with `()` on insertion to preserve
     /// precedence. Note that this impl is different from the one currently in
     /// `rustc` -- `rustc` doesn't translate fragments into token trees at all.
@@ -138,7 +139,7 @@ enum Fragment {
     /// At one point in time, we tried to use "fake" delimiters here à la
     /// proc-macro delimiter=none. As we later discovered, "none" delimiters are
     /// tricky to handle in the parser, and rustc doesn't handle those either.
-    Expr(tt::Subtree<Span>),
+    Expr(&'tree Subtree<Span>),
     /// There are roughly two types of paths: paths in expression context, where a
     /// separator `::` between an identifier and its following generic argument list
     /// is mandatory, and paths in type context, where `::` can be omitted.
@@ -148,5 +149,5 @@ enum Fragment {
     /// and is trasncribed as an expression-context path, verbatim transcription
     /// would cause a syntax error. We need to fix it up just before transcribing;
     /// see `transcriber::fix_up_and_push_path_tt()`.
-    Path(tt::Subtree<Span>),
+    Path(&'tree Subtree<Span>),
 }

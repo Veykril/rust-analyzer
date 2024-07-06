@@ -9,6 +9,7 @@ use syntax::{
 use test_utils::{bench, bench_fixture, skip_slow_tests};
 
 use crate::{
+    flat_tt::flatten,
     parser::{MetaVarKind, Op, RepeatKind, Separator},
     syntax_node_to_token_tree, DeclarativeMacro, DocCommentDesugarMode, DummyTestSpanMap, DUMMY,
 };
@@ -24,7 +25,7 @@ fn benchmark_parse_macro_rules() {
         rules
             .values()
             .map(|it| {
-                DeclarativeMacro::parse_macro_rules(it, |_| span::Edition::CURRENT, true)
+                DeclarativeMacro::parse_macro_rules(&flatten(it), |_| span::Edition::CURRENT, true)
                     .rules
                     .len()
             })
@@ -46,9 +47,9 @@ fn benchmark_expand_macro_rules() {
         invocations
             .into_iter()
             .map(|(id, tt)| {
-                let res = rules[&id].expand(&tt, |_| (), true, DUMMY, Edition::CURRENT);
+                let res = rules[&id].expand(&flatten(&tt), |_| (), true, DUMMY, Edition::CURRENT);
                 assert!(res.err.is_none());
-                res.value.0.token_trees.len()
+                res.value.0.len()
             })
             .sum()
     };
@@ -59,7 +60,14 @@ fn macro_rules_fixtures() -> FxHashMap<String, DeclarativeMacro> {
     macro_rules_fixtures_tt()
         .into_iter()
         .map(|(id, tt)| {
-            (id, DeclarativeMacro::parse_macro_rules(&tt, |_| span::Edition::CURRENT, true))
+            (
+                id,
+                DeclarativeMacro::parse_macro_rules(
+                    &flatten(&tt),
+                    |_| span::Edition::CURRENT,
+                    true,
+                ),
+            )
         })
         .collect()
 }
@@ -121,7 +129,11 @@ fn invocation_fixtures(
                         },
                         token_trees: token_trees.into_boxed_slice(),
                     };
-                    if it.expand(&subtree, |_| (), true, DUMMY, Edition::CURRENT).err.is_none() {
+                    if it
+                        .expand(&flatten(&subtree), |_| (), true, DUMMY, Edition::CURRENT)
+                        .err
+                        .is_none()
+                    {
                         res.push((name.clone(), subtree));
                         break;
                     }

@@ -4,11 +4,11 @@
 use std::sync::Arc;
 
 use arrayvec::ArrayVec;
+use flat_tt::iter::TtIter;
 use span::{Edition, Span, SyntaxContextId};
 use syntax::SmolStr;
-use tt::iter::TtIter;
 
-use crate::ParseError;
+use crate::{flat_tt, ParseError};
 
 /// Consider
 ///
@@ -29,14 +29,14 @@ pub(crate) struct MetaTemplate(pub(crate) Box<[Op]>);
 impl MetaTemplate {
     pub(crate) fn parse_pattern(
         edition: impl Copy + Fn(SyntaxContextId) -> Edition,
-        pattern: &tt::Subtree<Span>,
+        pattern: &flat_tt::Subtree<Span>,
     ) -> Result<Self, ParseError> {
         MetaTemplate::parse(edition, pattern, Mode::Pattern, false)
     }
 
     pub(crate) fn parse_template(
         edition: impl Copy + Fn(SyntaxContextId) -> Edition,
-        template: &tt::Subtree<Span>,
+        template: &flat_tt::Subtree<Span>,
         new_meta_vars: bool,
     ) -> Result<Self, ParseError> {
         MetaTemplate::parse(edition, template, Mode::Template, new_meta_vars)
@@ -48,7 +48,7 @@ impl MetaTemplate {
 
     fn parse(
         edition: impl Copy + Fn(SyntaxContextId) -> Edition,
-        tt: &tt::Subtree<Span>,
+        tt: &flat_tt::Subtree<Span>,
         mode: Mode,
         new_meta_vars: bool,
     ) -> Result<Self, ParseError> {
@@ -158,13 +158,13 @@ enum Mode {
 
 fn next_op(
     edition: impl Copy + Fn(SyntaxContextId) -> Edition,
-    first_peeked: &tt::TokenTree<Span>,
+    first_peeked: flat_tt::TokenTree<'_, Span>,
     src: &mut TtIter<'_, Span>,
     mode: Mode,
     new_meta_vars: bool,
 ) -> Result<Op, ParseError> {
     let res = match first_peeked {
-        tt::TokenTree::Leaf(tt::Leaf::Punct(p @ tt::Punct { char: '$', .. })) => {
+        flat_tt::TokenTree::Leaf(tt::Leaf::Punct(p @ tt::Punct { char: '$', .. })) => {
             src.next().expect("first token already peeked");
             // Note that the '$' itself is a valid token inside macro_rules.
             let second = match src.next() {
@@ -178,7 +178,7 @@ fn next_op(
                 Some(it) => it,
             };
             match second {
-                tt::TokenTree::Subtree(subtree) => match subtree.delimiter.kind {
+                flat_tt::TokenTree::Subtree(subtree) => match subtree.delimiter().kind {
                     tt::DelimiterKind::Parenthesis => {
                         let (separator, kind) = parse_repeat(src)?;
                         let tokens = MetaTemplate::parse(edition, subtree, mode, new_meta_vars)?;
@@ -202,7 +202,7 @@ fn next_op(
                         ))
                     }
                 },
-                tt::TokenTree::Leaf(leaf) => match leaf {
+                flat_tt::TokenTree::Leaf(leaf) => match leaf {
                     tt::Leaf::Ident(ident) if ident.text == "crate" => {
                         // We simply produce identifier `$crate` here. And it will be resolved when lowering ast to Path.
                         Op::Ident(tt::Ident { text: "$crate".into(), span: ident.span })
@@ -238,26 +238,26 @@ fn next_op(
             }
         }
 
-        tt::TokenTree::Leaf(tt::Leaf::Literal(it)) => {
+        flat_tt::TokenTree::Leaf(tt::Leaf::Literal(it)) => {
             src.next().expect("first token already peeked");
             Op::Literal(it.clone())
         }
 
-        tt::TokenTree::Leaf(tt::Leaf::Ident(it)) => {
+        flat_tt::TokenTree::Leaf(tt::Leaf::Ident(it)) => {
             src.next().expect("first token already peeked");
             Op::Ident(it.clone())
         }
 
-        tt::TokenTree::Leaf(tt::Leaf::Punct(_)) => {
+        flat_tt::TokenTree::Leaf(tt::Leaf::Punct(_)) => {
             // There's at least one punct so this shouldn't fail.
             let puncts = src.expect_glued_punct().unwrap();
             Op::Punct(Box::new(puncts))
         }
 
-        tt::TokenTree::Subtree(subtree) => {
+        flat_tt::TokenTree::Subtree(subtree) => {
             src.next().expect("first token already peeked");
             let tokens = MetaTemplate::parse(edition, subtree, mode, new_meta_vars)?;
-            Op::Subtree { tokens, delimiter: subtree.delimiter }
+            Op::Subtree { tokens, delimiter: subtree.delimiter().clone() }
         }
     };
     Ok(res)
@@ -306,8 +306,8 @@ fn parse_repeat(src: &mut TtIter<'_, Span>) -> Result<(Option<Separator>, Repeat
     let mut separator = Separator::Puncts(ArrayVec::new());
     for tt in src {
         let tt = match tt {
-            tt::TokenTree::Leaf(leaf) => leaf,
-            tt::TokenTree::Subtree(_) => return Err(ParseError::InvalidRepeat),
+            flat_tt::TokenTree::Leaf(leaf) => leaf,
+            flat_tt::TokenTree::Subtree(_) => return Err(ParseError::InvalidRepeat),
         };
         let has_sep = match &separator {
             Separator::Puncts(puncts) => !puncts.is_empty(),
@@ -343,7 +343,7 @@ fn parse_metavar_expr(new_meta_vars: bool, src: &mut TtIter<'_, Span>) -> Result
     let func = src.expect_ident()?;
     let args = src.expect_subtree()?;
 
-    if args.delimiter.kind != tt::DelimiterKind::Parenthesis {
+    if args.delimiter().kind != tt::DelimiterKind::Parenthesis {
         return Err(());
     }
 
@@ -389,7 +389,9 @@ fn parse_depth(src: &mut TtIter<'_, Span>) -> Result<usize, ()> {
 }
 
 fn try_eat_comma(src: &mut TtIter<'_, Span>) -> bool {
-    if let Some(tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct { char: ',', .. }))) = src.peek_n(0) {
+    if let Some(flat_tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct { char: ',', .. }))) =
+        src.peek_n(0)
+    {
         let _ = src.next();
         return true;
     }
