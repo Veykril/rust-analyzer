@@ -1,4 +1,4 @@
-//! Implementation for `[salsa::query_group]` decorator.
+//! Implementation for `[#salsa::query_group]` decorator.
 
 use crate::parenthesized::Parenthesized;
 use heck::ToUpperCamelCase;
@@ -6,16 +6,17 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::ToTokens;
 use syn::{
-    parse_macro_input, parse_quote, spanned::Spanned, Attribute, Error, FnArg, Ident, ItemTrait,
-    ReturnType, TraitItem, Type,
+    parse_macro_input, parse_quote, parse_quote_spanned, spanned::Spanned, Attribute, Error, FnArg,
+    Ident, ItemTrait, ReturnType, TraitItem, Type,
 };
 
-/// Implementation for `[salsa::query_group]` decorator.
+/// Implementation for `[#salsa::query_group]` decorator.
 pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream {
     let group_struct = parse_macro_input!(args as Ident);
     let input: ItemTrait = parse_macro_input!(input as ItemTrait);
     // println!("args: {:#?}", args);
     // println!("input: {:#?}", input);
+    let salsa = quote! {salsa};
 
     let input_span = input.span();
     let (trait_attrs, salsa_attrs) = filter_attrs(input.attrs);
@@ -28,7 +29,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
     let trait_vis = input.vis;
     let trait_name = input.ident;
     let _generics = input.generics.clone();
-    let dyn_db = quote! { dyn #trait_name };
+    let dyn_db = quote_spanned! { Span::def_site() => dyn #trait_name };
 
     // Decompose the trait into the corresponding queries.
     let mut queries = vec![];
@@ -100,7 +101,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 Some(invoke) if storage == QueryStorage::Input => {
                     return Error::new(
                         invoke.span(),
-                        "#[salsa::invoke] cannot be set on #[salsa::input] queries",
+                        "#[#salsa::invoke] cannot be set on #[#salsa::input] queries",
                     )
                     .to_compile_error()
                     .into();
@@ -127,7 +128,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                     FnArg::Typed(syn::PatType { pat, ty, .. }) => keys.push((
                         match pat.as_ref() {
                             syn::Pat::Ident(ident_pat) => ident_pat.ident.clone(),
-                            _ => format_ident!("key{}", idx),
+                            _ => format_ident!("key{}", idx, span = Span::def_site()),
                         },
                         Type::clone(ty),
                     )),
@@ -155,7 +156,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 }
             };
 
-            // For `#[salsa::interned]` keys, we create a "lookup key" automatically.
+            // For `#[#salsa::interned]` keys, we create a "lookup key" automatically.
             //
             // For a query like:
             //
@@ -166,11 +167,12 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
             //     fn lookup_foo(&self, x: u32) -> (Key1, Key2)
             let lookup_query = if let QueryStorage::Interned = storage {
                 let lookup_query_type =
-                    format_ident!("{}LookupQuery", query_name.to_string().to_upper_camel_case());
+                    format_ident!("{}LookupQuery", query_name.to_string().to_upper_camel_case(),);
                 let lookup_fn_name = format_ident!("lookup_{}", query_name);
                 let keys = keys.iter().map(|(_, ty)| ty);
-                let lookup_value: Type = parse_quote!((#(#keys),*));
-                let lookup_keys = vec![(parse_quote! { key }, value.clone())];
+                let lookup_value: Type = parse_quote_spanned!(Span::def_site() => (#(#keys),*));
+                let lookup_keys =
+                    vec![(parse_quote_spanned! {Span::def_site() => key }, value.clone())];
                 Some(Query {
                     query_type: lookup_query_type,
                     query_name: format!("{lookup_fn_name}"),
@@ -204,7 +206,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         }
     }
 
-    let group_storage = format_ident!("{}GroupStorage__", trait_name, span = Span::call_site());
+    let group_storage = format_ident!("{}GroupStorage__", trait_name, span = Span::def_site());
 
     let mut query_fn_declarations = proc_macro2::TokenStream::new();
     let mut query_fn_definitions = proc_macro2::TokenStream::new();
@@ -220,7 +222,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         let attrs = &query.attrs;
         let self_receiver = &query.receiver;
 
-        query_fn_declarations.extend(quote! {
+        query_fn_declarations.extend(quote_spanned! { Span::def_site() =>
             #(#attrs)*
             fn #fn_name(#self_receiver, #(#key_names: #keys),*) -> #value;
         });
@@ -229,7 +231,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         // just inline the definition
         if let QueryStorage::Transparent = query.storage {
             let invoke = query.invoke_tt();
-            query_fn_definitions.extend(quote! {
+            query_fn_definitions.extend(quote_spanned! { Span::def_site() =>
                 fn #fn_name(&self, #(#key_names: #keys),*) -> #value {
                     #invoke(self, #(#key_names),*)
                 }
@@ -241,7 +243,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
         let tracing = if let QueryStorage::Memoized | QueryStorage::LruMemoized = query.storage {
             let s = format!("{trait_name}::{fn_name}");
-            Some(quote! {
+            Some(quote_spanned! { Span::def_site() =>
                 let _p = tracing::debug_span!(#s, #(#key_names = tracing::field::debug(&#key_names)),*).entered();
             })
         } else {
@@ -249,7 +251,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         }
         .into_iter();
 
-        query_fn_definitions.extend(quote! {
+        query_fn_definitions.extend(quote_spanned! { Span::def_site() =>
             fn #fn_name(&self, #(#key_names: #keys),*) -> #value {
                 #(#tracing),*
                 // Create a shim to force the code to be monomorphized in the
@@ -257,7 +259,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 // difference in total compilation time in rust-analyzer, though
                 // it's not totally obvious why that should be.
                 fn __shim(db: &(dyn #trait_name + '_), #(#key_names: #keys),*) -> #value {
-                    salsa::plumbing::get_query_table::<#qt>(db).get((#(#key_names),*))
+                    #salsa::plumbing::get_query_table::<#qt>(db).get((#(#key_names),*))
                 }
                 __shim(self, #(#key_names),*)
 
@@ -296,26 +298,26 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
             "
             );
 
-            query_fn_declarations.extend(quote! {
+            query_fn_declarations.extend(quote_spanned! { Span::def_site() =>
                 # [doc = #set_fn_docs]
                 fn #set_fn_name(&mut self, #(#key_names: #keys,)* value__: #value);
 
 
                 # [doc = #set_constant_fn_docs]
-                fn #set_with_durability_fn_name(&mut self, #(#key_names: #keys,)* value__: #value, durability__: salsa::Durability);
+                fn #set_with_durability_fn_name(&mut self, #(#key_names: #keys,)* value__: #value, durability__: #salsa::Durability);
             });
 
-            query_fn_definitions.extend(quote! {
+            query_fn_definitions.extend(quote_spanned! { Span::def_site() =>
                 fn #set_fn_name(&mut self, #(#key_names: #keys,)* value__: #value) {
                     fn __shim(db: &mut dyn #trait_name, #(#key_names: #keys,)* value__: #value) {
-                        salsa::plumbing::get_query_table_mut::<#qt>(db).set((#(#key_names),*), value__)
+                        #salsa::plumbing::get_query_table_mut::<#qt>(db).set((#(#key_names),*), value__)
                     }
                     __shim(self, #(#key_names,)* value__)
                 }
 
-                fn #set_with_durability_fn_name(&mut self, #(#key_names: #keys,)* value__: #value, durability__: salsa::Durability) {
-                    fn __shim(db: &mut dyn #trait_name, #(#key_names: #keys,)* value__: #value, durability__: salsa::Durability) {
-                        salsa::plumbing::get_query_table_mut::<#qt>(db).set_with_durability((#(#key_names),*), value__, durability__)
+                fn #set_with_durability_fn_name(&mut self, #(#key_names: #keys,)* value__: #value, durability__: #salsa::Durability) {
+                    fn __shim(db: &mut dyn #trait_name, #(#key_names: #keys,)* value__: #value, durability__: #salsa::Durability) {
+                        #salsa::plumbing::get_query_table_mut::<#qt>(db).set_with_durability((#(#key_names),*), value__, durability__)
                     }
                     __shim(self, #(#key_names,)* value__ ,durability__)
                 }
@@ -323,19 +325,19 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         }
 
         // A field for the storage struct
-        storage_fields.extend(quote! {
-            #fn_name: std::sync::Arc<<#qt as salsa::Query>::Storage>,
+        storage_fields.extend(quote_spanned! { Span::def_site() =>
+            #fn_name: std::sync::Arc<<#qt as #salsa::Query>::Storage>,
         });
     }
 
     // Emit the trait itself.
     let mut output = {
         let bounds = &input.supertraits;
-        quote! {
+        quote_spanned! { Span::def_site() =>
             #(#trait_attrs)*
             #trait_vis trait #trait_name :
-            salsa::Database +
-            salsa::plumbing::HasQueryGroup<#group_struct> +
+            #salsa::Database +
+            #salsa::plumbing::HasQueryGroup<#group_struct> +
             #bounds
             {
                 #query_fn_declarations
@@ -344,11 +346,11 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
     };
 
     // Emit the query group struct and impl of `QueryGroup`.
-    output.extend(quote! {
+    output.extend(quote_spanned! { Span::def_site() =>
         /// Representative struct for the query group.
         #trait_vis struct #group_struct { }
 
-        impl salsa::plumbing::QueryGroup for #group_struct
+        impl #salsa::plumbing::QueryGroup for #group_struct
         {
             type DynDb = #dyn_db;
             type GroupStorage = #group_storage;
@@ -358,12 +360,12 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
     // Emit an impl of the trait
     output.extend({
         let bounds = input.supertraits;
-        quote! {
+        quote_spanned! { Span::def_site() =>
             impl<DB> #trait_name for DB
             where
                 DB: #bounds,
-                DB: salsa::Database,
-                DB: salsa::plumbing::HasQueryGroup<#group_struct>,
+                DB: #salsa::Database,
+                DB: #salsa::plumbing::HasQueryGroup<#group_struct>,
             {
                 #query_fn_definitions
             }
@@ -379,18 +381,18 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
         let qt = &query.query_type;
 
         let storage = match &query.storage {
-            QueryStorage::Memoized => quote!(salsa::plumbing::MemoizedStorage<Self>),
-            QueryStorage::LruMemoized => quote!(salsa::plumbing::LruMemoizedStorage<Self>),
+            QueryStorage::Memoized => quote!(#salsa::plumbing::MemoizedStorage<Self>),
+            QueryStorage::LruMemoized => quote!(#salsa::plumbing::LruMemoizedStorage<Self>),
             QueryStorage::LruDependencies => {
-                quote!(salsa::plumbing::LruDependencyStorage<Self>)
+                quote!(#salsa::plumbing::LruDependencyStorage<Self>)
             }
             QueryStorage::Input if query.keys.is_empty() => {
-                quote!(salsa::plumbing::UnitInputStorage<Self>)
+                quote!(#salsa::plumbing::UnitInputStorage<Self>)
             }
-            QueryStorage::Input => quote!(salsa::plumbing::InputStorage<Self>),
-            QueryStorage::Interned => quote!(salsa::plumbing::InternedStorage<Self>),
+            QueryStorage::Input => quote!(#salsa::plumbing::InputStorage<Self>),
+            QueryStorage::Interned => quote!(#salsa::plumbing::InternedStorage<Self>),
             QueryStorage::InternedLookup { intern_query_type } => {
-                quote!(salsa::plumbing::LookupInternedStorage<Self, #intern_query_type>)
+                quote!(#salsa::plumbing::LookupInternedStorage<Self, #intern_query_type>)
             }
             QueryStorage::Transparent => panic!("should have been filtered"),
         };
@@ -403,19 +405,20 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
             #[derive(Default, Debug)]
             #trait_vis struct #qt;
         });
-
-        output.extend(quote! {
+        let in_db = quote! {in_db};
+        let in_db_mut = quote! {in_db_mut};
+        output.extend(quote_spanned! { Span::def_site() =>
             impl #qt {
                 /// Get access to extra methods pertaining to this query.
                 /// You can also use it to invoke this query.
-                #trait_vis fn in_db(self, db: &#dyn_db) -> salsa::QueryTable<'_, Self>
+                #trait_vis fn #in_db(self, db: &#dyn_db) -> #salsa::QueryTable<'_, Self>
                 {
-                    salsa::plumbing::get_query_table::<#qt>(db)
+                    #salsa::plumbing::get_query_table::<#qt>(db)
                 }
             }
         });
 
-        output.extend(quote! {
+        output.extend(quote_spanned! { Span::def_site() =>
             impl #qt {
                 /// Like `in_db`, but gives access to methods for setting the
                 /// value of an input. Not applicable to derived queries.
@@ -448,13 +451,13 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 /// thus allowing the `set` to succeed. Otherwise, long-running
                 /// computations may lead to "starvation", meaning that the
                 /// thread attempting to `set` has to wait a long, long time. =)
-                #trait_vis fn in_db_mut(self, db: &mut #dyn_db) -> salsa::QueryTableMut<'_, Self>
+                #trait_vis fn #in_db_mut(self, db: &mut #dyn_db) -> #salsa::QueryTableMut<'_, Self>
                 {
-                    salsa::plumbing::get_query_table_mut::<#qt>(db)
+                    #salsa::plumbing::get_query_table_mut::<#qt>(db)
                 }
             }
 
-            impl<'d> salsa::QueryDb<'d> for #qt
+            impl<'d> #salsa::QueryDb<'d> for #qt
             {
                 type DynDb = #dyn_db + 'd;
                 type Group = #group_struct;
@@ -462,7 +465,7 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
             }
 
             // ANCHOR:Query_impl
-            impl salsa::Query for #qt
+            impl #salsa::Query for #qt
             {
                 type Key = (#(#keys),*);
                 type Value = #value;
@@ -473,13 +476,13 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 const QUERY_NAME: &'static str = #query_name;
 
                 fn query_storage<'a>(
-                    group_storage: &'a <Self as salsa::QueryDb<'_>>::GroupStorage,
+                    group_storage: &'a <Self as #salsa::QueryDb<'_>>::GroupStorage,
                 ) -> &'a std::sync::Arc<Self::Storage> {
                     &group_storage.#fn_name
                 }
 
                 fn query_storage_mut<'a>(
-                    group_storage: &'a <Self as salsa::QueryDb<'_>>::GroupStorage,
+                    group_storage: &'a <Self as #salsa::QueryDb<'_>>::GroupStorage,
                 ) -> &'a std::sync::Arc<Self::Storage> {
                     &group_storage.#fn_name
                 }
@@ -489,22 +492,20 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
         // Implement the QueryFunction trait for queries which need it.
         if query.storage.needs_query_function() {
-            let span = query.fn_name.span();
-
             let key_names: Vec<_> = query.keys.iter().map(|(pat, _)| pat).collect();
             let key_pattern = if query.keys.len() == 1 {
-                quote! { #(#key_names),* }
+                quote_spanned! { Span::def_site() => #(#key_names),* }
             } else {
-                quote! { (#(#key_names),*) }
+                quote_spanned! { Span::def_site() => (#(#key_names),*) }
             };
             let invoke = query.invoke_tt();
 
             let recover = if let Some(cycle_recovery_fn) = &query.cycle {
-                quote! {
-                    const CYCLE_STRATEGY: salsa::plumbing::CycleRecoveryStrategy =
-                        salsa::plumbing::CycleRecoveryStrategy::Fallback;
-                    fn cycle_fallback(db: &<Self as salsa::QueryDb<'_>>::DynDb, cycle: &salsa::Cycle, #key_pattern: &<Self as salsa::Query>::Key)
-                        -> <Self as salsa::Query>::Value {
+                quote_spanned! { Span::def_site() =>
+                    const CYCLE_STRATEGY: #salsa::plumbing::CycleRecoveryStrategy =
+                        #salsa::plumbing::CycleRecoveryStrategy::Fallback;
+                    fn cycle_fallback(db: &<Self as #salsa::QueryDb<'_>>::DynDb, cycle: &#salsa::Cycle, #key_pattern: &<Self as #salsa::Query>::Key)
+                        -> <Self as #salsa::Query>::Value {
                         #cycle_recovery_fn(
                                 db,
                                 cycle,
@@ -513,18 +514,18 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                     }
                 }
             } else {
-                quote! {
-                    const CYCLE_STRATEGY: salsa::plumbing::CycleRecoveryStrategy =
-                        salsa::plumbing::CycleRecoveryStrategy::Panic;
+                quote_spanned! { Span::def_site() =>
+                    const CYCLE_STRATEGY: #salsa::plumbing::CycleRecoveryStrategy =
+                        #salsa::plumbing::CycleRecoveryStrategy::Panic;
                 }
             };
 
-            output.extend(quote_spanned! {span=>
+            output.extend(quote_spanned! {Span::def_site()=>
                 // ANCHOR:QueryFunction_impl
-                impl salsa::plumbing::QueryFunction for #qt
+                impl #salsa::plumbing::QueryFunction for #qt
                 {
-                    fn execute(db: &<Self as salsa::QueryDb<'_>>::DynDb, #key_pattern: <Self as salsa::Query>::Key)
-                        -> <Self as salsa::Query>::Value {
+                    fn execute(db: &<Self as #salsa::QueryDb<'_>>::DynDb, #key_pattern: <Self as #salsa::Query>::Key)
+                        -> <Self as #salsa::Query>::Value {
                         #invoke(db, #(#key_names),*)
                     }
 
@@ -537,9 +538,9 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
     let mut fmt_ops = proc_macro2::TokenStream::new();
     for (Query { fn_name, .. }, query_index) in non_transparent_queries().zip(0_u16..) {
-        fmt_ops.extend(quote! {
+        fmt_ops.extend(quote_spanned! { Span::def_site() =>
             #query_index => {
-                salsa::plumbing::QueryStorageOps::fmt_index(
+                #salsa::plumbing::QueryStorageOps::fmt_index(
                     &*self.#fn_name, db, input.key_index(), fmt,
                 )
             }
@@ -548,9 +549,9 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
     let mut maybe_changed_ops = proc_macro2::TokenStream::new();
     for (Query { fn_name, .. }, query_index) in non_transparent_queries().zip(0_u16..) {
-        maybe_changed_ops.extend(quote! {
+        maybe_changed_ops.extend(quote_spanned! { Span::def_site() =>
             #query_index => {
-                salsa::plumbing::QueryStorageOps::maybe_changed_after(
+                #salsa::plumbing::QueryStorageOps::maybe_changed_after(
                     &*self.#fn_name, db, input.key_index(), revision
                 )
             }
@@ -559,9 +560,9 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
     let mut cycle_recovery_strategy_ops = proc_macro2::TokenStream::new();
     for (Query { fn_name, .. }, query_index) in non_transparent_queries().zip(0_u16..) {
-        cycle_recovery_strategy_ops.extend(quote! {
+        cycle_recovery_strategy_ops.extend(quote_spanned! { Span::def_site() =>
             #query_index => {
-                salsa::plumbing::QueryStorageOps::cycle_recovery_strategy(
+                #salsa::plumbing::QueryStorageOps::cycle_recovery_strategy(
                     &*self.#fn_name
                 )
             }
@@ -570,24 +571,30 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
     let mut for_each_ops = proc_macro2::TokenStream::new();
     for Query { fn_name, .. } in non_transparent_queries() {
-        for_each_ops.extend(quote! {
+        for_each_ops.extend(quote_spanned! { Span::def_site() =>
             op(&*self.#fn_name);
         });
     }
 
+    let new = quote! {new};
+    let fmt_index = quote! {fmt_index};
+    let cycle_recovery_strategy = quote! {cycle_recovery_strategy};
+    let maybe_changed_after = quote! {maybe_changed_after};
+    let for_each_query = quote! {for_each_query};
+
     // Emit query group storage struct
-    output.extend(quote! {
+    output.extend(quote_spanned! { Span::def_site() =>
         #trait_vis struct #group_storage {
             #storage_fields
         }
 
         // ANCHOR:group_storage_new
         impl #group_storage {
-            #trait_vis fn new(group_index: u16) -> Self {
+            #trait_vis fn #new(group_index: u16) -> Self {
                 #group_storage {
                     #(
                         #queries_with_storage:
-                        std::sync::Arc::new(salsa::plumbing::QueryStorageOps::new(group_index)),
+                        std::sync::Arc::new(#salsa::plumbing::QueryStorageOps::new(group_index)),
                     )*
                 }
             }
@@ -596,10 +603,10 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
 
         // ANCHOR:group_storage_methods
         impl #group_storage {
-            #trait_vis fn fmt_index(
+            #trait_vis fn #fmt_index(
                 &self,
                 db: &(#dyn_db + '_),
-                input: salsa::DatabaseKeyIndex,
+                input: #salsa::DatabaseKeyIndex,
                 fmt: &mut std::fmt::Formatter<'_>,
             ) -> std::fmt::Result {
                 match input.query_index() {
@@ -608,11 +615,11 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 }
             }
 
-            #trait_vis fn maybe_changed_after(
+            #trait_vis fn #maybe_changed_after(
                 &self,
                 db: &(#dyn_db + '_),
-                input: salsa::DatabaseKeyIndex,
-                revision: salsa::Revision,
+                input: #salsa::DatabaseKeyIndex,
+                revision: #salsa::Revision,
             ) -> bool {
                 match input.query_index() {
                     #maybe_changed_ops
@@ -620,21 +627,21 @@ pub(crate) fn query_group(args: TokenStream, input: TokenStream) -> TokenStream 
                 }
             }
 
-            #trait_vis fn cycle_recovery_strategy(
+            #trait_vis fn #cycle_recovery_strategy(
                 &self,
                 db: &(#dyn_db + '_),
-                input: salsa::DatabaseKeyIndex,
-            ) -> salsa::plumbing::CycleRecoveryStrategy {
+                input: #salsa::DatabaseKeyIndex,
+            ) -> #salsa::plumbing::CycleRecoveryStrategy {
                 match input.query_index() {
                     #cycle_recovery_strategy_ops
                     i => panic!("salsa: impossible query index {}", i),
                 }
             }
 
-            #trait_vis fn for_each_query(
+            #trait_vis fn #for_each_query(
                 &self,
-                _runtime: &salsa::Runtime,
-                mut op: &mut dyn FnMut(&dyn salsa::plumbing::QueryStorageMassOps),
+                _runtime: &#salsa::Runtime,
+                mut op: &mut dyn FnMut(&dyn #salsa::plumbing::QueryStorageMassOps),
             ) {
                 #for_each_ops
             }
@@ -691,7 +698,7 @@ fn filter_attrs(attrs: Vec<Attribute>) -> (Vec<Attribute>, Vec<SalsaAttr>) {
     let mut other = vec![];
     let mut salsa = vec![];
     // Leave non-salsa attributes untouched. These are
-    // attributes that don't start with `salsa::` or don't have
+    // attributes that don't start with `#salsa::` or don't have
     // exactly two segments in their path.
     // Keep the salsa attributes around.
     for attr in attrs {

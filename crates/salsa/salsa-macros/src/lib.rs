@@ -1,7 +1,7 @@
 //! This crate provides salsa's macros and attributes.
 
 #![recursion_limit = "256"]
-
+#![feature()]
 #[macro_use]
 extern crate quote;
 
