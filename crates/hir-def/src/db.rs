@@ -20,7 +20,7 @@ use crate::{
     import_map::ImportMap,
     item_tree::{AttrOwner, ItemTree},
     lang_item::{self, LangItem, LangItemTarget, LangItems},
-    nameres::{diagnostics::DefDiagnostics, DefMap},
+    nameres::{diagnostics::DefDiagnostics, CrateAttributes, DefMap},
     visibility::{self, Visibility},
     AttrDefId, BlockId, BlockLoc, ConstBlockId, ConstBlockLoc, ConstId, ConstLoc, DefWithBodyId,
     EnumId, EnumLoc, EnumVariantId, EnumVariantLoc, ExternBlockId, ExternBlockLoc, ExternCrateId,
@@ -241,6 +241,10 @@ pub trait DefDatabase: InternDatabase + ExpandDatabase + Upcast<dyn ExpandDataba
     fn crate_supports_no_std(&self, crate_id: CrateId) -> bool;
 
     fn include_macro_invoc(&self, crate_id: CrateId) -> Arc<[(MacroCallId, EditionedFileId)]>;
+
+    /// Incrementality query
+    #[salsa::invoke(CrateAttributes::query)]
+    fn crate_attributes(&self, crate_id: CrateId) -> Arc<CrateAttributes>;
 }
 
 // return: macro call id and include file id

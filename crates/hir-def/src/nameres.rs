@@ -146,6 +146,12 @@ struct DefMapCrateData {
     exported_derives: FxHashMap<MacroDefId, Box<[Name]>>,
     fn_proc_macro_mapping: FxHashMap<FunctionId, ProcMacroId>,
 
+    edition: Edition,
+    attributes: Arc<CrateAttributes>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct CrateAttributes {
     /// Custom attributes registered with `#![register_attr]`.
     registered_attrs: Vec<Symbol>,
     /// Custom tool modules registered with `#![register_tool]`.
@@ -156,9 +162,39 @@ struct DefMapCrateData {
     rustc_coherence_is_core: bool,
     no_core: bool,
     no_std: bool,
-
-    edition: Edition,
+    // FIXME: Consider incrementality query for these limits?
     recursion_limit: Option<u32>,
+}
+
+impl CrateAttributes {
+    pub(super) fn query(db: &dyn DefDatabase, crate_id: CrateId) -> Arc<CrateAttributes> {
+        db.crate_def_map(crate_id).data.attributes.clone()
+    }
+
+    pub fn registered_tools(&self) -> &[Symbol] {
+        &self.registered_tools
+    }
+
+    pub fn registered_attrs(&self) -> &[Symbol] {
+        &self.registered_attrs
+    }
+
+    pub fn is_unstable_feature_enabled(&self, feature: &Symbol) -> bool {
+        self.unstable_features.contains(feature)
+    }
+
+    pub fn is_rustc_coherence_is_core(&self) -> bool {
+        self.rustc_coherence_is_core
+    }
+
+    pub fn is_no_std(&self) -> bool {
+        self.no_std || self.no_core
+    }
+
+    pub fn recursion_limit(&self) -> u32 {
+        // 128 is the default in rustc
+        self.recursion_limit.unwrap_or(128)
+    }
 }
 
 impl DefMapCrateData {
@@ -167,14 +203,16 @@ impl DefMapCrateData {
             extern_prelude: FxIndexMap::default(),
             exported_derives: FxHashMap::default(),
             fn_proc_macro_mapping: FxHashMap::default(),
-            registered_attrs: Vec::new(),
-            registered_tools: PREDEFINED_TOOLS.iter().map(|it| Symbol::intern(it)).collect(),
-            unstable_features: FxHashSet::default(),
-            rustc_coherence_is_core: false,
-            no_core: false,
-            no_std: false,
             edition,
-            recursion_limit: None,
+            attributes: Arc::new(CrateAttributes {
+                registered_attrs: Vec::new(),
+                registered_tools: PREDEFINED_TOOLS.iter().map(|it| Symbol::intern(it)).collect(),
+                unstable_features: FxHashSet::default(),
+                rustc_coherence_is_core: false,
+                no_core: false,
+                no_std: false,
+                recursion_limit: None,
+            }),
         }
     }
 
@@ -183,15 +221,18 @@ impl DefMapCrateData {
             extern_prelude,
             exported_derives,
             fn_proc_macro_mapping,
+            attributes,
+            edition: _,
+        } = self;
+        let CrateAttributes {
             registered_attrs,
             registered_tools,
             unstable_features,
             rustc_coherence_is_core: _,
             no_core: _,
             no_std: _,
-            edition: _,
             recursion_limit: _,
-        } = self;
+        } = &mut **attributes;
         extern_prelude.shrink_to_fit();
         exported_derives.shrink_to_fit();
         fn_proc_macro_mapping.shrink_to_fit();
@@ -450,26 +491,6 @@ impl DefMap {
         self.derive_helpers_in_scope.get(&id.map(|it| it.upcast())).map(Deref::deref)
     }
 
-    pub fn registered_tools(&self) -> &[Symbol] {
-        &self.data.registered_tools
-    }
-
-    pub fn registered_attrs(&self) -> &[Symbol] {
-        &self.data.registered_attrs
-    }
-
-    pub fn is_unstable_feature_enabled(&self, feature: &Symbol) -> bool {
-        self.data.unstable_features.contains(feature)
-    }
-
-    pub fn is_rustc_coherence_is_core(&self) -> bool {
-        self.data.rustc_coherence_is_core
-    }
-
-    pub fn is_no_std(&self) -> bool {
-        self.data.no_std || self.data.no_core
-    }
-
     pub fn fn_as_proc_macro(&self, id: FunctionId) -> Option<ProcMacroId> {
         self.data.fn_proc_macro_mapping.get(&id).copied()
     }
@@ -518,11 +539,6 @@ impl DefMap {
     /// Get a reference to the def map's diagnostics.
     pub fn diagnostics(&self) -> &[DefDiagnostic] {
         self.diagnostics.as_slice()
-    }
-
-    pub fn recursion_limit(&self) -> u32 {
-        // 128 is the default in rustc
-        self.data.recursion_limit.unwrap_or(128)
     }
 
     // FIXME: this can use some more human-readable format (ideally, an IR

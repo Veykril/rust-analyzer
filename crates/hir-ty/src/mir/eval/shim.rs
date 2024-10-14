@@ -169,11 +169,8 @@ impl Evaluator<'_> {
     ) -> Result<Option<FunctionId>> {
         // `PanicFmt` is redirected to `ConstPanicFmt`
         if let Some(LangItem::PanicFmt) = self.db.lang_attr(def.into()) {
-            let resolver =
-                self.db.crate_def_map(self.crate_id).crate_root().resolver(self.db.upcast());
-
             let Some(hir_def::lang_item::LangItemTarget::Function(const_panic_fmt)) =
-                self.db.lang_item(resolver.krate(), LangItem::ConstPanicFmt)
+                self.db.lang_item(self.crate_id, LangItem::ConstPanicFmt)
             else {
                 not_supported!("const_panic_fmt lang item not found or not a function");
             };
