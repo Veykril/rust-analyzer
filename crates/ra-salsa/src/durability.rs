@@ -35,6 +35,12 @@ impl Durability {
     /// Example: the standard library or something from crates.io
     pub const HIGH: Durability = Durability(2);
 
+    /// High durability: things that are not expected to change under
+    /// common usage.
+    ///
+    /// Example: the standard library or something from crates.io
+    pub const IMMUTABLE: Durability = Durability(3);
+
     /// The maximum possible durability; equivalent to HIGH but
     /// "conceptually" distinct (i.e., if we add more durability
     /// levels, this could change).

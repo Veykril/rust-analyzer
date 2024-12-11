@@ -16,7 +16,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use triomphe::Arc;
 
-const INTERN_DURABILITY: Durability = Durability::HIGH;
+const INTERN_DURABILITY: Durability = Durability::IMMUTABLE;
 
 /// Handles storage where the value is 'derived' by executing a
 /// function (in contrast to "inputs").

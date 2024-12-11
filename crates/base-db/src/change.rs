@@ -81,17 +81,17 @@ impl FileChange {
             db.set_file_text_with_durability(file_id, &text, durability)
         }
         if let Some(crate_graph) = self.crate_graph {
-            db.set_crate_graph_with_durability(Arc::new(crate_graph), Durability::HIGH);
+            db.set_crate_graph_with_durability(Arc::new(crate_graph), Durability::IMMUTABLE);
         }
         if let Some(data) = self.ws_data {
-            db.set_crate_workspace_data_with_durability(Arc::new(data), Durability::HIGH);
+            db.set_crate_workspace_data_with_durability(Arc::new(data), Durability::IMMUTABLE);
         }
     }
 }
 
 fn durability(source_root: &SourceRoot) -> Durability {
     if source_root.is_library {
-        Durability::HIGH
+        Durability::IMMUTABLE
     } else {
         Durability::LOW
     }

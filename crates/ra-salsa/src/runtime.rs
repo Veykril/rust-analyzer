@@ -539,7 +539,9 @@ impl ActiveQuery {
 
     fn add_read(&mut self, input: DatabaseKeyIndex, durability: Durability, revision: Revision) {
         if let Some(set) = &mut self.dependencies {
-            set.insert(input, durability);
+            if durability <= self.durability {
+                set.insert(input, durability);
+            }
         }
 
         self.durability = self.durability.min(durability);

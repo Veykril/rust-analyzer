@@ -35,7 +35,7 @@ impl RootDatabase {
                 }
             }
             self.set_local_roots_with_durability(Arc::new(local_roots), Durability::HIGH);
-            self.set_library_roots_with_durability(Arc::new(library_roots), Durability::HIGH);
+            self.set_library_roots_with_durability(Arc::new(library_roots), Durability::IMMUTABLE);
         }
         change.apply(self);
     }
