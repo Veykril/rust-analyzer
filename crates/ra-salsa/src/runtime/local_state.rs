@@ -187,7 +187,7 @@ impl ActiveQueryGuard<'_> {
         // If this frame were a cycle participant, it would have unwound.
         assert!(popped_query.cycle.is_none());
 
-        popped_query.revisions()
+        popped_query.into_revisions()
     }
 
     /// If the active query is registered as a cycle participant, remove and

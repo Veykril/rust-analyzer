@@ -1,11 +1,12 @@
 use crate::durability::Durability;
-use crate::hash::FxIndexSet;
+use crate::hash::FxIndexMap;
 use crate::plumbing::CycleRecoveryStrategy;
 use crate::revision::{AtomicRevision, Revision};
 use crate::{Cancelled, Cycle, Database, DatabaseKeyIndex, Event, EventKind};
 use itertools::Itertools;
 use parking_lot::lock_api::{RawRwLock, RawRwLockRecursive};
 use parking_lot::{Mutex, RwLock};
+use smallvec::SmallVec;
 use std::hash::Hash;
 use std::panic::panic_any;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -519,7 +520,7 @@ struct ActiveQuery {
 
     /// Set of subqueries that were accessed thus far, or `None` if
     /// there was an untracked the read.
-    dependencies: Option<FxIndexSet<DatabaseKeyIndex>>,
+    dependencies: Option<FxIndexMap<DatabaseKeyIndex, Durability>>,
 
     /// Stores the entire cycle, if one is found and this query is part of it.
     cycle: Option<Cycle>,
@@ -531,14 +532,14 @@ impl ActiveQuery {
             database_key_index,
             durability: Durability::MAX,
             changed_at: Revision::start(),
-            dependencies: Some(FxIndexSet::default()),
+            dependencies: Some(FxIndexMap::default()),
             cycle: None,
         }
     }
 
     fn add_read(&mut self, input: DatabaseKeyIndex, durability: Durability, revision: Revision) {
         if let Some(set) = &mut self.dependencies {
-            set.insert(input);
+            set.insert(input, durability);
         }
 
         self.durability = self.durability.min(durability);
@@ -557,18 +558,24 @@ impl ActiveQuery {
         self.changed_at = self.changed_at.max(revision);
     }
 
-    pub(crate) fn revisions(&self) -> QueryRevisions {
-        let (inputs, untracked) = match &self.dependencies {
+    pub(crate) fn into_revisions(self) -> QueryRevisions {
+        let (inputs, untracked) = match self.dependencies {
             None => (None, true),
 
-            Some(dependencies) => (
-                if dependencies.is_empty() {
-                    None
-                } else {
-                    Some(ThinArc::from_header_and_iter((), dependencies.iter().copied()))
-                },
-                false,
-            ),
+            Some(dependencies) => {
+                let dependencies: SmallVec<[_; 4]> = dependencies
+                    .into_iter()
+                    .filter_map(|(key, d)| (d <= self.durability).then_some(key))
+                    .collect();
+                (
+                    if dependencies.is_empty() {
+                        None
+                    } else {
+                        Some(ThinArc::from_header_and_slice((), &dependencies))
+                    },
+                    false,
+                )
+            }
         };
 
         QueryRevisions {
@@ -586,7 +593,15 @@ impl ActiveQuery {
         self.durability = self.durability.min(other.durability);
         if let Some(other_dependencies) = &other.dependencies {
             if let Some(my_dependencies) = &mut self.dependencies {
-                my_dependencies.extend(other_dependencies.iter().copied());
+                for (&dep, &d) in other_dependencies {
+                    match my_dependencies.entry(dep) {
+                        indexmap::map::Entry::Occupied(mut occupied_entry) => {
+                            let slot = occupied_entry.get_mut();
+                            *slot = (*slot).min(d);
+                        }
+                        indexmap::map::Entry::Vacant(vacant_entry) => _ = vacant_entry.insert(d),
+                    }
+                }
             }
         } else {
             self.dependencies = None;
