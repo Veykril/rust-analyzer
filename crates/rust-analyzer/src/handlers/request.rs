@@ -487,7 +487,7 @@ pub(crate) fn handle_document_diagnostics(
                 lsp_types::RelatedFullDocumentDiagnosticReport {
                     related_documents: None,
                     full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                        result_id: None,
+                        result_id: Some("rust-analyzer".to_string()),
                         items: vec![],
                     },
                 },
@@ -529,7 +529,7 @@ pub(crate) fn handle_document_diagnostics(
     Ok(lsp_types::DocumentDiagnosticReportResult::Report(
         lsp_types::DocumentDiagnosticReport::Full(lsp_types::RelatedFullDocumentDiagnosticReport {
             full_document_diagnostic_report: lsp_types::FullDocumentDiagnosticReport {
-                result_id: None,
+                result_id: Some("rust-analyzer".to_string()),
                 items: diagnostics.collect(),
             },
             related_documents: related_documents.is_empty().not().then(|| {
@@ -539,7 +539,10 @@ pub(crate) fn handle_document_diagnostics(
                         (
                             to_proto::url(&snap, id),
                             lsp_types::DocumentDiagnosticReportKind::Full(
-                                lsp_types::FullDocumentDiagnosticReport { result_id: None, items },
+                                lsp_types::FullDocumentDiagnosticReport {
+                                    result_id: Some("rust-analyzer".to_string()),
+                                    items,
+                                },
                             ),
                         )
                     })
