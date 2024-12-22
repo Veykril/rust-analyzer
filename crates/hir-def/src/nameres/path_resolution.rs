@@ -42,6 +42,9 @@ pub(super) enum ReachedFixedPoint {
 pub(super) struct ResolvePathResult {
     pub(super) resolved_def: PerNs,
     pub(super) segment_index: Option<usize>,
+    /// When resolving `Enum::Variant`, this points at `Enum`. If `Variant` is in scope and appears
+    /// alone this is `None`.
+    pub(super) enum_segment: Option<usize>,
     pub(super) reached_fixedpoint: ReachedFixedPoint,
     pub(super) from_differing_crate: bool,
 }
@@ -57,7 +60,29 @@ impl ResolvePathResult {
         segment_index: Option<usize>,
         from_differing_crate: bool,
     ) -> ResolvePathResult {
-        ResolvePathResult { resolved_def, segment_index, reached_fixedpoint, from_differing_crate }
+        ResolvePathResult {
+            resolved_def,
+            segment_index,
+            reached_fixedpoint,
+            from_differing_crate,
+            enum_segment: None,
+        }
+    }
+
+    fn new_enum_variant(
+        resolved_def: PerNs,
+        reached_fixedpoint: ReachedFixedPoint,
+        segment_index: Option<usize>,
+        from_differing_crate: bool,
+        enum_segment: usize,
+    ) -> ResolvePathResult {
+        ResolvePathResult {
+            resolved_def,
+            segment_index,
+            reached_fixedpoint,
+            from_differing_crate,
+            enum_segment: Some(enum_segment),
+        }
     }
 }
 
@@ -403,14 +428,14 @@ impl DefMap {
 
     fn resolve_remaining_segments<'a>(
         &self,
-        segments: impl Iterator<Item = (usize, &'a Name)>,
+        mut segments: impl Iterator<Item = (usize, &'a Name)>,
         mut curr_per_ns: PerNs,
         path: &ModPath,
         db: &dyn DefDatabase,
         shadow: BuiltinShadowMode,
         original_module: LocalModuleId,
     ) -> ResolvePathResult {
-        for (i, segment) in segments {
+        while let Some((i, segment)) = segments.next() {
             let curr = match curr_per_ns.take_types_full() {
                 Some(r) => r,
                 None => {
@@ -488,8 +513,21 @@ impl DefMap {
                             ),
                         })
                     });
+                    // FIXME: Need to filter visibility here and below? Not sure.
                     match res {
-                        Some(res) => res,
+                        Some(res) => {
+                            if segments.next().is_some() {
+                                // Enum variants are in value namespace, segments left => no resolution.
+                                return ResolvePathResult::empty(ReachedFixedPoint::No);
+                            }
+                            return ResolvePathResult::new_enum_variant(
+                                res,
+                                ReachedFixedPoint::Yes,
+                                None,
+                                false,
+                                i - 1,
+                            );
+                        }
                         None => {
                             return ResolvePathResult::new(
                                 PerNs::types(e.into(), curr.vis, curr.import),

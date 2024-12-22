@@ -240,6 +240,7 @@ pub struct PathSegment<'a> {
     pub args_and_bindings: Option<&'a GenericArgs>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub struct PathSegments<'a> {
     segments: &'a [Name],
     generic_args: Option<&'a [Option<GenericArgs>]>,
