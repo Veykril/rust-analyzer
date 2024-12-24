@@ -85,6 +85,8 @@ use crate::{
     FxIndexMap, LocalModuleId, Lookup, MacroExpander, MacroId, ModuleId, ProcMacroId, UseId,
 };
 
+pub use self::path_resolution::ResolvePathResultPrefixInfo;
+
 const PREDEFINED_TOOLS: &[SmolStr] = &[
     SmolStr::new_static("clippy"),
     SmolStr::new_static("rustfmt"),
@@ -623,7 +625,7 @@ impl DefMap {
         original_module: LocalModuleId,
         path: &ModPath,
         shadow: BuiltinShadowMode,
-    ) -> (PerNs, Option<usize>, Option<usize>) {
+    ) -> (PerNs, Option<usize>, ResolvePathResultPrefixInfo) {
         let res = self.resolve_path_fp_with_macro_single(
             db,
             ResolveMode::Other,
@@ -632,7 +634,7 @@ impl DefMap {
             shadow,
             None, // Currently this function isn't used for macro resolution.
         );
-        (res.resolved_def, res.enum_segment, res.segment_index)
+        (res.resolved_def, res.segment_index, res.prefix_info)
     }
 
     /// Ascends the `DefMap` hierarchy and calls `f` with every `DefMap` and containing module.

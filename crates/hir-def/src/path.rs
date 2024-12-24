@@ -260,6 +260,7 @@ impl<'a> PathSegments<'a> {
     pub fn last(&self) -> Option<PathSegment<'a>> {
         self.get(self.len().checked_sub(1)?)
     }
+
     pub fn get(&self, idx: usize) -> Option<PathSegment<'a>> {
         let res = PathSegment {
             name: self.segments.get(idx)?,
@@ -267,24 +268,37 @@ impl<'a> PathSegments<'a> {
         };
         Some(res)
     }
+
     pub fn skip(&self, len: usize) -> PathSegments<'a> {
         PathSegments {
             segments: self.segments.get(len..).unwrap_or(&[]),
             generic_args: self.generic_args.and_then(|it| it.get(len..)),
         }
     }
+
     pub fn take(&self, len: usize) -> PathSegments<'a> {
         PathSegments {
             segments: self.segments.get(..len).unwrap_or(self.segments),
             generic_args: self.generic_args.map(|it| it.get(..len).unwrap_or(it)),
         }
     }
+
     pub fn strip_last(&self) -> PathSegments<'a> {
         PathSegments {
             segments: self.segments.split_last().map_or(&[], |it| it.1),
             generic_args: self.generic_args.map(|it| it.split_last().map_or(&[][..], |it| it.1)),
         }
     }
+
+    pub fn strip_last_two(&self) -> PathSegments<'a> {
+        PathSegments {
+            segments: self.segments.get(..self.segments.len().saturating_sub(2)).unwrap_or(&[]),
+            generic_args: self
+                .generic_args
+                .map(|it| it.get(..it.len().saturating_sub(2)).unwrap_or(&[])),
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = PathSegment<'a>> {
         self.segments
             .iter()

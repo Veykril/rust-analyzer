@@ -540,6 +540,9 @@ fn baz() {
 enum Enum<A> {
     Variant(A),
 }
+mod enum_ {
+    pub(super) use super::Enum::Variant as V;
+}
 fn baz() {
     let v = Enum::<()>::Variant::<()>(());
                             // ^^^^^^ 💡 error: you can specify generic arguments on either the enum or the variant, but not both
@@ -551,6 +554,9 @@ fn baz() {
 fn foo() {
     use Enum::Variant;
     let _ = Variant::<()>(());
+    let _ = enum_::V::<()>(());
+    let _ = enum_::<()>::V::<()>(());
+              // ^^^^^^ 💡 error: generic arguments are not allowed on modules
 }
         "#,
         );

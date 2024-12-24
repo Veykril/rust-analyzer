@@ -42,47 +42,34 @@ pub(super) enum ReachedFixedPoint {
 pub(super) struct ResolvePathResult {
     pub(super) resolved_def: PerNs,
     pub(super) segment_index: Option<usize>,
-    /// When resolving `Enum::Variant`, this points at `Enum`. If `Variant` is in scope and appears
-    /// alone this is `None`.
-    pub(super) enum_segment: Option<usize>,
     pub(super) reached_fixedpoint: ReachedFixedPoint,
-    pub(super) from_differing_crate: bool,
+    pub(super) prefix_info: ResolvePathResultPrefixInfo,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvePathResultPrefixInfo {
+    None,
+    DifferingCrate,
+    Enum,
 }
 
 impl ResolvePathResult {
     fn empty(reached_fixedpoint: ReachedFixedPoint) -> ResolvePathResult {
-        ResolvePathResult::new(PerNs::none(), reached_fixedpoint, None, false)
+        ResolvePathResult::new(
+            PerNs::none(),
+            reached_fixedpoint,
+            None,
+            ResolvePathResultPrefixInfo::None,
+        )
     }
 
     fn new(
         resolved_def: PerNs,
         reached_fixedpoint: ReachedFixedPoint,
         segment_index: Option<usize>,
-        from_differing_crate: bool,
+        prefix_info: ResolvePathResultPrefixInfo,
     ) -> ResolvePathResult {
-        ResolvePathResult {
-            resolved_def,
-            segment_index,
-            reached_fixedpoint,
-            from_differing_crate,
-            enum_segment: None,
-        }
-    }
-
-    fn new_enum_variant(
-        resolved_def: PerNs,
-        reached_fixedpoint: ReachedFixedPoint,
-        segment_index: Option<usize>,
-        from_differing_crate: bool,
-        enum_segment: usize,
-    ) -> ResolvePathResult {
-        ResolvePathResult {
-            resolved_def,
-            segment_index,
-            reached_fixedpoint,
-            from_differing_crate,
-            enum_segment: Some(enum_segment),
-        }
+        ResolvePathResult { resolved_def, segment_index, reached_fixedpoint, prefix_info }
     }
 }
 
@@ -182,7 +169,17 @@ impl DefMap {
             if result.reached_fixedpoint == ReachedFixedPoint::No {
                 result.reached_fixedpoint = new.reached_fixedpoint;
             }
-            result.from_differing_crate |= new.from_differing_crate;
+            result.prefix_info = match (result.prefix_info, new.prefix_info) {
+                (ResolvePathResultPrefixInfo::None, it) => it,
+                (ResolvePathResultPrefixInfo::DifferingCrate, _) => {
+                    ResolvePathResultPrefixInfo::DifferingCrate
+                }
+                (
+                    ResolvePathResultPrefixInfo::Enum,
+                    ResolvePathResultPrefixInfo::DifferingCrate,
+                ) => ResolvePathResultPrefixInfo::DifferingCrate,
+                (ResolvePathResultPrefixInfo::Enum, _) => ResolvePathResultPrefixInfo::Enum,
+            };
             result.segment_index = match (result.segment_index, new.segment_index) {
                 (Some(idx), None) => Some(idx),
                 (Some(old), Some(new)) => Some(old.max(new)),
@@ -468,7 +465,7 @@ impl DefMap {
                             def,
                             ReachedFixedPoint::Yes,
                             s.map(|s| s + i),
-                            true,
+                            ResolvePathResultPrefixInfo::DifferingCrate,
                         );
                     }
 
@@ -520,12 +517,11 @@ impl DefMap {
                                 // Enum variants are in value namespace, segments left => no resolution.
                                 return ResolvePathResult::empty(ReachedFixedPoint::No);
                             }
-                            return ResolvePathResult::new_enum_variant(
+                            return ResolvePathResult::new(
                                 res,
                                 ReachedFixedPoint::Yes,
                                 None,
-                                false,
-                                i - 1,
+                                ResolvePathResultPrefixInfo::Enum,
                             );
                         }
                         None => {
@@ -533,7 +529,7 @@ impl DefMap {
                                 PerNs::types(e.into(), curr.vis, curr.import),
                                 ReachedFixedPoint::Yes,
                                 Some(i),
-                                false,
+                                ResolvePathResultPrefixInfo::None,
                             )
                         }
                     }
@@ -551,7 +547,7 @@ impl DefMap {
                         PerNs::types(s, curr.vis, curr.import),
                         ReachedFixedPoint::Yes,
                         Some(i),
-                        false,
+                        ResolvePathResultPrefixInfo::None,
                     );
                 }
             };
@@ -560,7 +556,12 @@ impl DefMap {
                 .filter_visibility(|vis| vis.is_visible_from_def_map(db, self, original_module));
         }
 
-        ResolvePathResult::new(curr_per_ns, ReachedFixedPoint::Yes, None, false)
+        ResolvePathResult::new(
+            curr_per_ns,
+            ReachedFixedPoint::Yes,
+            None,
+            ResolvePathResultPrefixInfo::None,
+        )
     }
 
     fn resolve_name_in_module(

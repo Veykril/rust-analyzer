@@ -32,7 +32,7 @@ use hir_def::{
         WherePredicateTypeTarget,
     },
     lang_item::LangItem,
-    nameres::MacroSubNs,
+    nameres::{MacroSubNs, ResolvePathResultPrefixInfo},
     path::{GenericArg, GenericArgs, ModPath, Path, PathKind, PathSegment, PathSegments},
     resolver::{HasResolver, LifetimeNs, ResolveValueResult, Resolver, TypeNs, ValueNs},
     type_ref::{
@@ -806,101 +806,104 @@ impl<'a> TyLoweringContext<'a> {
         hygiene_id: HygieneId,
         on_diagnostic: &mut dyn FnMut(&mut Self, PathLoweringDiagnostic),
     ) -> Option<ResolveValueResult> {
-        let (res, enum_segment) =
-            self.resolver.resolve_path_in_value_ns_with_enum(self.db.upcast(), path, hygiene_id)?;
+        let (res, prefix_info) = self.resolver.resolve_path_in_value_ns_with_prefix_info(
+            self.db.upcast(),
+            path,
+            hygiene_id,
+        )?;
+
         let segments = path.segments();
+        match path {
+            Path::Normal(..) if !segments.is_empty() => (),
+            _ => return Some(res),
+        };
 
-        if !matches!(path, Path::LangItem(..)) && !segments.is_empty() {
-            // `segments.is_empty()` can occur with `self`.
-
-            let mod_segments = match (enum_segment, &res) {
-                (Some(enum_segment), _) => segments.take(enum_segment),
-                (None, ResolveValueResult::Partial(_, unresolved_segment, _)) => {
-                    segments.take(*unresolved_segment - 1)
-                }
-                (None, ResolveValueResult::ValueNs(..)) => segments.strip_last(),
-            };
-            for (i, mod_segment) in mod_segments.iter().enumerate() {
-                if mod_segment.args_and_bindings.is_some() {
-                    on_diagnostic(
-                        self,
-                        PathLoweringDiagnostic::GenericArgsProhibited {
-                            segment: i as u32,
-                            reason: GenericArgsProhibitedReason::Module,
-                        },
-                    );
-                }
+        let (mod_segments, enum_segment) = match res {
+            ResolveValueResult::Partial(_, unresolved_segment, _) => {
+                (segments.take(unresolved_segment - 1), None)
             }
-
-            if let Some(enum_segment) = enum_segment {
-                if segments.get(enum_segment).is_some_and(|it| it.args_and_bindings.is_some())
-                    && segments
-                        .get(enum_segment + 1)
-                        .is_some_and(|it| it.args_and_bindings.is_some())
-                {
-                    on_diagnostic(
-                        self,
-                        PathLoweringDiagnostic::GenericArgsProhibited {
-                            segment: (enum_segment + 1) as u32,
-                            reason: GenericArgsProhibitedReason::EnumVariant,
-                        },
-                    );
-                }
+            ResolveValueResult::ValueNs(ValueNs::EnumVariantId(_), _)
+                if prefix_info == ResolvePathResultPrefixInfo::Enum =>
+            {
+                (segments.strip_last_two(), segments.len().checked_sub(2))
             }
-
-            match &res {
-                ResolveValueResult::ValueNs(resolution, _) => {
-                    let resolved_segment_idx =
-                        segments.len().checked_sub(1).unwrap_or_else(|| panic!("{path:?}"));
-                    let resolved_segment = segments.last().unwrap();
-
-                    let mut prohibit_generics_on_resolved = |reason| {
-                        if resolved_segment.args_and_bindings.is_some() {
-                            on_diagnostic(
-                                self,
-                                PathLoweringDiagnostic::GenericArgsProhibited {
-                                    segment: resolved_segment_idx as u32,
-                                    reason,
-                                },
-                            );
-                        }
-                    };
-
-                    match resolution {
-                        ValueNs::ImplSelf(_) => {
-                            prohibit_generics_on_resolved(GenericArgsProhibitedReason::SelfTy)
-                        }
-                        // FIXME: rustc generates E0107 (incorrect number of generic arguments) and not
-                        // E0109 (generic arguments provided for a type that doesn't accept them) for
-                        // consts and statics, presumably as a defense against future in which consts
-                        // and statics can be generic, or just because it was easier for rustc implementors.
-                        // That means we'll show the wrong error code. Because of us it's easier to do it
-                        // this way :)
-                        ValueNs::GenericParam(_) | ValueNs::ConstId(_) => {
-                            prohibit_generics_on_resolved(GenericArgsProhibitedReason::Const)
-                        }
-                        ValueNs::StaticId(_) => {
-                            prohibit_generics_on_resolved(GenericArgsProhibitedReason::Static)
-                        }
-                        ValueNs::FunctionId(_)
-                        | ValueNs::StructId(_)
-                        | ValueNs::EnumVariantId(_) => {}
-                        ValueNs::LocalBinding(_) => {}
-                    }
-                }
-                ResolveValueResult::Partial(resolution, unresolved_idx, _) => {
-                    let resolved_segment_idx = unresolved_idx - 1;
-                    let resolved_segment = segments.get(resolved_segment_idx).unwrap();
-                    self.handle_type_ns_resolution(
-                        resolution,
-                        resolved_segment,
-                        resolved_segment_idx,
-                        on_diagnostic,
-                    );
-                }
-            };
+            ResolveValueResult::ValueNs(..) => (segments.strip_last(), None),
+        };
+        for (i, mod_segment) in mod_segments.iter().enumerate() {
+            if mod_segment.args_and_bindings.is_some() {
+                on_diagnostic(
+                    self,
+                    PathLoweringDiagnostic::GenericArgsProhibited {
+                        segment: i as u32,
+                        reason: GenericArgsProhibitedReason::Module,
+                    },
+                );
+            }
         }
 
+        if let Some(enum_segment) = enum_segment {
+            if segments.get(enum_segment).is_some_and(|it| it.args_and_bindings.is_some())
+                && segments.get(enum_segment + 1).is_some_and(|it| it.args_and_bindings.is_some())
+            {
+                on_diagnostic(
+                    self,
+                    PathLoweringDiagnostic::GenericArgsProhibited {
+                        segment: (enum_segment + 1) as u32,
+                        reason: GenericArgsProhibitedReason::EnumVariant,
+                    },
+                );
+            }
+        }
+
+        match &res {
+            ResolveValueResult::ValueNs(resolution, _) => {
+                let resolved_segment_idx =
+                    segments.len().checked_sub(1).unwrap_or_else(|| panic!("{path:?}"));
+                let resolved_segment = segments.last().unwrap();
+
+                let mut prohibit_generics_on_resolved = |reason| {
+                    if resolved_segment.args_and_bindings.is_some() {
+                        on_diagnostic(
+                            self,
+                            PathLoweringDiagnostic::GenericArgsProhibited {
+                                segment: resolved_segment_idx as u32,
+                                reason,
+                            },
+                        );
+                    }
+                };
+
+                match resolution {
+                    ValueNs::ImplSelf(_) => {
+                        prohibit_generics_on_resolved(GenericArgsProhibitedReason::SelfTy)
+                    }
+                    // FIXME: rustc generates E0107 (incorrect number of generic arguments) and not
+                    // E0109 (generic arguments provided for a type that doesn't accept them) for
+                    // consts and statics, presumably as a defense against future in which consts
+                    // and statics can be generic, or just because it was easier for rustc implementors.
+                    // That means we'll show the wrong error code. Because of us it's easier to do it
+                    // this way :)
+                    ValueNs::GenericParam(_) | ValueNs::ConstId(_) => {
+                        prohibit_generics_on_resolved(GenericArgsProhibitedReason::Const)
+                    }
+                    ValueNs::StaticId(_) => {
+                        prohibit_generics_on_resolved(GenericArgsProhibitedReason::Static)
+                    }
+                    ValueNs::FunctionId(_) | ValueNs::StructId(_) | ValueNs::EnumVariantId(_) => {}
+                    ValueNs::LocalBinding(_) => {}
+                }
+            }
+            ResolveValueResult::Partial(resolution, unresolved_idx, _) => {
+                let resolved_segment_idx = unresolved_idx - 1;
+                let resolved_segment = segments.get(resolved_segment_idx).unwrap();
+                self.handle_type_ns_resolution(
+                    resolution,
+                    resolved_segment,
+                    resolved_segment_idx,
+                    on_diagnostic,
+                );
+            }
+        };
         Some(res)
     }
 
