@@ -93,7 +93,7 @@ pub struct FlatTree {
 struct SubtreeRepr {
     open: TokenId,
     close: TokenId,
-    kind: tt::DelimiterKind,
+    kind: Delimiter,
     tt: [u32; 2],
 }
 
@@ -268,38 +268,38 @@ fn write_vec<T, F: Fn(T) -> [u32; N], const N: usize>(xs: Vec<T>, f: F) -> Vec<u
 impl SubtreeRepr {
     fn write(self) -> [u32; 4] {
         let kind = match self.kind {
-            tt::DelimiterKind::Invisible => 0,
-            tt::DelimiterKind::Parenthesis => 1,
-            tt::DelimiterKind::Brace => 2,
-            tt::DelimiterKind::Bracket => 3,
+            Delimiter::Invisible => 0,
+            Delimiter::Parenthesis => 1,
+            Delimiter::Brace => 2,
+            Delimiter::Bracket => 3,
         };
         [self.open.0, kind, self.tt[0], self.tt[1]]
     }
     fn read([open, kind, lo, len]: [u32; 4]) -> SubtreeRepr {
         let kind = match kind {
-            0 => tt::DelimiterKind::Invisible,
-            1 => tt::DelimiterKind::Parenthesis,
-            2 => tt::DelimiterKind::Brace,
-            3 => tt::DelimiterKind::Bracket,
+            0 => Delimiter::Invisible,
+            1 => Delimiter::Parenthesis,
+            2 => Delimiter::Brace,
+            3 => Delimiter::Bracket,
             other => panic!("bad kind {other}"),
         };
         SubtreeRepr { open: TokenId(open), close: TokenId(!0), kind, tt: [lo, len] }
     }
     fn write_with_close_span(self) -> [u32; 5] {
         let kind = match self.kind {
-            tt::DelimiterKind::Invisible => 0,
-            tt::DelimiterKind::Parenthesis => 1,
-            tt::DelimiterKind::Brace => 2,
-            tt::DelimiterKind::Bracket => 3,
+            Delimiter::Invisible => 0,
+            Delimiter::Parenthesis => 1,
+            Delimiter::Brace => 2,
+            Delimiter::Bracket => 3,
         };
         [self.open.0, self.close.0, kind, self.tt[0], self.tt[1]]
     }
     fn read_with_close_span([open, close, kind, lo, len]: [u32; 5]) -> SubtreeRepr {
         let kind = match kind {
-            0 => tt::DelimiterKind::Invisible,
-            1 => tt::DelimiterKind::Parenthesis,
-            2 => tt::DelimiterKind::Brace,
-            3 => tt::DelimiterKind::Bracket,
+            0 => Delimiter::Invisible,
+            1 => Delimiter::Parenthesis,
+            2 => Delimiter::Brace,
+            3 => Delimiter::Bracket,
             other => panic!("bad kind {other}"),
         };
         SubtreeRepr { open: TokenId(open), close: TokenId(close), kind, tt: [lo, len] }
@@ -416,7 +416,7 @@ impl<'a, S: InternableSpan> Writer<'a, '_, S> {
 
         for child in subtree {
             let idx_tag = match child {
-                tt::iter::TtElement::Subtree(subtree, subtree_iter) => {
+                tt::iter::TtElement::Delimited(subtree, subtree_iter) => {
                     let idx = self.enqueue(subtree, subtree_iter);
                     idx << 2
                 }

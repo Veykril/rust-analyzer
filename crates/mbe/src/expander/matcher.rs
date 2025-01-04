@@ -66,13 +66,13 @@ use smallvec::{smallvec, SmallVec};
 use span::{Edition, Span};
 use tt::{
     iter::{TtElement, TtIter},
-    DelimSpan,
+    DelimSpan, Delimiter, Token,
 };
 
 use crate::{
     expander::{Binding, Bindings, ExpandResult, Fragment},
     expect_fragment,
-    parser::{ExprKind, MetaVarKind, Op, RepeatKind, Separator},
+    parser::{ExprKind, MetaVarKind, Op, RepeatKind},
     ExpandError, ExpandErrorKind, MetaTemplate, ValueResult,
 };
 
@@ -327,7 +327,7 @@ struct MatchState<'t> {
     up: Option<Box<MatchState<'t>>>,
 
     /// The separator if we are in a repetition.
-    sep: Option<Arc<Separator>>,
+    sep: Option<Token<Span>>,
 
     /// The KleeneOp of this sequence if we are in a repetition.
     sep_kind: Option<RepeatKind>,
@@ -474,9 +474,9 @@ fn match_loop_inner<'t>(
                     is_error: false,
                 })
             }
-            OpDelimited::Op(Op::Subtree { tokens, delimiter }) => {
-                if let Ok((subtree, _)) = src.clone().expect_subtree() {
-                    if subtree.delimiter.kind == delimiter.kind {
+            OpDelimited::Op(Op::Subtree { tokens, delim_span, delimiter }) => {
+                if let Ok((d, _)) = src.clone().expect_subtree() {
+                    if d == *delimiter {
                         item.stack.push(item.dot);
                         item.dot = tokens.iter_delimited_with(*delimiter);
                         cur_items.push(item);
@@ -516,15 +516,12 @@ fn match_loop_inner<'t>(
                     }
                 }
             }
-            OpDelimited::Op(Op::Literal(lhs)) => {
-                if let Ok(rhs) = src.clone().expect_leaf() {
-                    if matches!(rhs, tt::Leaf::Literal(it) if it.symbol == lhs.symbol) {
+            OpDelimited::Op(Op::Token(Token { kind: TokenKind::Literal(lhs), span }, ..)) => {
+                if let Ok((rhs, span)) = src.clone().expect_literal() {
+                    if rhs.symbol == lhs.symbol {
                         item.dot.next();
                     } else {
-                        res.add_err(ExpandError::new(
-                            *rhs.span(),
-                            ExpandErrorKind::UnexpectedToken,
-                        ));
+                        res.add_err(ExpandError::new(span, ExpandErrorKind::UnexpectedToken));
                         item.is_error = true;
                     }
                 } else {
@@ -536,15 +533,12 @@ fn match_loop_inner<'t>(
                 }
                 try_push!(next_items, item);
             }
-            OpDelimited::Op(Op::Ident(lhs)) => {
-                if let Ok(rhs) = src.clone().expect_leaf() {
-                    if matches!(rhs, tt::Leaf::Ident(it) if it.sym == lhs.sym) {
+            OpDelimited::Op(Op::Token(Token { kind: TokenKind::Ident(lhs, _), span }, ..)) => {
+                if let Ok((rhs, _, span)) = src.clone().expect_ident() {
+                    if lhs == rhs {
                         item.dot.next();
                     } else {
-                        res.add_err(ExpandError::new(
-                            *rhs.span(),
-                            ExpandErrorKind::UnexpectedToken,
-                        ));
+                        res.add_err(ExpandError::new(span, ExpandErrorKind::UnexpectedToken));
                         item.is_error = true;
                     }
                 } else {
@@ -556,43 +550,44 @@ fn match_loop_inner<'t>(
                 }
                 try_push!(next_items, item);
             }
-            OpDelimited::Op(Op::Punct(lhs)) => {
-                let mut fork = src.clone();
-                let error = if let Ok(rhs) = fork.expect_glued_punct() {
-                    let first_is_single_quote = rhs[0].char == '\'';
-                    let lhs = lhs.iter().map(|it| it.char);
-                    let rhs_ = rhs.iter().map(|it| it.char);
-                    if lhs.clone().eq(rhs_) {
-                        // HACK: here we use `meta_result` to pass `TtIter` back to caller because
-                        // it might have been advanced multiple times. `ValueResult` is
-                        // insignificant.
-                        item.meta_result = Some((fork, ValueResult::ok(None)));
-                        item.dot.next();
-                        next_items.push(item);
-                        continue;
-                    }
+            OpDelimited::Op(Op::Token(lhs)) => {
+                // let mut fork = src.clone();
+                // let error = if let Ok(rhs) = fork.expect_glued_punct() {
+                //     let first_is_single_quote = rhs[0].kind == TokenKind::SingleQuote;
+                //     let lhs = lhs.iter().map(|it| it.char);
+                //     let rhs_ = rhs.iter().map(|it| it.char);
+                //     if lhs.clone().eq(rhs_) {
+                //         // HACK: here we use `meta_result` to pass `TtIter` back to caller because
+                //         // it might have been advanced multiple times. `ValueResult` is
+                //         // insignificant.
+                //         item.meta_result = Some((fork, ValueResult::ok(None)));
+                //         item.dot.next();
+                //         next_items.push(item);
+                //         continue;
+                //     }
 
-                    if first_is_single_quote {
-                        // If the first punct token is a single quote, that's a part of a lifetime
-                        // ident, not a punct.
-                        ExpandError::new(
-                            rhs.get(1).map_or(rhs[0].span, |it| it.span),
-                            ExpandErrorKind::UnexpectedToken,
-                        )
-                    } else {
-                        let lhs = lhs.collect::<String>();
-                        ExpandError::binding_error(rhs[0].span, format!("expected punct: `{lhs}`"))
-                    }
-                } else {
-                    ExpandError::new(
-                        src.clone().next().map_or(delim_span.close, |it| it.first_span()),
-                        ExpandErrorKind::UnexpectedToken,
-                    )
-                };
+                //     if first_is_single_quote {
+                //         // If the first punct token is a single quote, that's a part of a lifetime
+                //         // ident, not a punct.
+                //         ExpandError::new(
+                //             rhs.get(1).map_or(rhs[0].span, |it| it.span),
+                //             ExpandErrorKind::UnexpectedToken,
+                //         )
+                //     } else {
+                //         let lhs = lhs.collect::<String>();
+                //         ExpandError::binding_error(rhs[0].span, format!("expected punct: `{lhs}`"))
+                //     }
+                // } else {
+                //     ExpandError::new(
+                //         src.clone().next().map_or(delim_span.close, |it| it.first_span()),
+                //         ExpandErrorKind::UnexpectedToken,
+                //     )
+                // };
 
-                res.add_err(error);
-                item.is_error = true;
-                error_items.push(item);
+                // res.add_err(error);
+                // item.is_error = true;
+                // error_items.push(item);
+                todo!()
             }
             OpDelimited::Op(
                 Op::Ignore { .. }
@@ -604,7 +599,7 @@ fn match_loop_inner<'t>(
                 stdx::never!("metavariable expression in lhs found");
             }
             OpDelimited::Open => {
-                if matches!(src.peek(), Some(TtElement::Subtree(..))) {
+                if matches!(src.peek(), Some(TtElement::Delimited(..))) {
                     item.dot.next();
                     try_push!(next_items, item);
                 }
@@ -625,7 +620,7 @@ fn match_loop<'t>(
     src: &'t tt::TopSubtree<Span>,
     edition: Edition,
 ) -> Match<'t> {
-    let span = src.top_subtree().delimiter.delim_span();
+    let &span = src.top_subtree_delim_span();
     let mut src = src.iter();
     let mut stack: SmallVec<[TtIter<'_, Span>; 1]> = SmallVec::new();
     let mut res = Match::default();
@@ -725,7 +720,7 @@ fn match_loop<'t>(
                 }
             } else {
                 match src.next() {
-                    Some(TtElement::Subtree(_, subtree_iter)) => {
+                    Some(TtElement::Delimited(.., subtree_iter)) => {
                         stack.push(src.clone());
                         src = subtree_iter;
                     }
@@ -792,15 +787,18 @@ fn match_meta_var<'t>(
             // [0]: https://github.com/rust-lang/rust/issues/86730
             // [1]: https://github.com/rust-lang/rust/blob/f0c4da499/compiler/rustc_expand/src/mbe/macro_parser.rs#L576
             match input.peek() {
-                Some(TtElement::Leaf(tt::Leaf::Ident(it))) => {
-                    let is_err = if it.is_raw.no() && matches!(expr, ExprKind::Expr2021) {
-                        it.sym == sym::underscore || it.sym == sym::let_ || it.sym == sym::const_
+                Some(TtElement::Token(
+                    tt::Token { kind: TokenKind::Ident(it, is_raw), span },
+                    ..,
+                )) => {
+                    let is_err = if is_raw.no() && matches!(expr, ExprKind::Expr2021) {
+                        it == sym::underscore || it == sym::let_ || it == sym::const_
                     } else {
-                        it.sym == sym::let_
+                        it == sym::let_
                     };
                     if is_err {
                         return ExpandResult::only_err(ExpandError::new(
-                            it.span,
+                            *span,
                             ExpandErrorKind::NoMatchingRule,
                         ));
                     }
@@ -862,7 +860,7 @@ fn collect_vars(collector_fun: &mut impl FnMut(Symbol), pattern: &MetaTemplate) 
             Op::Var { name, .. } => collector_fun(name.clone()),
             Op::Subtree { tokens, .. } => collect_vars(collector_fun, tokens),
             Op::Repeat { tokens, .. } => collect_vars(collector_fun, tokens),
-            Op::Literal(_) | Op::Ident(_) | Op::Punct(_) => {}
+            Op::Token(_) => {}
             Op::Ignore { .. }
             | Op::Index { .. }
             | Op::Count { .. }
@@ -896,20 +894,19 @@ enum OpDelimited<'a> {
 #[derive(Debug, Clone, Copy)]
 struct OpDelimitedIter<'a> {
     inner: &'a [Op],
-    delimited: tt::Delimiter<Span>,
+    delimited: tt::Delimiter,
     idx: usize,
 }
 
 impl<'a> OpDelimitedIter<'a> {
     fn is_eof(&self) -> bool {
-        let len = self.inner.len()
-            + if self.delimited.kind != tt::DelimiterKind::Invisible { 2 } else { 0 };
+        let len = self.inner.len() + if self.delimited != Delimiter::Invisible { 2 } else { 0 };
         self.idx >= len
     }
 
     fn peek(&self) -> Option<OpDelimited<'a>> {
-        match self.delimited.kind {
-            tt::DelimiterKind::Invisible => self.inner.get(self.idx).map(OpDelimited::Op),
+        match self.delimited {
+            Delimiter::Invisible => self.inner.get(self.idx).map(OpDelimited::Op),
             _ => match self.idx {
                 0 => Some(OpDelimited::Open),
                 i if i == self.inner.len() + 1 => Some(OpDelimited::Close),
@@ -933,8 +930,7 @@ impl<'a> Iterator for OpDelimitedIter<'a> {
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let len = self.inner.len()
-            + if self.delimited.kind != tt::DelimiterKind::Invisible { 2 } else { 0 };
+        let len = self.inner.len() + if self.delimited != Delimiter::Invisible { 2 } else { 0 };
         let remain = len.saturating_sub(self.idx);
         (remain, Some(remain))
     }
@@ -949,9 +945,9 @@ fn expect_separator<S: Copy>(iter: &mut TtIter<'_, S>, separator: &Separator) ->
         },
         Separator::Literal(lhs) => match fork.expect_literal() {
             Ok(rhs) => match rhs {
-                tt::Leaf::Literal(rhs) => rhs.symbol == lhs.symbol,
-                tt::Leaf::Ident(rhs) => rhs.sym == lhs.symbol,
-                tt::Leaf::Punct(_) => false,
+                tt::Token::Literal(rhs) => rhs.symbol == lhs.symbol,
+                tt::Token::Ident(rhs) => rhs.sym == lhs.symbol,
+                tt::Token::Punct(_) => false,
             },
             Err(_) => false,
         },
@@ -971,7 +967,7 @@ fn expect_separator<S: Copy>(iter: &mut TtIter<'_, S>, separator: &Separator) ->
 }
 
 fn expect_tt<S: Copy>(iter: &mut TtIter<'_, S>) -> Result<(), ()> {
-    if let Some(TtElement::Leaf(tt::Leaf::Punct(punct))) = iter.peek() {
+    if let Some(TtElement::Token(tt::Token::Punct(punct))) = iter.peek() {
         if punct.char == '\'' {
             expect_lifetime(iter)?;
         } else {
@@ -993,7 +989,7 @@ fn expect_lifetime<S: Copy>(iter: &mut TtIter<'_, S>) -> Result<(), ()> {
 }
 
 fn eat_char<S: Copy>(iter: &mut TtIter<'_, S>, c: char) {
-    if matches!(iter.peek(), Some(TtElement::Leaf(tt::Leaf::Punct(tt::Punct { char, .. }))) if *char == c)
+    if matches!(iter.peek(), Some(TtElement::Token(tt::Token::Punct(tt::Punct { char, .. }))) if *char == c)
     {
         iter.next().expect("already peeked");
     }

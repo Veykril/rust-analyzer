@@ -4,9 +4,12 @@
 use std::fmt;
 
 use arrayvec::ArrayVec;
-use intern::sym;
+use intern::{sym, Symbol};
 
-use crate::{Ident, Leaf, Punct, Spacing, Subtree, TokenTree, TokenTreesView};
+use crate::{
+    BinOpToken, DelimSpacing, DelimSpan, Delimiter, IdentIsRaw, Literal, Spacing, Subtree, Token,
+    TokenKind, TokenTree, TokenTreesView,
+};
 
 #[derive(Clone)]
 pub struct TtIter<'a, S> {
@@ -33,128 +36,158 @@ impl<'a, S: Copy> TtIter<'a, S> {
         TtIter { inner: tt.iter() }
     }
 
-    pub fn expect_char(&mut self, char: char) -> Result<(), ()> {
+    pub fn expect_token(&mut self) -> Result<&Token<S>, ()> {
         match self.next() {
-            Some(TtElement::Leaf(&Leaf::Punct(Punct { char: c, .. }))) if c == char => Ok(()),
+            Some(TtElement::Token(t, ..)) => Ok(t),
             _ => Err(()),
         }
     }
 
-    pub fn expect_any_char(&mut self, chars: &[char]) -> Result<(), ()> {
+    pub fn expect_any_token(&mut self, tokens: &[crate::TokenKind]) -> Result<(), ()> {
         match self.next() {
-            Some(TtElement::Leaf(Leaf::Punct(Punct { char: c, .. }))) if chars.contains(c) => {
-                Ok(())
-            }
+            Some(TtElement::Token(Token { kind, .. }, ..)) if tokens.contains(kind) => Ok(()),
             _ => Err(()),
         }
     }
 
-    pub fn expect_subtree(&mut self) -> Result<(&'a Subtree<S>, TtIter<'a, S>), ()> {
+    pub fn expect_subtree(&mut self) -> Result<(Delimiter, TtIter<'a, S>), ()> {
         match self.next() {
-            Some(TtElement::Subtree(subtree, iter)) => Ok((subtree, iter)),
+            Some(TtElement::Delimited(.., delimiter, _, iter)) => Ok((delimiter, iter)),
             _ => Err(()),
         }
     }
 
-    pub fn expect_leaf(&mut self) -> Result<&'a Leaf<S>, ()> {
-        match self.next() {
-            Some(TtElement::Leaf(it)) => Ok(it),
-            _ => Err(()),
-        }
-    }
+    // pub fn expect_token(&mut self) -> Result<&'a Token<S>, ()> {
+    //     match self.next() {
+    //         Some(TtElement::Token(it)) => Ok(it),
+    //         _ => Err(()),
+    //     }
+    // }
 
     pub fn expect_dollar(&mut self) -> Result<(), ()> {
-        match self.expect_leaf()? {
-            Leaf::Punct(Punct { char: '$', .. }) => Ok(()),
+        match self.next() {
+            Some(TtElement::Token(Token { kind: TokenKind::Dollar, .. }, _)) => Ok(()),
             _ => Err(()),
         }
     }
 
     pub fn expect_comma(&mut self) -> Result<(), ()> {
-        match self.expect_leaf()? {
-            Leaf::Punct(Punct { char: ',', .. }) => Ok(()),
+        match self.next() {
+            Some(TtElement::Token(Token { kind: TokenKind::Comma, .. }, _)) => Ok(()),
             _ => Err(()),
         }
     }
 
-    pub fn expect_ident(&mut self) -> Result<&'a Ident<S>, ()> {
-        match self.expect_leaf()? {
-            Leaf::Ident(it) if it.sym != sym::underscore => Ok(it),
+    pub fn expect_ident(&mut self) -> Result<(&Symbol, IdentIsRaw, S), ()> {
+        match self.next() {
+            Some(TtElement::Token(Token { kind: TokenKind::Ident(ident, raw), span }, _)) => {
+                Ok((ident, *raw, *span))
+            }
             _ => Err(()),
         }
     }
 
-    pub fn expect_ident_or_underscore(&mut self) -> Result<&'a Ident<S>, ()> {
-        match self.expect_leaf()? {
-            Leaf::Ident(it) => Ok(it),
+    pub fn expect_literal(&mut self) -> Result<(&Literal, S), ()> {
+        match self.next() {
+            Some(TtElement::Token(Token { kind: TokenKind::Literal(lit), span }, _)) => {
+                Ok((lit, *span))
+            }
             _ => Err(()),
         }
     }
 
-    pub fn expect_literal(&mut self) -> Result<&'a Leaf<S>, ()> {
-        let it = self.expect_leaf()?;
-        match it {
-            Leaf::Literal(_) => Ok(it),
-            Leaf::Ident(ident) if ident.sym == sym::true_ || ident.sym == sym::false_ => Ok(it),
-            _ => Err(()),
-        }
-    }
+    // pub fn expect_ident_or_underscore(&mut self) -> Result<&'a Ident<S>, ()> {
+    //     match self.expect_token()? {
+    //         Token::Ident(it) => Ok(it),
+    //         _ => Err(()),
+    //     }
+    // }
 
-    pub fn expect_single_punct(&mut self) -> Result<&'a Punct<S>, ()> {
-        match self.expect_leaf()? {
-            Leaf::Punct(it) => Ok(it),
-            _ => Err(()),
-        }
-    }
+    // pub fn expect_literal(&mut self) -> Result<&'a Token<S>, ()> {
+    //     let it = self.expect_token()?;
+    //     match it {
+    //         Token::Literal(_) => Ok(it),
+    //         Token::Ident(ident) if ident.sym == sym::true_ || ident.sym == sym::false_ => Ok(it),
+    //         _ => Err(()),
+    //     }
+    // }
+
+    // pub fn expect_single_punct(&mut self) -> Result<&'a Punct<S>, ()> {
+    //     match self.expect_token()? {
+    //         Token::Punct(it) => Ok(it),
+    //         _ => Err(()),
+    //     }
+    // }
 
     /// Returns consecutive `Punct`s that can be glued together.
     ///
     /// This method currently may return a single quotation, which is part of lifetime ident and
     /// conceptually not a punct in the context of mbe. Callers should handle this.
-    pub fn expect_glued_punct(&mut self) -> Result<ArrayVec<Punct<S>, 3>, ()> {
-        let TtElement::Leaf(&Leaf::Punct(first)) = self.next().ok_or(())? else {
+    pub fn expect_glued_punct(&mut self) -> Result<ArrayVec<&Token<S>, 3>, ()> {
+        let TtElement::Token(first, spacing) = self.next().ok_or(())? else {
             return Err(());
         };
 
         let mut res = ArrayVec::new();
-        if first.spacing == Spacing::Alone {
+        if spacing == Spacing::Alone {
             res.push(first);
             return Ok(res);
         }
 
         let (second, third) = match (self.peek_n(0), self.peek_n(1)) {
-            (Some(TokenTree::Leaf(Leaf::Punct(p2))), Some(TokenTree::Leaf(Leaf::Punct(p3))))
-                if p2.spacing == Spacing::Joint =>
+            (Some(TokenTree::Token(p2, spacing2)), Some(TokenTree::Token(p3, spacing3)))
+                if *spacing2 == Spacing::Joint =>
             {
                 (p2, Some(p3))
             }
-            (Some(TokenTree::Leaf(Leaf::Punct(p2))), _) => (p2, None),
+            (Some(TokenTree::Token(p2, spacing2)), _) => (p2, None),
             _ => {
                 res.push(first);
                 return Ok(res);
             }
         };
 
-        match (first.char, second.char, third.map(|it| it.char)) {
-            ('.', '.', Some('.' | '=')) | ('<', '<', Some('=')) | ('>', '>', Some('=')) => {
+        match (&first.kind, &second.kind, third.as_ref().map(|it| &it.kind)) {
+            (TokenKind::Dot, TokenKind::Dot, Some(TokenKind::Dot | TokenKind::Eq))
+            | (TokenKind::Lt, TokenKind::Lt, Some(TokenKind::Eq))
+            | (TokenKind::Gt, TokenKind::Gt, Some(TokenKind::Eq)) => {
                 let _ = self.next().unwrap();
                 let _ = self.next().unwrap();
                 res.push(first);
-                res.push(*second);
-                res.push(*third.unwrap());
+                res.push(second);
+                res.push(third.unwrap());
             }
-            ('-' | '!' | '*' | '/' | '&' | '%' | '^' | '+' | '<' | '=' | '>' | '|', '=', _)
-            | ('-' | '=' | '>', '>', _)
-            | (_, _, Some(';'))
-            | ('<', '-', _)
-            | (':', ':', _)
-            | ('.', '.', _)
-            | ('&', '&', _)
-            | ('<', '<', _)
-            | ('|', '|', _) => {
+            (
+                TokenKind::BinOp(BinOpToken::Minus)
+                | TokenKind::Not
+                | TokenKind::BinOp(BinOpToken::Star)
+                | TokenKind::BinOp(BinOpToken::Slash)
+                | TokenKind::BinOp(BinOpToken::And)
+                | TokenKind::BinOp(BinOpToken::Percent)
+                | TokenKind::BinOp(BinOpToken::Caret)
+                | TokenKind::Lt
+                | TokenKind::BinOp(BinOpToken::Plus)
+                | TokenKind::Eq
+                | TokenKind::Gt
+                | TokenKind::BinOp(BinOpToken::Or),
+                TokenKind::Eq,
+                _,
+            )
+            | (
+                TokenKind::BinOp(BinOpToken::Minus) | TokenKind::Eq | TokenKind::Gt,
+                TokenKind::Gt,
+                _,
+            )
+            | (_, _, Some(TokenKind::Semi))
+            | (TokenKind::Lt, TokenKind::BinOp(BinOpToken::Minus), _)
+            | (TokenKind::Colon, TokenKind::Colon, _)
+            | (TokenKind::Dot, TokenKind::Dot, _)
+            | (TokenKind::BinOp(BinOpToken::And), TokenKind::BinOp(BinOpToken::And), _)
+            | (TokenKind::Lt, TokenKind::Lt, _)
+            | (TokenKind::BinOp(BinOpToken::Or), TokenKind::BinOp(BinOpToken::Or), _) => {
                 let _ = self.next().unwrap();
                 res.push(first);
-                res.push(*second);
+                res.push(second);
             }
             _ => res.push(first),
         }
@@ -168,11 +201,11 @@ impl<'a, S: Copy> TtIter<'a, S> {
 
     pub fn peek(&self) -> Option<TtElement<'a, S>> {
         match self.inner.as_slice().first()? {
-            TokenTree::Leaf(leaf) => Some(TtElement::Leaf(leaf)),
-            TokenTree::Subtree(subtree) => {
+            TokenTree::Token(token, spacing) => Some(TtElement::Token(token, *spacing)),
+            &TokenTree::Delimited(ref span, spacing, delim, subtree) => {
                 let nested_iter =
                     TtIter { inner: self.inner.as_slice()[1..][..subtree.usize_len()].iter() };
-                Some(TtElement::Subtree(subtree, nested_iter))
+                Some(TtElement::Delimited(span, spacing, delim, subtree, nested_iter))
             }
         }
     }
@@ -213,16 +246,16 @@ impl<'a, S: Copy> TtIter<'a, S> {
 }
 
 pub enum TtElement<'a, S> {
-    Leaf(&'a Leaf<S>),
-    Subtree(&'a Subtree<S>, TtIter<'a, S>),
+    Token(&'a Token<S>, Spacing),
+    Delimited(&'a DelimSpan<S>, DelimSpacing, Delimiter, Subtree, TtIter<'a, S>),
 }
 
 impl<S: Copy> TtElement<'_, S> {
     #[inline]
     pub fn first_span(&self) -> S {
         match self {
-            TtElement::Leaf(it) => *it.span(),
-            TtElement::Subtree(it, _) => it.delimiter.open,
+            TtElement::Token(it, _) => it.span,
+            TtElement::Delimited(it, ..) => it.open,
         }
     }
 }
@@ -231,12 +264,12 @@ impl<'a, S> Iterator for TtIter<'a, S> {
     type Item = TtElement<'a, S>;
     fn next(&mut self) -> Option<Self::Item> {
         match self.inner.next()? {
-            TokenTree::Leaf(leaf) => Some(TtElement::Leaf(leaf)),
-            TokenTree::Subtree(subtree) => {
+            TokenTree::Token(token, spacing) => Some(TtElement::Token(token, *spacing)),
+            &TokenTree::Delimited(ref span, spacing, delim, subtree) => {
                 let nested_iter =
                     TtIter { inner: self.inner.as_slice()[..subtree.usize_len()].iter() };
                 self.inner = self.inner.as_slice()[subtree.usize_len()..].iter();
-                Some(TtElement::Subtree(subtree, nested_iter))
+                Some(TtElement::Delimited(span, spacing, delim, subtree, nested_iter))
             }
         }
     }

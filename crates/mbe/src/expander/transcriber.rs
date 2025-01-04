@@ -68,7 +68,7 @@ impl<'t> Bindings<'t> {
                         }));
                     }
                     MetaVarKind::Block => {
-                        builder.open(tt::DelimiterKind::Brace, span);
+                        builder.open(Delimiter::Brace, span);
                         builder.close(span);
                     }
                     // FIXME: Meta and Item should get proper defaults
@@ -181,7 +181,7 @@ fn expand_subtree(
                 marker(&mut it.span);
                 it
             })),
-            Op::Punct(puncts) => {
+            Op::Token(puncts) => {
                 builder.extend(puncts.iter().map(|punct| {
                     tt::Leaf::from({
                         let mut it = *punct;
@@ -394,10 +394,10 @@ fn expand_var(
                     marker(&mut span);
                     let wrap_in_parens = !matches!(sub.flat_tokens(), [tt::TokenTree::Leaf(_)])
                         && sub.try_into_subtree().is_none_or(|it| {
-                            it.top_subtree().delimiter.kind == tt::DelimiterKind::Invisible
+                            it.top_subtree().delimiter.kind == Delimiter::Invisible
                         });
                     if wrap_in_parens {
-                        builder.open(tt::DelimiterKind::Parenthesis, span);
+                        builder.open(Delimiter::Parenthesis, span);
                     }
                     builder.extend_with_tt(sub);
                     if wrap_in_parens {

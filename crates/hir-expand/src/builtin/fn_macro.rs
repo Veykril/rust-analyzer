@@ -1,25 +1,26 @@
 //! Builtin macro
 
+use ::tt::{DelimSpan, LitKind, Spacing, TokenKind};
 use base_db::AnchoredPath;
 use cfg::CfgExpr;
 use either::Either;
 use intern::{sym, Symbol};
-use mbe::{expect_fragment, DelimiterKind};
+use mbe::{expect_fragment, Delimiter};
 use span::{Edition, EditionedFileId, Span};
 use stdx::format_to;
 use syntax::{
     format_smolstr,
     unescape::{unescape_byte, unescape_char, unescape_unicode, Mode},
 };
+use syntax_bridge::quote::{dollar_crate, quote, WithDelimiter};
 use syntax_bridge::syntax_node_to_token_tree;
 
 use crate::{
-    builtin::quote::{dollar_crate, quote, WithDelimiter},
     db::ExpandDatabase,
     hygiene::{span_with_call_site_ctxt, span_with_def_site_ctxt},
     name,
     span_map::SpanMap,
-    tt::{self, DelimSpan, TtElement, TtIter},
+    tt::{self, TtElement, TtIter},
     ExpandError, ExpandResult, HirFileIdExt, Lookup as _, MacroCallId,
 };
 
@@ -146,8 +147,8 @@ register_builtin! {
     (option_env, OptionEnv) => option_env_expand
 }
 
-fn mk_pound(span: Span) -> tt::Leaf {
-    crate::tt::Leaf::Punct(crate::tt::Punct { char: '#', spacing: crate::tt::Spacing::Alone, span })
+fn mk_pound(span: Span) -> tt::Token {
+    crate::tt::Token { kind: tt::TokenKind::Pound, span }
 }
 
 fn module_path_expand(
@@ -172,13 +173,18 @@ fn line_expand(
     // Note that `line!` and `column!` will never be implemented properly, as they are by definition
     // not incremental
     ExpandResult::ok(tt::TopSubtree::invisible_from_leaves(
-        span,
-        [tt::Leaf::Literal(tt::Literal {
-            symbol: sym::INTEGER_0.clone(),
-            span,
-            kind: tt::LitKind::Integer,
-            suffix: Some(sym::u32.clone()),
-        })],
+        DelimSpan::from_single(span),
+        [(
+            tt::Token {
+                kind: TokenKind::Literal(Box::new(tt::Literal {
+                    symbol: sym::INTEGER_0.clone(),
+                    kind: tt::LitKind::Integer,
+                    suffix: Some(sym::u32.clone()),
+                })),
+                span,
+            },
+            Spacing::Alone,
+        )],
     ))
 }
 
@@ -229,9 +235,9 @@ fn assert_expand(
         &mut iter,
         parser::PrefixEntryPoint::Expr,
         db.crate_graph()[id.lookup(db).krate].edition,
-        tt.top_subtree().delimiter.delim_span(),
+        *tt.top_subtree_delim_span(),
     );
-    _ = iter.expect_char(',');
+    _ = iter.expect_comma();
     let rest = iter.remaining();
 
     let dollar_crate = dollar_crate(span);
@@ -279,7 +285,7 @@ fn format_args_expand(
 ) -> ExpandResult<tt::TopSubtree> {
     let pound = mk_pound(span);
     let mut tt = tt.clone();
-    tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Parenthesis;
+    *tt.top_subtree_delimiter_mut() = Delimiter::Parenthesis;
     ExpandResult::ok(quote! {span =>
         builtin #pound format_args #tt
     })
@@ -293,14 +299,13 @@ fn format_args_nl_expand(
 ) -> ExpandResult<tt::TopSubtree> {
     let pound = mk_pound(span);
     let mut tt = tt.clone();
-    tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Parenthesis;
-    if let Some(tt::TokenTree::Leaf(tt::Leaf::Literal(tt::Literal {
-        symbol: text,
-        kind: tt::LitKind::Str,
-        ..
-    }))) = tt.0.get_mut(1)
+    *tt.top_subtree_delimiter_mut() = Delimiter::Parenthesis;
+    if let Some(tt::TokenTree::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span: _ }, _)) =
+        tt.0.get_mut(1)
     {
-        *text = Symbol::intern(&format_smolstr!("{}\\n", text.as_str()));
+        if let tt::Literal { symbol: text, kind: tt::LitKind::Str, .. } = &mut **lit {
+            *text = Symbol::intern(&format_smolstr!("{}\\n", text.as_str()));
+        }
     }
     ExpandResult::ok(quote! {span =>
         builtin #pound format_args #tt
@@ -314,7 +319,7 @@ fn asm_expand(
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
     let mut tt = tt.clone();
-    tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Parenthesis;
+    *tt.top_subtree_delimiter_mut() = Delimiter::Parenthesis;
     let pound = mk_pound(span);
     let expanded = quote! {span =>
         builtin #pound asm #tt
@@ -352,11 +357,8 @@ fn panic_expand(
 
     // Pass the original arguments
     let subtree = WithDelimiter {
-        delimiter: tt::Delimiter {
-            open: call_site_span,
-            close: call_site_span,
-            kind: tt::DelimiterKind::Parenthesis,
-        },
+        span: DelimSpan { open: call_site_span, close: call_site_span },
+        delimiter: Delimiter::Parenthesis,
         token_trees: tt.token_trees(),
     };
 
@@ -383,11 +385,9 @@ fn unreachable_expand(
 
     // Pass the original arguments
     let mut subtree = tt.clone();
-    *subtree.top_subtree_delimiter_mut() = tt::Delimiter {
-        open: call_site_span,
-        close: call_site_span,
-        kind: tt::DelimiterKind::Parenthesis,
-    };
+    *subtree.top_subtree_delimiter_mut() = Delimiter::Parenthesis;
+    *subtree.top_subtree_delim_span_mut() =
+        tt::DelimSpan { open: call_site_span, close: call_site_span };
 
     // Expand to a macro call `$crate::panic::panic_{edition}`
     let call = quote!(call_site_span =>#dollar_crate::panic::#mac! #subtree);
@@ -424,12 +424,11 @@ fn compile_error_expand(
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
     let err = match &*tt.0 {
-        [_, tt::TokenTree::Leaf(tt::Leaf::Literal(tt::Literal {
-            symbol: text,
-            span: _,
-            kind: tt::LitKind::Str | tt::LitKind::StrRaw(_),
-            suffix: _,
-        }))] => ExpandError::other(span, Box::from(unescape_str(text).as_str())),
+        [_, tt::TokenTree::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span }, ..)]
+            if matches!(lit.kind, tt::LitKind::Str | tt::LitKind::StrRaw(_)) =>
+        {
+            ExpandError::other(*span, Box::from(unescape_str(&lit.symbol).as_str()))
+        }
         _ => ExpandError::other(span, "`compile_error!` argument must be a string"),
     };
 
@@ -454,15 +453,17 @@ fn concat_expand(
         // FIXME: hack on top of a hack: `$e:expr` captures get surrounded in parentheses
         // to ensure the right parsing order, so skip the parentheses here. Ideally we'd
         // implement rustc's model. cc https://github.com/rust-lang/rust-analyzer/pull/10623
-        if let TtElement::Subtree(subtree, subtree_iter) = &t {
-            if let [tt::TokenTree::Leaf(tt)] = subtree_iter.remaining().flat_tokens() {
-                if subtree.delimiter.kind == tt::DelimiterKind::Parenthesis {
-                    t = TtElement::Leaf(tt);
+        if let TtElement::Delimited(_, _, delimiter, _, subtree_iter) = &t {
+            if let [tt::TokenTree::Token(tt, spacing)] = subtree_iter.remaining().flat_tokens() {
+                if *delimiter == Delimiter::Parenthesis {
+                    t = TtElement::Token(tt, *spacing);
                 }
             }
         }
         match t {
-            TtElement::Leaf(tt::Leaf::Literal(it)) if i % 2 == 0 => {
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Literal(it), span }, ..)
+                if i % 2 == 0 =>
+            {
                 // concat works with string and char literals, so remove any quotes.
                 // It also works with integer, float and boolean literals, so just use the rest
                 // as-is.
@@ -471,18 +472,18 @@ fn concat_expand(
                         if let Ok(c) = unescape_char(it.symbol.as_str()) {
                             text.push(c);
                         }
-                        record_span(it.span);
+                        record_span(*span);
                     }
                     tt::LitKind::Integer | tt::LitKind::Float => {
                         format_to!(text, "{}", it.symbol.as_str())
                     }
                     tt::LitKind::Str => {
                         text.push_str(unescape_str(&it.symbol).as_str());
-                        record_span(it.span);
+                        record_span(*span);
                     }
                     tt::LitKind::StrRaw(_) => {
                         format_to!(text, "{}", it.symbol.as_str());
-                        record_span(it.span);
+                        record_span(*span);
                     }
                     tt::LitKind::Byte
                     | tt::LitKind::ByteStr
@@ -490,24 +491,24 @@ fn concat_expand(
                     | tt::LitKind::CStr
                     | tt::LitKind::CStrRaw(_)
                     | tt::LitKind::Err(_) => {
-                        err = Some(ExpandError::other(it.span, "unexpected literal"))
+                        err = Some(ExpandError::other(*span, "unexpected literal"))
                     }
                 }
             }
             // handle boolean literals
-            TtElement::Leaf(tt::Leaf::Ident(id))
-                if i % 2 == 0 && (id.sym == sym::true_ || id.sym == sym::false_) =>
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Ident(it, _), span }, ..)
+                if i % 2 == 0 && (it == sym::true_ || it == sym::false_) =>
             {
-                text.push_str(id.sym.as_str());
-                record_span(id.span);
+                text.push_str(it.as_str());
+                record_span(*span);
             }
-            TtElement::Leaf(tt::Leaf::Punct(punct)) if i % 2 == 1 && punct.char == ',' => (),
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, ..) if i % 2 == 1 => (),
             _ => {
                 err.get_or_insert(ExpandError::other(call_site, "unexpected token"));
             }
         }
     }
-    let span = span.unwrap_or_else(|| tt.top_subtree().delimiter.open);
+    let span = span.unwrap_or_else(|| tt.top_subtree_delim_span().open);
     ExpandResult { value: quote!(span =>#text), err }
 }
 
@@ -527,12 +528,8 @@ fn concat_bytes_expand(
     };
     for (i, t) in tt.iter().enumerate() {
         match t {
-            TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                symbol: text,
-                span,
-                kind,
-                suffix: _,
-            })) => {
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span }, ..) => {
+                let tt::Literal { symbol: text, kind, suffix: _ } = &**lit;
                 record_span(*span);
                 match kind {
                     tt::LitKind::Byte => {
@@ -554,10 +551,8 @@ fn concat_bytes_expand(
                     }
                 }
             }
-            TtElement::Leaf(tt::Leaf::Punct(punct)) if i % 2 == 1 && punct.char == ',' => (),
-            TtElement::Subtree(tree, tree_iter)
-                if tree.delimiter.kind == tt::DelimiterKind::Bracket =>
-            {
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, ..) if i % 2 == 1 => (),
+            TtElement::Delimited(_, _, Delimiter::Bracket, _, tree_iter) => {
                 if let Err(e) =
                     concat_bytes_expand_subtree(tree_iter, &mut bytes, &mut record_span, call_site)
                 {
@@ -571,16 +566,21 @@ fn concat_bytes_expand(
             }
         }
     }
-    let span = span.unwrap_or(tt.top_subtree().delimiter.open);
+    let span = span.unwrap_or(tt.top_subtree_delim_span().open);
     ExpandResult {
         value: tt::TopSubtree::invisible_from_leaves(
-            span,
-            [tt::Leaf::Literal(tt::Literal {
-                symbol: Symbol::intern(&bytes),
-                span,
-                kind: tt::LitKind::ByteStr,
-                suffix: None,
-            })],
+            DelimSpan::from_single(span),
+            [(
+                tt::Token {
+                    kind: tt::TokenKind::Literal(Box::new(tt::Literal {
+                        symbol: Symbol::intern(&bytes),
+                        kind: tt::LitKind::ByteStr,
+                        suffix: None,
+                    })),
+                    span,
+                },
+                Spacing::Alone,
+            )],
         ),
         err,
     }
@@ -594,29 +594,23 @@ fn concat_bytes_expand_subtree(
 ) -> Result<(), ExpandError> {
     for (ti, tt) in tree_iter.enumerate() {
         match tt {
-            TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                symbol: text,
-                span,
-                kind: tt::LitKind::Byte,
-                suffix: _,
-            })) => {
-                if let Ok(b) = unescape_byte(text.as_str()) {
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span }, ..)
+                if lit.kind == tt::LitKind::Byte =>
+            {
+                if let Ok(b) = unescape_byte(lit.symbol.as_str()) {
                     bytes.extend(b.escape_ascii().filter_map(|it| char::from_u32(it as u32)));
                 }
                 record_span(*span);
             }
-            TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                symbol: text,
-                span,
-                kind: tt::LitKind::Integer,
-                suffix: _,
-            })) => {
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span }, ..)
+                if lit.kind == tt::LitKind::Integer =>
+            {
                 record_span(*span);
-                if let Ok(b) = text.as_str().parse::<u8>() {
+                if let Ok(b) = lit.symbol.as_str().parse::<u8>() {
                     bytes.extend(b.escape_ascii().filter_map(|it| char::from_u32(it as u32)));
                 }
             }
-            TtElement::Leaf(tt::Leaf::Punct(punct)) if ti % 2 == 1 && punct.char == ',' => (),
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, ..) if ti % 2 == 1 => (),
             _ => {
                 return Err(ExpandError::other(err_span, "unexpected token"));
             }
@@ -635,17 +629,17 @@ fn concat_idents_expand(
     let mut ident = String::new();
     for (i, t) in tt.iter().enumerate() {
         match t {
-            TtElement::Leaf(tt::Leaf::Ident(id)) => {
-                ident.push_str(id.sym.as_str());
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Ident(it, _), .. }, ..) => {
+                ident.push_str(it.as_str());
             }
-            TtElement::Leaf(tt::Leaf::Punct(punct)) if i % 2 == 1 && punct.char == ',' => (),
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, ..) if i % 2 == 1 => (),
             _ => {
                 err.get_or_insert(ExpandError::other(span, "unexpected token"));
             }
         }
     }
     // FIXME merge spans
-    let ident = tt::Ident { sym: Symbol::intern(&ident), span, is_raw: tt::IdentIsRaw::No };
+    let ident = Symbol::intern(&ident);
     ExpandResult { value: quote!(span =>#ident), err }
 }
 
@@ -671,50 +665,42 @@ fn relative_file(
 }
 
 fn parse_string(tt: &tt::TopSubtree) -> Result<(Symbol, Span), ExpandError> {
-    let delimiter = tt.top_subtree().delimiter;
+    let delimiter = tt.top_subtree_delim_span();
     tt.iter()
         .next()
         .ok_or(delimiter.open.cover(delimiter.close))
         .and_then(|tt| match tt {
-            TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                symbol: text,
-                span,
-                kind: tt::LitKind::Str,
-                suffix: _,
-            })) => Ok((unescape_str(text), *span)),
-            TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                symbol: text,
-                span,
-                kind: tt::LitKind::StrRaw(_),
-                suffix: _,
-            })) => Ok((text.clone(), *span)),
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span }, ..)
+                if lit.kind == LitKind::Str =>
+            {
+                Ok((unescape_str(&lit.symbol), *span))
+            }
+            TtElement::Token(tt::Token { kind: tt::TokenKind::Literal(lit), span }, ..)
+                if matches!(lit.kind, LitKind::StrRaw(_)) =>
+            {
+                Ok((lit.symbol.clone(), *span))
+            }
             // FIXME: We wrap expression fragments in parentheses which can break this expectation
             // here
             // Remove this once we handle none delims correctly
-            TtElement::Subtree(tt, mut tt_iter)
-                if tt.delimiter.kind == DelimiterKind::Parenthesis =>
-            {
-                tt_iter
-                    .next()
-                    .and_then(|tt| match tt {
-                        TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                            symbol: text,
-                            span,
-                            kind: tt::LitKind::Str,
-                            suffix: _,
-                        })) => Some((unescape_str(text), *span)),
-                        TtElement::Leaf(tt::Leaf::Literal(tt::Literal {
-                            symbol: text,
-                            span,
-                            kind: tt::LitKind::StrRaw(_),
-                            suffix: _,
-                        })) => Some((text.clone(), *span)),
-                        _ => None,
-                    })
-                    .ok_or(delimiter.open.cover(delimiter.close))
-            }
-            TtElement::Leaf(l) => Err(*l.span()),
-            TtElement::Subtree(tt, _) => Err(tt.delimiter.open.cover(tt.delimiter.close)),
+            TtElement::Delimited(delim_span, _, Delimiter::Parenthesis, _, mut tt_iter) => tt_iter
+                .next()
+                .and_then(|tt| match tt {
+                    TtElement::Token(tt::Token { kind: TokenKind::Literal(lit), span }, ..)
+                        if lit.kind == LitKind::Str =>
+                    {
+                        Some((unescape_str(&lit.symbol), *span))
+                    }
+                    TtElement::Token(tt::Token { kind: TokenKind::Literal(lit), span }, ..)
+                        if matches!(lit.kind, LitKind::StrRaw(_)) =>
+                    {
+                        Some((lit.symbol.clone(), *span))
+                    }
+                    _ => None,
+                })
+                .ok_or(delim_span.open.cover(delim_span.close)),
+            TtElement::Token(l, _) => Err(l.span),
+            TtElement::Delimited(delim_span, ..) => Err(delim_span.open.cover(delim_span.close)),
         })
         .map_err(|span| ExpandError::other(span, "expected string literal"))
 }
@@ -761,13 +747,18 @@ fn include_bytes_expand(
 ) -> ExpandResult<tt::TopSubtree> {
     // FIXME: actually read the file here if the user asked for macro expansion
     let res = tt::TopSubtree::invisible_from_leaves(
-        span,
-        [tt::Leaf::Literal(tt::Literal {
-            symbol: Symbol::empty(),
-            span,
-            kind: tt::LitKind::ByteStrRaw(1),
-            suffix: None,
-        })],
+        DelimSpan::from_single(span),
+        [(
+            tt::Token {
+                kind: TokenKind::Literal(Box::new(tt::Literal {
+                    symbol: Symbol::empty(),
+                    kind: tt::LitKind::ByteStrRaw(1),
+                    suffix: None,
+                })),
+                span,
+            },
+            Spacing::Alone,
+        )],
     );
     ExpandResult::ok(res)
 }

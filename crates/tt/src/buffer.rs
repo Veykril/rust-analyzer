@@ -1,7 +1,7 @@
 //! Stateful iteration over token trees.
 //!
 //! We use this as the source of tokens for parser.
-use crate::{Leaf, Subtree, TokenTree, TokenTreesView};
+use crate::{Delimiter, Spacing, Subtree, Token, TokenTree, TokenTreesView};
 
 pub struct Cursor<'a, Span> {
     buffer: &'a [TokenTree<Span>],
@@ -23,17 +23,17 @@ impl<'a, Span: Copy> Cursor<'a, Span> {
         self.subtrees_stack.is_empty()
     }
 
-    fn last_subtree(&self) -> Option<(usize, &'a Subtree<Span>)> {
+    fn last_subtree(&self) -> Option<(usize, Delimiter, Subtree)> {
         self.subtrees_stack.last().map(|&subtree_idx| {
-            let TokenTree::Subtree(subtree) = &self.buffer[subtree_idx] else {
+            let TokenTree::Delimited(.., delimiter, subtree) = self.buffer[subtree_idx] else {
                 panic!("subtree pointing to non-subtree");
             };
-            (subtree_idx, subtree)
+            (subtree_idx, delimiter, subtree)
         })
     }
 
-    pub fn end(&mut self) -> &'a Subtree<Span> {
-        let (last_subtree_idx, last_subtree) =
+    pub fn end(&mut self) -> Delimiter {
+        let (last_subtree_idx, delimiter, last_subtree) =
             self.last_subtree().expect("called `Cursor::end()` without an open subtree");
         // +1 because `Subtree.len` excludes the subtree itself.
         assert_eq!(
@@ -42,12 +42,12 @@ impl<'a, Span: Copy> Cursor<'a, Span> {
             "called `Cursor::end()` without finishing a subtree"
         );
         self.subtrees_stack.pop();
-        last_subtree
+        delimiter
     }
 
     /// Returns the `TokenTree` at the cursor if it is not at the end of a subtree.
     pub fn token_tree(&self) -> Option<&'a TokenTree<Span>> {
-        if let Some((last_subtree_idx, last_subtree)) = self.last_subtree() {
+        if let Some((last_subtree_idx, _, last_subtree)) = self.last_subtree() {
             // +1 because `Subtree.len` excludes the subtree itself.
             if last_subtree_idx + last_subtree.usize_len() + 1 == self.index {
                 return None;
@@ -58,7 +58,7 @@ impl<'a, Span: Copy> Cursor<'a, Span> {
 
     /// Bump the cursor, and enters a subtree if it is on one.
     pub fn bump(&mut self) {
-        if let Some((last_subtree_idx, last_subtree)) = self.last_subtree() {
+        if let Some((last_subtree_idx, _, last_subtree)) = self.last_subtree() {
             // +1 because `Subtree.len` excludes the subtree itself.
             assert_ne!(
                 last_subtree_idx + last_subtree.usize_len() + 1,
@@ -66,14 +66,14 @@ impl<'a, Span: Copy> Cursor<'a, Span> {
                 "called `Cursor::bump()` when at the end of a subtree"
             );
         }
-        if let TokenTree::Subtree(_) = self.buffer[self.index] {
+        if let TokenTree::Delimited(..) = self.buffer[self.index] {
             self.subtrees_stack.push(self.index);
         }
         self.index += 1;
     }
 
     pub fn bump_or_end(&mut self) {
-        if let Some((last_subtree_idx, last_subtree)) = self.last_subtree() {
+        if let Some((last_subtree_idx, _, last_subtree)) = self.last_subtree() {
             // +1 because `Subtree.len` excludes the subtree itself.
             if last_subtree_idx + last_subtree.usize_len() + 1 == self.index {
                 self.subtrees_stack.pop();
@@ -81,14 +81,28 @@ impl<'a, Span: Copy> Cursor<'a, Span> {
             }
         }
         // +1 because `Subtree.len` excludes the subtree itself.
-        if let TokenTree::Subtree(_) = self.buffer[self.index] {
+        if let TokenTree::Delimited(..) = self.buffer[self.index] {
             self.subtrees_stack.push(self.index);
         }
         self.index += 1;
     }
 
-    pub fn peek_two_leaves(&self) -> Option<[&'a Leaf<Span>; 2]> {
-        if let Some((last_subtree_idx, last_subtree)) = self.last_subtree() {
+    pub fn peek_token(&self) -> Option<(&'a Token<Span>, Spacing)> {
+        if let Some((last_subtree_idx, _, last_subtree)) = self.last_subtree() {
+            // +1 because `Subtree.len` excludes the subtree itself.
+            let last_end = last_subtree_idx + last_subtree.usize_len() + 1;
+            if last_end == self.index || last_end == self.index + 1 {
+                return None;
+            }
+        }
+        self.buffer.get(self.index).and_then(|it| match it {
+            TokenTree::Token(a, spacing_a) => Some((a, *spacing_a)),
+            _ => None,
+        })
+    }
+
+    pub fn peek_two_tokens(&self) -> Option<[(&'a Token<Span>, Spacing); 2]> {
+        if let Some((last_subtree_idx, _, last_subtree)) = self.last_subtree() {
             // +1 because `Subtree.len` excludes the subtree itself.
             let last_end = last_subtree_idx + last_subtree.usize_len() + 1;
             if last_end == self.index || last_end == self.index + 1 {
@@ -96,7 +110,9 @@ impl<'a, Span: Copy> Cursor<'a, Span> {
             }
         }
         self.buffer.get(self.index..self.index + 2).and_then(|it| match it {
-            [TokenTree::Leaf(a), TokenTree::Leaf(b)] => Some([a, b]),
+            [TokenTree::Token(a, spacing_a), TokenTree::Token(b, spacing_b)] => {
+                Some([(a, *spacing_a), (b, *spacing_b)])
+            }
             _ => None,
         })
     }

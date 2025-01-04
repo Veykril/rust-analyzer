@@ -233,12 +233,6 @@ impl AsName for ast::NameOrNameRef {
     }
 }
 
-impl<Span> AsName for tt::Ident<Span> {
-    fn as_name(&self) -> Name {
-        Name::resolve(self.sym.as_str())
-    }
-}
-
 impl AsName for ast::FieldKind {
     fn as_name(&self) -> Name {
         match self {
@@ -254,5 +248,15 @@ impl AsName for ast::FieldKind {
 impl AsName for base_db::Dependency {
     fn as_name(&self) -> Name {
         Name::new_text(&self.name)
+    }
+}
+
+impl<S: Copy> syntax_bridge::quote::ToTokenTree<S> for Name {
+    fn to_tokens(self, span: S, builder: &mut tt::TopSubtreeBuilder<S>) {
+        let token: tt::Token<S> = {
+            let (is_raw, s) = tt::IdentIsRaw::split_from_symbol(self.as_str());
+            tt::Token { kind: tt::TokenKind::Ident(Symbol::intern(s), is_raw), span }
+        };
+        builder.push(token, tt::Spacing::Alone);
     }
 }

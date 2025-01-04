@@ -346,7 +346,7 @@ mod tests {
                     delimiter: tt::Delimiter {
                         open: tt::TokenId(0),
                         close: tt::TokenId(0),
-                        kind: tt::DelimiterKind::Brace,
+                        kind: Delimiter::Brace,
                     },
                     len: 0,
                 }),
@@ -363,7 +363,7 @@ mod tests {
                 delimiter: tt::Delimiter {
                     open: tt::TokenId(0),
                     close: tt::TokenId(0),
-                    kind: tt::DelimiterKind::Parenthesis,
+                    kind: Delimiter::Parenthesis,
                 },
                 len: 1,
             }),

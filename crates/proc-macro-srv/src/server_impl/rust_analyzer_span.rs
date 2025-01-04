@@ -458,7 +458,7 @@ mod tests {
                     delimiter: tt::Delimiter {
                         open: span,
                         close: span,
-                        kind: tt::DelimiterKind::Brace,
+                        kind: Delimiter::Brace,
                     },
                     len: 1,
                 }),
@@ -489,7 +489,7 @@ mod tests {
                 delimiter: tt::Delimiter {
                     open: span,
                     close: span,
-                    kind: tt::DelimiterKind::Parenthesis,
+                    kind: Delimiter::Parenthesis,
                 },
                 len: 1,
             }),

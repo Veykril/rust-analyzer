@@ -1,10 +1,9 @@
 //! Builtin attributes.
 use intern::sym;
 use span::{MacroCallId, Span};
+use syntax_bridge::quote::quote;
 
 use crate::{db::ExpandDatabase, name, tt, ExpandResult, MacroCallKind};
-
-use super::quote;
 
 macro_rules! register_builtin {
     ($(($name:ident, $variant:ident) => $expand:ident),* ) => {
@@ -87,7 +86,7 @@ fn dummy_gate_test_expand(
     tt: &tt::TopSubtree,
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
-    let result = quote::quote! { span=>
+    let result = quote! { span=>
         #[cfg(test)]
         #tt
     };
@@ -141,16 +140,16 @@ pub fn pseudo_derive_attr_expansion(
     args: &tt::TopSubtree,
     call_site: Span,
 ) -> ExpandResult<tt::TopSubtree> {
-    let mk_leaf =
-        |char| tt::Leaf::Punct(tt::Punct { char, spacing: tt::Spacing::Alone, span: call_site });
+    let mk_token = |kind| (tt::Token { kind, span: call_site }, tt::Spacing::Alone);
 
-    let mut token_trees = tt::TopSubtreeBuilder::new(args.top_subtree().delimiter);
+    let mut token_trees =
+        tt::TopSubtreeBuilder::new(*args.top_subtree_delim_span(), args.top_subtree_delimiter());
     let iter = args.token_trees().split(|tt| {
-        matches!(tt, tt::TtElement::Leaf(tt::Leaf::Punct(tt::Punct { char: ',', .. })))
+        matches!(tt, tt::TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, _))
     });
     for tts in iter {
-        token_trees.extend([mk_leaf('#'), mk_leaf('!')]);
-        token_trees.open(tt::DelimiterKind::Bracket, call_site);
+        token_trees.extend([mk_token(tt::TokenKind::Pound), mk_token(tt::TokenKind::Not)]);
+        token_trees.open(tt::Delimiter::Bracket, call_site);
         token_trees.extend_with_tt(tts);
         token_trees.close(call_site);
     }

@@ -154,6 +154,18 @@ impl fmt::Debug for Symbol {
     }
 }
 
+impl PartialEq<&Symbol> for Symbol {
+    fn eq(&self, other: &&Symbol) -> bool {
+        <Symbol as PartialEq<Symbol>>::eq(self, other)
+    }
+}
+
+impl PartialEq<Symbol> for &Symbol {
+    fn eq(&self, other: &Symbol) -> bool {
+        <Symbol as PartialEq<Symbol>>::eq(self, other)
+    }
+}
+
 const _: () = assert!(std::mem::size_of::<Symbol>() == std::mem::size_of::<NonNull<()>>());
 const _: () = assert!(std::mem::align_of::<Symbol>() == std::mem::align_of::<NonNull<()>>());
 

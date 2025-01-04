@@ -13,13 +13,13 @@ extern crate ra_ap_rustc_lexer as rustc_lexer;
 #[cfg(feature = "in-rust-tree")]
 extern crate rustc_lexer;
 
-mod expander;
-mod parser;
+// mod expander;
+// mod parser;
 
-#[cfg(test)]
-mod benchmark;
-#[cfg(test)]
-mod tests;
+// #[cfg(test)]
+// mod benchmark;
+// #[cfg(test)]
+// mod tests;
 
 use span::{Edition, Span, SyntaxContextId};
 use syntax_bridge::to_parser_input;
@@ -29,9 +29,9 @@ use tt::DelimSpan;
 use std::fmt;
 use std::sync::Arc;
 
-use crate::parser::{MetaTemplate, MetaVarKind, Op};
+// use crate::parser::{MetaTemplate, MetaVarKind, Op};
 
-pub use tt::{Delimiter, DelimiterKind, Punct};
+pub use tt::Delimiter;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ParseError {
@@ -137,8 +137,8 @@ pub struct DeclarativeMacro {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Rule {
-    lhs: MetaTemplate,
-    rhs: MetaTemplate,
+    // lhs: MetaTemplate,
+    // rhs: MetaTemplate,
 }
 
 impl DeclarativeMacro {
@@ -154,35 +154,36 @@ impl DeclarativeMacro {
         // Note: this parsing can be implemented using mbe machinery itself, by
         // matching against `$($lhs:tt => $rhs:tt);*` pattern, but implementing
         // manually seems easier.
-        let mut src = tt.iter();
-        let mut rules = Vec::new();
-        let mut err = None;
+        // let mut src = tt.iter();
+        // let mut rules = Vec::new();
+        // let mut err = None;
 
-        while !src.is_empty() {
-            let rule = match Rule::parse(ctx_edition, &mut src) {
-                Ok(it) => it,
-                Err(e) => {
-                    err = Some(Box::new(e));
-                    break;
-                }
-            };
-            rules.push(rule);
-            if let Err(()) = src.expect_char(';') {
-                if !src.is_empty() {
-                    err = Some(Box::new(ParseError::expected("expected `;`")));
-                }
-                break;
-            }
-        }
+        // while !src.is_empty() {
+        //     let rule = match Rule::parse(ctx_edition, &mut src) {
+        //         Ok(it) => it,
+        //         Err(e) => {
+        //             err = Some(Box::new(e));
+        //             break;
+        //         }
+        //     };
+        //     rules.push(rule);
+        //     if let Err(()) = src.expect_semi() {
+        //         if !src.is_empty() {
+        //             err = Some(Box::new(ParseError::expected("expected `;`")));
+        //         }
+        //         break;
+        //     }
+        // }
 
-        for Rule { lhs, .. } in &rules {
-            if let Err(e) = validate(lhs) {
-                err = Some(Box::new(e));
-                break;
-            }
-        }
+        // for Rule { lhs, .. } in &rules {
+        //     if let Err(e) = validate(lhs) {
+        //         err = Some(Box::new(e));
+        //         break;
+        //     }
+        // }
 
-        DeclarativeMacro { rules: rules.into_boxed_slice(), err }
+        // DeclarativeMacro { rules: rules.into_boxed_slice(), err }
+        todo!()
     }
 
     /// The new, unstable `macro m {}` flavor.
@@ -191,54 +192,56 @@ impl DeclarativeMacro {
         body: &tt::TopSubtree<Span>,
         ctx_edition: impl Copy + Fn(SyntaxContextId) -> Edition,
     ) -> DeclarativeMacro {
-        let mut rules = Vec::new();
-        let mut err = None;
+        // let mut rules = Vec::new();
+        // let mut err = None;
 
-        if let Some(args) = args {
-            cov_mark::hit!(parse_macro_def_simple);
+        // if let Some(args) = args {
+        //     cov_mark::hit!(parse_macro_def_simple);
 
-            let rule = (|| {
-                let lhs = MetaTemplate::parse_pattern(ctx_edition, args.iter())?;
-                let rhs = MetaTemplate::parse_template(ctx_edition, body.iter())?;
+        //     let rule = (|| {
+        //         let lhs = MetaTemplate::parse_pattern(ctx_edition, args.iter())?;
+        //         let rhs = MetaTemplate::parse_template(ctx_edition, body.iter())?;
 
-                Ok(crate::Rule { lhs, rhs })
-            })();
+        //         Ok(crate::Rule { lhs, rhs })
+        //     })();
 
-            match rule {
-                Ok(rule) => rules.push(rule),
-                Err(e) => err = Some(Box::new(e)),
-            }
-        } else {
-            cov_mark::hit!(parse_macro_def_rules);
-            let mut src = body.iter();
-            while !src.is_empty() {
-                let rule = match Rule::parse(ctx_edition, &mut src) {
-                    Ok(it) => it,
-                    Err(e) => {
-                        err = Some(Box::new(e));
-                        break;
-                    }
-                };
-                rules.push(rule);
-                if let Err(()) = src.expect_any_char(&[';', ',']) {
-                    if !src.is_empty() {
-                        err = Some(Box::new(ParseError::expected(
-                            "expected `;` or `,` to delimit rules",
-                        )));
-                    }
-                    break;
-                }
-            }
-        }
+        //     match rule {
+        //         Ok(rule) => rules.push(rule),
+        //         Err(e) => err = Some(Box::new(e)),
+        //     }
+        // } else {
+        //     cov_mark::hit!(parse_macro_def_rules);
+        //     let mut src = body.iter();
+        //     while !src.is_empty() {
+        //         let rule = match Rule::parse(ctx_edition, &mut src) {
+        //             Ok(it) => it,
+        //             Err(e) => {
+        //                 err = Some(Box::new(e));
+        //                 break;
+        //             }
+        //         };
+        //         rules.push(rule);
+        //         if let Err(()) = src.expect_any_token(&[tt::TokenKind::Semi, tt::TokenKind::Comma])
+        //         {
+        //             if !src.is_empty() {
+        //                 err = Some(Box::new(ParseError::expected(
+        //                     "expected `;` or `,` to delimit rules",
+        //                 )));
+        //             }
+        //             break;
+        //         }
+        //     }
+        // }
 
-        for Rule { lhs, .. } in &rules {
-            if let Err(e) = validate(lhs) {
-                err = Some(Box::new(e));
-                break;
-            }
-        }
+        // for Rule { lhs, .. } in &rules {
+        //     if let Err(e) = validate(lhs) {
+        //         err = Some(Box::new(e));
+        //         break;
+        //     }
+        // }
 
-        DeclarativeMacro { rules: rules.into_boxed_slice(), err }
+        // DeclarativeMacro { rules: rules.into_boxed_slice(), err }
+        todo!()
     }
 
     pub fn err(&self) -> Option<&ParseError> {
@@ -256,7 +259,8 @@ impl DeclarativeMacro {
         call_site: Span,
         def_site_edition: Edition,
     ) -> ExpandResult<(tt::TopSubtree<Span>, MatchedArmIndex)> {
-        expander::expand_rules(&self.rules, tt, marker, call_site, def_site_edition)
+        todo!()
+        // expander::expand_rules(&self.rules, tt, marker, call_site, def_site_edition)
     }
 }
 
@@ -265,48 +269,49 @@ impl Rule {
         edition: impl Copy + Fn(SyntaxContextId) -> Edition,
         src: &mut TtIter<'_, Span>,
     ) -> Result<Self, ParseError> {
-        let (_, lhs) =
-            src.expect_subtree().map_err(|()| ParseError::expected("expected subtree"))?;
-        src.expect_char('=').map_err(|()| ParseError::expected("expected `=`"))?;
-        src.expect_char('>').map_err(|()| ParseError::expected("expected `>`"))?;
-        let (_, rhs) =
-            src.expect_subtree().map_err(|()| ParseError::expected("expected subtree"))?;
+        // let (_, lhs) =
+        //     src.expect_subtree().map_err(|()| ParseError::expected("expected subtree"))?;
+        // src.expect_eq().map_err(|()| ParseError::expected("expected `=`"))?;
+        // src.expect_gt().map_err(|()| ParseError::expected("expected `>`"))?;
+        // let (_, rhs) =
+        //     src.expect_subtree().map_err(|()| ParseError::expected("expected subtree"))?;
 
-        let lhs = MetaTemplate::parse_pattern(edition, lhs)?;
-        let rhs = MetaTemplate::parse_template(edition, rhs)?;
+        // let lhs = MetaTemplate::parse_pattern(edition, lhs)?;
+        // let rhs = MetaTemplate::parse_template(edition, rhs)?;
 
-        Ok(crate::Rule { lhs, rhs })
+        // Ok(crate::Rule { lhs, rhs })
+        todo!()
     }
 }
 
-fn validate(pattern: &MetaTemplate) -> Result<(), ParseError> {
-    for op in pattern.iter() {
-        match op {
-            Op::Subtree { tokens, .. } => validate(tokens)?,
-            Op::Repeat { tokens: subtree, separator, .. } => {
-                // Checks that no repetition which could match an empty token
-                // https://github.com/rust-lang/rust/blob/a58b1ed44f5e06976de2bdc4d7dc81c36a96934f/src/librustc_expand/mbe/macro_rules.rs#L558
-                let lsh_is_empty_seq = separator.is_none() && subtree.iter().all(|child_op| {
-                    match *child_op {
-                        // vis is optional
-                        Op::Var { kind: Some(kind), .. } => kind == MetaVarKind::Vis,
-                        Op::Repeat {
-                            kind: parser::RepeatKind::ZeroOrMore | parser::RepeatKind::ZeroOrOne,
-                            ..
-                        } => true,
-                        _ => false,
-                    }
-                });
-                if lsh_is_empty_seq {
-                    return Err(ParseError::RepetitionEmptyTokenTree);
-                }
-                validate(subtree)?
-            }
-            _ => (),
-        }
-    }
-    Ok(())
-}
+// fn validate(pattern: &MetaTemplate) -> Result<(), ParseError> {
+//     for op in pattern.iter() {
+//         match op {
+//             Op::Subtree { tokens, .. } => validate(tokens)?,
+//             Op::Repeat { tokens: subtree, separator, .. } => {
+//                 // Checks that no repetition which could match an empty token
+//                 // https://github.com/rust-lang/rust/blob/a58b1ed44f5e06976de2bdc4d7dc81c36a96934f/src/librustc_expand/mbe/macro_rules.rs#L558
+//                 let lsh_is_empty_seq = separator.is_none() && subtree.iter().all(|child_op| {
+//                     match *child_op {
+//                         // vis is optional
+//                         Op::Var { kind: Some(kind), .. } => kind == MetaVarKind::Vis,
+//                         Op::Repeat {
+//                             kind: parser::RepeatKind::ZeroOrMore | parser::RepeatKind::ZeroOrOne,
+//                             ..
+//                         } => true,
+//                         _ => false,
+//                     }
+//                 });
+//                 if lsh_is_empty_seq {
+//                     return Err(ParseError::RepetitionEmptyTokenTree);
+//                 }
+//                 validate(subtree)?
+//             }
+//             _ => (),
+//         }
+//     }
+//     Ok(())
+// }
 
 pub type ExpandResult<T> = ValueResult<T, ExpandError>;
 

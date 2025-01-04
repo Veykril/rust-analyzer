@@ -723,7 +723,7 @@ impl ProcMacroExpander for MirrorProcMacroExpander {
             for tt in iter.collect_vec().into_iter().rev() {
                 match tt {
                     TtElement::Leaf(leaf) => builder.push(leaf.clone()),
-                    TtElement::Subtree(subtree, subtree_iter) => {
+                    TtElement::Delimited(subtree, subtree_iter) => {
                         builder.open(subtree.delimiter.kind, subtree.delimiter.open);
                         traverse(builder, subtree_iter);
                         builder.close(subtree.delimiter.close);

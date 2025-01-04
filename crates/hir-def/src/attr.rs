@@ -281,7 +281,7 @@ fn next_doc_expr<S: Copy>(mut it: TtIter<'_, S>) -> Option<DocExpr> {
                 _ => return Some(DocExpr::Invalid),
             }
         }
-        Some(TtElement::Subtree(_, subtree_iter)) => {
+        Some(TtElement::Delimited(_, subtree_iter)) => {
             it.next();
             let subs = parse_comma_sep(subtree_iter);
             match &name {

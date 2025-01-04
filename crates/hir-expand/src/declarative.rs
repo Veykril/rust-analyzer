@@ -1,5 +1,6 @@
 //! Compiled declarative macro expanders (`macro_rules!` and `macro`)
 
+use ::tt::TokenKind;
 use base_db::CrateId;
 use intern::sym;
 use span::{Edition, MacroCallId, Span, SyntaxContextId};
@@ -90,12 +91,14 @@ impl DeclarativeMacroExpander {
                 .token_trees()
                 .flat_tokens()
             {
-                [tt::TokenTree::Leaf(tt::Leaf::Ident(i)), ..] => match &i.sym {
-                    s if *s == sym::transparent => Some(Transparency::Transparent),
-                    s if *s == sym::semitransparent => Some(Transparency::SemiTransparent),
-                    s if *s == sym::opaque => Some(Transparency::Opaque),
-                    _ => None,
-                },
+                [tt::TokenTree::Token(tt::Token { kind: TokenKind::Ident(i, _), .. }, ..), ..] => {
+                    match i {
+                        s if *s == sym::transparent => Some(Transparency::Transparent),
+                        s if *s == sym::semitransparent => Some(Transparency::SemiTransparent),
+                        s if *s == sym::opaque => Some(Transparency::Opaque),
+                        _ => None,
+                    }
+                }
                 _ => None,
             }
         };

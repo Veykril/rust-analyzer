@@ -49,20 +49,20 @@ impl<S: Copy> TopSubtree<S> {
 
 fn delim_to_internal<S>(d: proc_macro::Delimiter, span: bridge::DelimSpan<S>) -> tt::Delimiter<S> {
     let kind = match d {
-        proc_macro::Delimiter::Parenthesis => tt::DelimiterKind::Parenthesis,
-        proc_macro::Delimiter::Brace => tt::DelimiterKind::Brace,
-        proc_macro::Delimiter::Bracket => tt::DelimiterKind::Bracket,
-        proc_macro::Delimiter::None => tt::DelimiterKind::Invisible,
+        proc_macro::Delimiter::Parenthesis => Delimiter::Parenthesis,
+        proc_macro::Delimiter::Brace => Delimiter::Brace,
+        proc_macro::Delimiter::Bracket => Delimiter::Bracket,
+        proc_macro::Delimiter::None => Delimiter::Invisible,
     };
     tt::Delimiter { open: span.open, close: span.close, kind }
 }
 
 fn delim_to_external<S>(d: tt::Delimiter<S>) -> proc_macro::Delimiter {
     match d.kind {
-        tt::DelimiterKind::Parenthesis => proc_macro::Delimiter::Parenthesis,
-        tt::DelimiterKind::Brace => proc_macro::Delimiter::Brace,
-        tt::DelimiterKind::Bracket => proc_macro::Delimiter::Bracket,
-        tt::DelimiterKind::Invisible => proc_macro::Delimiter::None,
+        Delimiter::Parenthesis => proc_macro::Delimiter::Parenthesis,
+        Delimiter::Brace => proc_macro::Delimiter::Brace,
+        Delimiter::Bracket => proc_macro::Delimiter::Bracket,
+        Delimiter::Invisible => proc_macro::Delimiter::None,
     }
 }
 

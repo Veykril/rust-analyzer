@@ -2,19 +2,25 @@
 
 use std::fmt;
 
-use intern::Symbol;
+use intern::{sym, Symbol};
 use rustc_hash::{FxHashMap, FxHashSet};
 use span::{Edition, SpanAnchor, SpanData, SpanMap};
-use stdx::{format_to, never};
+use stdx::{format_to, itertools::Either};
 use syntax::{
-    ast::{self, make::tokens::doc_comment},
-    format_smolstr, AstToken, Parse, PreorderWithTokens, SmolStr, SyntaxElement,
+    format_smolstr, Parse, PreorderWithTokens, SmolStr, SyntaxElement,
     SyntaxKind::{self, *},
-    SyntaxNode, SyntaxToken, SyntaxTreeBuilder, TextRange, TextSize, WalkEvent, T,
+    SyntaxNode, SyntaxToken, SyntaxTreeBuilder, TextRange, TextSize, WalkEvent,
 };
-use tt::{buffer::Cursor, token_to_literal};
+use tt::{
+    buffer::Cursor, token_to_literal, BinOpToken, DelimSpan, Delimiter, IdentIsRaw, Spacing, Token,
+    TokenKind,
+};
+
+#[doc(hidden)]
+pub use tt;
 
 pub mod prettify_macro_expansion;
+pub mod quote;
 mod to_parser_input;
 pub use to_parser_input::to_parser_input;
 // FIXME: we probably should re-think  `token_tree_to_syntax_node` interfaces
@@ -101,7 +107,7 @@ where
     SpanData<Ctx>: Copy + fmt::Debug,
     SpanMap: SpanMapper<SpanData<Ctx>>,
 {
-    let mut c = Converter::new(node, map, Default::default(), Default::default(), span, mode);
+    let mut c = NodeConverter::new(node, map, Default::default(), Default::default(), span, mode);
     convert_tokens(&mut c)
 }
 
@@ -111,7 +117,7 @@ where
 pub fn syntax_node_to_token_tree_modified<Ctx, SpanMap>(
     node: &SyntaxNode,
     map: SpanMap,
-    append: FxHashMap<SyntaxElement, Vec<tt::Leaf<SpanData<Ctx>>>>,
+    append: FxHashMap<SyntaxElement, Vec<tt::Token<SpanData<Ctx>>>>,
     remove: FxHashSet<SyntaxElement>,
     call_site: SpanData<Ctx>,
     mode: DocCommentDesugarMode,
@@ -120,7 +126,7 @@ where
     SpanMap: SpanMapper<SpanData<Ctx>>,
     SpanData<Ctx>: Copy + fmt::Debug,
 {
-    let mut c = Converter::new(node, map, append, remove, call_site, mode);
+    let mut c = NodeConverter::new(node, map, append, remove, call_site, mode);
     convert_tokens(&mut c)
 }
 
@@ -157,7 +163,7 @@ where
                 tree_sink.token(kind, n_raw_tokens)
             }
             parser::Step::FloatSplit { ends_in_dot: has_pseudo_dot } => {
-                tree_sink.float_split(has_pseudo_dot)
+                // tree_sink.float_split(has_pseudo_dot)
             }
             parser::Step::Enter { kind } => tree_sink.start_node(kind),
             parser::Step::Exit => tree_sink.finish_node(),
@@ -210,110 +216,111 @@ fn convert_tokens<S, C>(conv: &mut C) -> tt::TopSubtree<S>
 where
     C: TokenConverter<S>,
     S: Copy + fmt::Debug,
-    C::Token: fmt::Debug,
 {
     let mut builder =
-        tt::TopSubtreeBuilder::new(tt::Delimiter::invisible_spanned(conv.call_site()));
+        tt::TopSubtreeBuilder::new(DelimSpan::from_single(conv.call_site()), Delimiter::Invisible);
 
-    while let Some((token, abs_range)) = conv.bump() {
-        let delimiter = builder.expected_delimiter().map(|it| it.kind);
-        let tt = match token.as_leaf() {
-            Some(leaf) => leaf.clone(),
-            None => match token.kind(conv) {
-                // Desugar doc comments into doc attributes
-                COMMENT => {
-                    let span = conv.span_for(abs_range);
-                    conv.convert_doc_comment(&token, span, &mut builder);
-                    continue;
-                }
-                kind if kind.is_punct() && kind != UNDERSCORE => {
-                    let expected = match delimiter {
-                        Some(tt::DelimiterKind::Parenthesis) => Some(T![')']),
-                        Some(tt::DelimiterKind::Brace) => Some(T!['}']),
-                        Some(tt::DelimiterKind::Bracket) => Some(T![']']),
-                        Some(tt::DelimiterKind::Invisible) | None => None,
-                    };
-
-                    // Current token is a closing delimiter that we expect, fix up the closing span
-                    // and end the subtree here
-                    if matches!(expected, Some(expected) if expected == kind) {
-                        builder.close(conv.span_for(abs_range));
-                        continue;
-                    }
-
-                    let delim = match kind {
-                        T!['('] => Some(tt::DelimiterKind::Parenthesis),
-                        T!['{'] => Some(tt::DelimiterKind::Brace),
-                        T!['['] => Some(tt::DelimiterKind::Bracket),
-                        _ => None,
-                    };
-
-                    // Start a new subtree
-                    if let Some(kind) = delim {
-                        builder.open(kind, conv.span_for(abs_range));
-                        continue;
-                    }
-
-                    let spacing = match conv.peek().map(|next| next.kind(conv)) {
-                        Some(kind) if is_single_token_op(kind) => tt::Spacing::Joint,
-                        _ => tt::Spacing::Alone,
-                    };
-                    let Some(char) = token.to_char(conv) else {
-                        panic!("Token from lexer must be single char: token = {token:#?}")
-                    };
-                    tt::Leaf::from(tt::Punct { char, spacing, span: conv.span_for(abs_range) })
-                }
-                kind => {
-                    macro_rules! make_ident {
-                        () => {
-                            tt::Ident {
-                                span: conv.span_for(abs_range),
-                                sym: Symbol::intern(&token.to_text(conv)),
-                                is_raw: tt::IdentIsRaw::No,
-                            }
-                            .into()
-                        };
-                    }
-                    let leaf: tt::Leaf<_> = match kind {
-                        k if k.is_any_identifier() => {
-                            let text = token.to_text(conv);
-                            tt::Ident::new(&text, conv.span_for(abs_range)).into()
-                        }
-                        UNDERSCORE => make_ident!(),
-                        k if k.is_literal() => {
-                            let text = token.to_text(conv);
-                            let span = conv.span_for(abs_range);
-                            token_to_literal(&text, span).into()
-                        }
-                        LIFETIME_IDENT => {
-                            let apostrophe = tt::Leaf::from(tt::Punct {
-                                char: '\'',
-                                spacing: tt::Spacing::Joint,
-                                span: conv
-                                    .span_for(TextRange::at(abs_range.start(), TextSize::of('\''))),
-                            });
-                            builder.push(apostrophe);
-
-                            let ident = tt::Leaf::from(tt::Ident {
-                                sym: Symbol::intern(&token.to_text(conv)[1..]),
-                                span: conv.span_for(TextRange::new(
-                                    abs_range.start() + TextSize::of('\''),
-                                    abs_range.end(),
-                                )),
-                                is_raw: tt::IdentIsRaw::No,
-                            });
-                            builder.push(ident);
-                            continue;
-                        }
-                        _ => continue,
-                    };
-
-                    leaf
-                }
-            },
+    while let Some(r) = conv.bump() {
+        dbg!(&r);
+        let (token, abs_range, text) = match r {
+            Either::Left(it) => it,
+            Either::Right(t) => {
+                builder.push(t, Spacing::Alone);
+                continue;
+            }
         };
+        let expected = builder.expected_delimiter();
+        let kind = match token {
+            L_PAREN => {
+                builder.open(Delimiter::Parenthesis, conv.span_for(abs_range));
+                continue;
+            }
+            L_CURLY => {
+                builder.open(Delimiter::Brace, conv.span_for(abs_range));
+                continue;
+            }
+            L_BRACK => {
+                builder.open(Delimiter::Bracket, conv.span_for(abs_range));
+                continue;
+            }
 
-        builder.push(tt);
+            R_CURLY if matches!(expected, Some(Delimiter::Brace)) => {
+                builder.close(conv.span_for(abs_range));
+                continue;
+            }
+            R_PAREN if matches!(expected, Some(Delimiter::Parenthesis)) => {
+                builder.close(conv.span_for(abs_range));
+                continue;
+            }
+            R_BRACK if matches!(expected, Some(Delimiter::Bracket)) => {
+                builder.close(conv.span_for(abs_range));
+                continue;
+            }
+
+            L_ANGLE => TokenKind::Lt,
+            R_ANGLE => TokenKind::Gt,
+
+            DOLLAR => TokenKind::Dollar,
+            SEMICOLON => TokenKind::Semi,
+            COMMA => TokenKind::Comma,
+            AT => TokenKind::At,
+            POUND => TokenKind::Pound,
+            TILDE => TokenKind::Tilde,
+            QUESTION => TokenKind::Question,
+            PLUS => TokenKind::BinOp(BinOpToken::Plus),
+            MINUS => TokenKind::BinOp(BinOpToken::Minus),
+            PIPE => TokenKind::BinOp(BinOpToken::Or),
+            AMP => TokenKind::BinOp(BinOpToken::And),
+            CARET => TokenKind::BinOp(BinOpToken::Caret),
+            SLASH => TokenKind::BinOp(BinOpToken::Slash),
+            STAR => TokenKind::BinOp(BinOpToken::Star),
+            PERCENT => TokenKind::BinOp(BinOpToken::Percent),
+            SHL => TokenKind::BinOp(BinOpToken::Shl),
+            SHR => TokenKind::BinOp(BinOpToken::Shr),
+            PLUSEQ => TokenKind::BinOpEq(BinOpToken::Plus),
+            MINUSEQ => TokenKind::BinOpEq(BinOpToken::Minus),
+            PIPEEQ => TokenKind::BinOpEq(BinOpToken::Or),
+            AMPEQ => TokenKind::BinOpEq(BinOpToken::And),
+            CARETEQ => TokenKind::BinOpEq(BinOpToken::Caret),
+            SLASHEQ => TokenKind::BinOpEq(BinOpToken::Slash),
+            STAREQ => TokenKind::BinOpEq(BinOpToken::Star),
+            PERCENTEQ => TokenKind::BinOpEq(BinOpToken::Percent),
+            SHLEQ => TokenKind::BinOpEq(BinOpToken::Shl),
+            SHREQ => TokenKind::BinOpEq(BinOpToken::Shr),
+            UNDERSCORE => TokenKind::Ident(sym::underscore.clone(), tt::IdentIsRaw::No),
+            DOT => TokenKind::Dot,
+            DOT2 => TokenKind::DotDot,
+            DOT3 => TokenKind::DotDotDot,
+            DOT2EQ => TokenKind::DotDotEq,
+            COLON => TokenKind::Colon,
+            COLON2 => TokenKind::PathSep,
+            EQ => TokenKind::Eq,
+            EQ2 => TokenKind::EqEq,
+            FAT_ARROW => TokenKind::FatArrow,
+            BANG => TokenKind::Not,
+            NEQ => TokenKind::Ne,
+            THIN_ARROW => TokenKind::RArrow,
+            LTEQ => TokenKind::Le,
+            GTEQ => TokenKind::Ge,
+            AMP2 => TokenKind::AndAnd,
+            PIPE2 => TokenKind::OrOr,
+            // FIXME: split up (raw) c string literals to an ident and a string literal when edition < 2021.
+            k if k.is_literal() => TokenKind::Literal(Box::new(token_to_literal(text))),
+            // FIXME: Doc desugaring
+            COMMENT => continue,
+            LIFETIME_IDENT => TokenKind::Lifetime(Symbol::intern(text)),
+            ident if ident.is_any_identifier() => {
+                let (raw, sym) = IdentIsRaw::split_from_symbol(text);
+                TokenKind::Ident(Symbol::intern(sym), raw)
+            }
+            WHITESPACE => continue,
+            kind => unreachable!("{kind:?}"),
+        };
+        let spacing = match conv.peek() {
+            Some(kind) if is_single_token_op(kind) => tt::Spacing::Joint,
+            _ => tt::Spacing::Alone,
+        };
+        builder.push(tt::Token::new(kind, conv.span_for(abs_range)), spacing);
     }
 
     // If we get here, we've consumed all input tokens.
@@ -383,48 +390,48 @@ pub fn desugar_doc_comment_text(text: &str, mode: DocCommentDesugarMode) -> (Sym
     }
 }
 
-fn convert_doc_comment<S: Copy>(
-    token: &syntax::SyntaxToken,
-    span: S,
-    mode: DocCommentDesugarMode,
-    builder: &mut tt::TopSubtreeBuilder<S>,
-) {
-    let Some(comment) = ast::Comment::cast(token.clone()) else { return };
-    let Some(doc) = comment.kind().doc else { return };
+// fn convert_doc_comment<S: Copy>(
+//     token: &syntax::SyntaxToken,
+//     span: S,
+//     mode: DocCommentDesugarMode,
+//     builder: &mut tt::TopSubtreeBuilder<S>,
+// ) {
+//     let Some(comment) = ast::Comment::cast(token.clone()) else { return };
+//     let Some(doc) = comment.kind().doc else { return };
 
-    let mk_ident = |s: &str| {
-        tt::Leaf::from(tt::Ident { sym: Symbol::intern(s), span, is_raw: tt::IdentIsRaw::No })
-    };
+//     let mk_ident = |s: &str| {
+//         tt::Token::from(tt::Ident { sym: Symbol::intern(s), span, is_raw: tt::IdentIsRaw::No })
+//     };
 
-    let mk_punct =
-        |c: char| tt::Leaf::from(tt::Punct { char: c, spacing: tt::Spacing::Alone, span });
+//     let mk_punct =
+//         |c: char| tt::Token::from(tt::Punct { char: c, spacing: tt::Spacing::Alone, span });
 
-    let mk_doc_literal = |comment: &ast::Comment| {
-        let prefix_len = comment.prefix().len();
-        let mut text = &comment.text()[prefix_len..];
+//     let mk_doc_literal = |comment: &ast::Comment| {
+//         let prefix_len = comment.prefix().len();
+//         let mut text = &comment.text()[prefix_len..];
 
-        // Remove ending "*/"
-        if comment.kind().shape == ast::CommentShape::Block {
-            text = &text[0..text.len() - 2];
-        }
-        let (text, kind) = desugar_doc_comment_text(text, mode);
-        let lit = tt::Literal { symbol: text, span, kind, suffix: None };
+//         // Remove ending "*/"
+//         if comment.kind().shape == ast::CommentShape::Block {
+//             text = &text[0..text.len() - 2];
+//         }
+//         let (text, kind) = desugar_doc_comment_text(text, mode);
+//         let lit = tt::Literal { symbol: text, span, kind, suffix: None };
 
-        tt::Leaf::from(lit)
-    };
+//         tt::Token::from(lit)
+//     };
 
-    // Make `doc="\" Comments\""
-    let meta_tkns = [mk_ident("doc"), mk_punct('='), mk_doc_literal(&comment)];
+//     // Make `doc="\" Comments\""
+//     let meta_tkns = [mk_ident("doc"), mk_punct('='), mk_doc_literal(&comment)];
 
-    // Make `#![]`
-    builder.push(mk_punct('#'));
-    if let ast::CommentPlacement::Inner = doc {
-        builder.push(mk_punct('!'));
-    }
-    builder.open(tt::DelimiterKind::Bracket, span);
-    builder.extend(meta_tkns);
-    builder.close(span);
-}
+//     // Make `#![]`
+//     builder.push(mk_punct('#'));
+//     if let ast::CommentPlacement::Inner = doc {
+//         builder.push(mk_punct('!'));
+//     }
+//     builder.open(Delimiter::Bracket, span);
+//     builder.extend(meta_tkns);
+//     builder.close(span);
+// }
 
 /// A raw token (straight from lexer) converter
 struct RawConverter<'a, Ctx> {
@@ -449,75 +456,43 @@ trait SrcToken<Ctx, S> {
 
     fn to_text(&self, ctx: &Ctx) -> SmolStr;
 
-    fn as_leaf(&self) -> Option<&tt::Leaf<S>> {
+    fn as_leaf(&self) -> Option<&tt::Token<S>> {
         None
     }
 }
 
 trait TokenConverter<S>: Sized {
-    type Token: SrcToken<Self, S>;
+    // fn convert_doc_comment(
+    //     &self,
+    //     token: &Self::Token,
+    //     span: S,
+    //     builder: &mut tt::TopSubtreeBuilder<S>,
+    // );
 
-    fn convert_doc_comment(
-        &self,
-        token: &Self::Token,
-        span: S,
-        builder: &mut tt::TopSubtreeBuilder<S>,
-    );
+    fn bump(&mut self) -> Option<Either<(SyntaxKind, TextRange, &str), Token<S>>>;
 
-    fn bump(&mut self) -> Option<(Self::Token, TextRange)>;
-
-    fn peek(&self) -> Option<Self::Token>;
+    fn peek(&self) -> Option<SyntaxKind>;
 
     fn span_for(&self, range: TextRange) -> S;
 
     fn call_site(&self) -> S;
 }
 
-impl<S, Ctx> SrcToken<RawConverter<'_, Ctx>, S> for usize {
-    fn kind(&self, ctx: &RawConverter<'_, Ctx>) -> SyntaxKind {
-        ctx.lexed.kind(*self)
-    }
-
-    fn to_char(&self, ctx: &RawConverter<'_, Ctx>) -> Option<char> {
-        ctx.lexed.text(*self).chars().next()
-    }
-
-    fn to_text(&self, ctx: &RawConverter<'_, Ctx>) -> SmolStr {
-        ctx.lexed.text(*self).into()
-    }
-}
-
-impl<S: Copy> SrcToken<StaticRawConverter<'_, S>, S> for usize {
-    fn kind(&self, ctx: &StaticRawConverter<'_, S>) -> SyntaxKind {
-        ctx.lexed.kind(*self)
-    }
-
-    fn to_char(&self, ctx: &StaticRawConverter<'_, S>) -> Option<char> {
-        ctx.lexed.text(*self).chars().next()
-    }
-
-    fn to_text(&self, ctx: &StaticRawConverter<'_, S>) -> SmolStr {
-        ctx.lexed.text(*self).into()
-    }
-}
-
 impl<Ctx: Copy> TokenConverter<SpanData<Ctx>> for RawConverter<'_, Ctx>
 where
     SpanData<Ctx>: Copy,
 {
-    type Token = usize;
+    // fn convert_doc_comment(
+    //     &self,
+    //     &token: &usize,
+    //     span: SpanData<Ctx>,
+    //     builder: &mut tt::TopSubtreeBuilder<SpanData<Ctx>>,
+    // ) {
+    //     let text = self.lexed.text(token);
+    //     convert_doc_comment(&doc_comment(text), span, self.mode, builder);
+    // }
 
-    fn convert_doc_comment(
-        &self,
-        &token: &usize,
-        span: SpanData<Ctx>,
-        builder: &mut tt::TopSubtreeBuilder<SpanData<Ctx>>,
-    ) {
-        let text = self.lexed.text(token);
-        convert_doc_comment(&doc_comment(text), span, self.mode, builder);
-    }
-
-    fn bump(&mut self) -> Option<(Self::Token, TextRange)> {
+    fn bump(&mut self) -> Option<Either<(SyntaxKind, TextRange, &str), Token<SpanData<Ctx>>>> {
         if self.pos == self.lexed.len() {
             return None;
         }
@@ -526,14 +501,14 @@ where
         let range = self.lexed.text_range(token);
         let range = TextRange::new(range.start.try_into().ok()?, range.end.try_into().ok()?);
 
-        Some((token, range))
+        Some(Either::Left((self.lexed.kind(token), range, self.lexed.text(token))))
     }
 
-    fn peek(&self) -> Option<Self::Token> {
+    fn peek(&self) -> Option<SyntaxKind> {
         if self.pos == self.lexed.len() {
             return None;
         }
-        Some(self.pos)
+        Some(self.lexed.kind(self.pos))
     }
 
     fn span_for(&self, range: TextRange) -> SpanData<Ctx> {
@@ -549,14 +524,12 @@ impl<S> TokenConverter<S> for StaticRawConverter<'_, S>
 where
     S: Copy,
 {
-    type Token = usize;
+    // fn convert_doc_comment(&self, &token: &usize, span: S, builder: &mut tt::TopSubtreeBuilder<S>) {
+    //     let text = self.lexed.text(token);
+    //     convert_doc_comment(&doc_comment(text), span, self.mode, builder);
+    // }
 
-    fn convert_doc_comment(&self, &token: &usize, span: S, builder: &mut tt::TopSubtreeBuilder<S>) {
-        let text = self.lexed.text(token);
-        convert_doc_comment(&doc_comment(text), span, self.mode, builder);
-    }
-
-    fn bump(&mut self) -> Option<(Self::Token, TextRange)> {
+    fn bump(&mut self) -> Option<Either<(SyntaxKind, TextRange, &str), Token<S>>> {
         if self.pos == self.lexed.len() {
             return None;
         }
@@ -565,14 +538,14 @@ where
         let range = self.lexed.text_range(token);
         let range = TextRange::new(range.start.try_into().ok()?, range.end.try_into().ok()?);
 
-        Some((token, range))
+        Some(Either::Left((self.lexed.kind(self.pos), range, self.lexed.text(self.pos))))
     }
 
-    fn peek(&self) -> Option<Self::Token> {
+    fn peek(&self) -> Option<SyntaxKind> {
         if self.pos == self.lexed.len() {
             return None;
         }
-        Some(self.pos)
+        Some(self.lexed.kind(self.pos))
     }
 
     fn span_for(&self, _: TextRange) -> S {
@@ -584,34 +557,32 @@ where
     }
 }
 
-struct Converter<SpanMap, S> {
+struct NodeConverter<SpanMap, S> {
     current: Option<SyntaxToken>,
-    current_leaves: Vec<tt::Leaf<S>>,
+    current_leaves: Vec<tt::Token<S>>,
     preorder: PreorderWithTokens,
     range: TextRange,
-    punct_offset: Option<(SyntaxToken, TextSize)>,
     /// Used to make the emitted text ranges in the spans relative to the span anchor.
     map: SpanMap,
-    append: FxHashMap<SyntaxElement, Vec<tt::Leaf<S>>>,
+    append: FxHashMap<SyntaxElement, Vec<tt::Token<S>>>,
     remove: FxHashSet<SyntaxElement>,
     call_site: S,
     mode: DocCommentDesugarMode,
 }
 
-impl<SpanMap, S> Converter<SpanMap, S> {
+impl<SpanMap, S> NodeConverter<SpanMap, S> {
     fn new(
         node: &SyntaxNode,
         map: SpanMap,
-        append: FxHashMap<SyntaxElement, Vec<tt::Leaf<S>>>,
+        append: FxHashMap<SyntaxElement, Vec<tt::Token<S>>>,
         remove: FxHashSet<SyntaxElement>,
         call_site: S,
         mode: DocCommentDesugarMode,
     ) -> Self {
-        let mut this = Converter {
+        let mut this = NodeConverter {
             current: None,
             preorder: node.preorder_with_tokens(),
             range: node.text_range(),
-            punct_offset: None,
             map,
             append,
             remove,
@@ -659,93 +630,26 @@ impl<SpanMap, S> Converter<SpanMap, S> {
     }
 }
 
-#[derive(Debug)]
-enum SynToken<S> {
-    Ordinary(SyntaxToken),
-    Punct { token: SyntaxToken, offset: usize },
-    Leaf(tt::Leaf<S>),
-}
-
-impl<S> SynToken<S> {
-    fn token(&self) -> &SyntaxToken {
-        match self {
-            SynToken::Ordinary(it) | SynToken::Punct { token: it, offset: _ } => it,
-            SynToken::Leaf(_) => unreachable!(),
-        }
-    }
-}
-
-impl<SpanMap, S> SrcToken<Converter<SpanMap, S>, S> for SynToken<S> {
-    fn kind(&self, _ctx: &Converter<SpanMap, S>) -> SyntaxKind {
-        match self {
-            SynToken::Ordinary(token) => token.kind(),
-            SynToken::Punct { token, offset: i } => {
-                SyntaxKind::from_char(token.text().chars().nth(*i).unwrap()).unwrap()
-            }
-            SynToken::Leaf(_) => {
-                never!();
-                SyntaxKind::ERROR
-            }
-        }
-    }
-    fn to_char(&self, _ctx: &Converter<SpanMap, S>) -> Option<char> {
-        match self {
-            SynToken::Ordinary(_) => None,
-            SynToken::Punct { token: it, offset: i } => it.text().chars().nth(*i),
-            SynToken::Leaf(_) => None,
-        }
-    }
-    fn to_text(&self, _ctx: &Converter<SpanMap, S>) -> SmolStr {
-        match self {
-            SynToken::Ordinary(token) | SynToken::Punct { token, offset: _ } => token.text().into(),
-            SynToken::Leaf(_) => {
-                never!();
-                "".into()
-            }
-        }
-    }
-    fn as_leaf(&self) -> Option<&tt::Leaf<S>> {
-        match self {
-            SynToken::Ordinary(_) | SynToken::Punct { .. } => None,
-            SynToken::Leaf(it) => Some(it),
-        }
-    }
-}
-
-impl<S, SpanMap> TokenConverter<S> for Converter<SpanMap, S>
+impl<S, SpanMap> TokenConverter<S> for NodeConverter<SpanMap, S>
 where
     S: Copy,
     SpanMap: SpanMapper<S>,
 {
-    type Token = SynToken<S>;
-    fn convert_doc_comment(
-        &self,
-        token: &Self::Token,
-        span: S,
-        builder: &mut tt::TopSubtreeBuilder<S>,
-    ) {
-        convert_doc_comment(token.token(), span, self.mode, builder);
-    }
+    // fn convert_doc_comment(
+    //     &self,
+    //     token: &Self::Token,
+    //     span: S,
+    //     builder: &mut tt::TopSubtreeBuilder<S>,
+    // ) {
+    //     convert_doc_comment(token.token(), span, self.mode, builder);
+    // }
 
-    fn bump(&mut self) -> Option<(Self::Token, TextRange)> {
-        if let Some((punct, offset)) = self.punct_offset.clone() {
-            if usize::from(offset) + 1 < punct.text().len() {
-                let offset = offset + TextSize::of('.');
-                let range = punct.text_range();
-                self.punct_offset = Some((punct.clone(), offset));
-                let range = TextRange::at(range.start() + offset, TextSize::of('.'));
-                return Some((
-                    SynToken::Punct { token: punct, offset: u32::from(offset) as usize },
-                    range,
-                ));
-            }
-        }
-
+    fn bump(&mut self) -> Option<Either<(SyntaxKind, TextRange, &str), Token<S>>> {
         if let Some(leaf) = self.current_leaves.pop() {
             if self.current_leaves.is_empty() {
                 self.current = self.next_token();
             }
-            return Some((SynToken::Leaf(leaf), TextRange::empty(TextSize::new(0))));
+            return Some(Either::Right(leaf));
         }
 
         let curr = self.current.clone()?;
@@ -754,37 +658,27 @@ where
         }
 
         self.current = self.next_token();
-        let token = if curr.kind().is_punct() {
-            self.punct_offset = Some((curr.clone(), 0.into()));
-            let range = curr.text_range();
-            let range = TextRange::at(range.start(), TextSize::of('.'));
-            (SynToken::Punct { token: curr, offset: 0_usize }, range)
-        } else {
-            self.punct_offset = None;
-            let range = curr.text_range();
-            (SynToken::Ordinary(curr), range)
-        };
 
-        Some(token)
+        let range = curr.text_range();
+        Some(Either::Left((
+            curr.kind(),
+            range,
+            // FIXME: lifetimes begone
+            unsafe { std::mem::transmute::<&str, &str>(curr.text()) },
+        )))
     }
 
-    fn peek(&self) -> Option<Self::Token> {
-        if let Some((punct, mut offset)) = self.punct_offset.clone() {
-            offset += TextSize::of('.');
-            if usize::from(offset) < punct.text().len() {
-                return Some(SynToken::Punct { token: punct, offset: usize::from(offset) });
-            }
-        }
-
+    // FIXME: current_leaves
+    fn peek(&self) -> Option<SyntaxKind> {
         let curr = self.current.clone()?;
         if !self.range.contains_range(curr.text_range()) {
             return None;
         }
 
         let token = if curr.kind().is_punct() {
-            SynToken::Punct { token: curr, offset: 0_usize }
+            SyntaxKind::from_char(curr.text().chars().next().unwrap()).unwrap()
         } else {
-            SynToken::Ordinary(curr)
+            curr.kind()
         };
         Some(token)
     }
@@ -828,12 +722,12 @@ where
     }
 }
 
-fn delim_to_str(d: tt::DelimiterKind, closing: bool) -> Option<&'static str> {
+fn delim_to_str(d: Delimiter, closing: bool) -> Option<&'static str> {
     let texts = match d {
-        tt::DelimiterKind::Parenthesis => "()",
-        tt::DelimiterKind::Brace => "{}",
-        tt::DelimiterKind::Bracket => "[]",
-        tt::DelimiterKind::Invisible => return None,
+        Delimiter::Parenthesis => "()",
+        Delimiter::Brace => "{}",
+        Delimiter::Bracket => "[]",
+        Delimiter::Invisible => return None,
     };
 
     let idx = closing as usize;
@@ -845,122 +739,150 @@ where
     SpanData<Ctx>: Copy + fmt::Debug,
     Ctx: PartialEq,
 {
-    /// Parses a float literal as if it was a one to two name ref nodes with a dot inbetween.
-    /// This occurs when a float literal is used as a field access.
-    fn float_split(&mut self, has_pseudo_dot: bool) {
-        let (text, span) = match self.cursor.token_tree() {
-            Some(tt::TokenTree::Leaf(tt::Leaf::Literal(tt::Literal {
-                symbol: text,
-                span,
-                kind: tt::LitKind::Float,
-                suffix: _,
-            }))) => (text.as_str(), *span),
-            tt => unreachable!("{tt:?}"),
-        };
-        // FIXME: Span splitting
-        match text.split_once('.') {
-            Some((left, right)) => {
-                assert!(!left.is_empty());
+    // /// Parses a float literal as if it was a one to two name ref nodes with a dot inbetween.
+    // /// This occurs when a float literal is used as a field access.
+    // fn float_split(&mut self, has_pseudo_dot: bool) {
+    //     let (text, span) = match self.cursor.token_tree() {
+    //         Some(tt::TokenTree::Token(tt::Token::Literal(tt::Literal {
+    //             symbol: text,
+    //             span,
+    //             kind: tt::LitKind::Float,
+    //             suffix: _,
+    //         }))) => (text.as_str(), *span),
+    //         tt => unreachable!("{tt:?}"),
+    //     };
+    //     // FIXME: Span splitting
+    //     match text.split_once('.') {
+    //         Some((left, right)) => {
+    //             assert!(!left.is_empty());
 
-                self.inner.start_node(SyntaxKind::NAME_REF);
-                self.inner.token(SyntaxKind::INT_NUMBER, left);
-                self.inner.finish_node();
-                self.token_map.push(self.text_pos + TextSize::of(left), span);
+    //             self.inner.start_node(SyntaxKind::NAME_REF);
+    //             self.inner.token(SyntaxKind::INT_NUMBER, left);
+    //             self.inner.finish_node();
+    //             self.token_map.push(self.text_pos + TextSize::of(left), span);
 
-                // here we move the exit up, the original exit has been deleted in process
-                self.inner.finish_node();
+    //             // here we move the exit up, the original exit has been deleted in process
+    //             self.inner.finish_node();
 
-                self.inner.token(SyntaxKind::DOT, ".");
-                self.token_map.push(self.text_pos + TextSize::of(left) + TextSize::of("."), span);
+    //             self.inner.token(SyntaxKind::DOT, ".");
+    //             self.token_map.push(self.text_pos + TextSize::of(left) + TextSize::of("."), span);
 
-                if has_pseudo_dot {
-                    assert!(right.is_empty(), "{left}.{right}");
-                } else {
-                    assert!(!right.is_empty(), "{left}.{right}");
-                    self.inner.start_node(SyntaxKind::NAME_REF);
-                    self.inner.token(SyntaxKind::INT_NUMBER, right);
-                    self.token_map.push(self.text_pos + TextSize::of(text), span);
-                    self.inner.finish_node();
+    //             if has_pseudo_dot {
+    //                 assert!(right.is_empty(), "{left}.{right}");
+    //             } else {
+    //                 assert!(!right.is_empty(), "{left}.{right}");
+    //                 self.inner.start_node(SyntaxKind::NAME_REF);
+    //                 self.inner.token(SyntaxKind::INT_NUMBER, right);
+    //                 self.token_map.push(self.text_pos + TextSize::of(text), span);
+    //                 self.inner.finish_node();
 
-                    // the parser creates an unbalanced start node, we are required to close it here
-                    self.inner.finish_node();
-                }
-                self.text_pos += TextSize::of(text);
-            }
-            None => unreachable!(),
-        }
-        self.cursor.bump();
-    }
+    //                 // the parser creates an unbalanced start node, we are required to close it here
+    //                 self.inner.finish_node();
+    //             }
+    //             self.text_pos += TextSize::of(text);
+    //         }
+    //         None => unreachable!(),
+    //     }
+    //     self.cursor.bump();
+    // }
 
     fn token(&mut self, kind: SyntaxKind, mut n_tokens: u8) {
+        dbg!(n_tokens);
         if kind == LIFETIME_IDENT {
-            n_tokens = 2;
+            // n_tokens = 2;
         }
 
-        let mut last_two = self.cursor.peek_two_leaves();
+        let mut last_two = self.cursor.peek_two_tokens();
         let mut combined_span = None;
+        let mut last_spacing = Spacing::Joint;
         'tokens: for _ in 0..n_tokens {
-            let tmp: u8;
-            if self.cursor.eof() {
-                break;
-            }
-            last_two = self.cursor.peek_two_leaves();
-            let (text, span) = loop {
-                break match self.cursor.token_tree() {
-                    Some(tt::TokenTree::Leaf(leaf)) => match leaf {
-                        tt::Leaf::Ident(ident) => {
-                            if ident.is_raw.yes() {
-                                self.buf.push_str("r#");
-                                self.text_pos += TextSize::of("r#");
-                            }
-                            let r = (ident.sym.as_str(), ident.span);
-                            self.cursor.bump();
-                            r
-                        }
-                        tt::Leaf::Punct(punct) => {
-                            assert!(punct.char.is_ascii());
-                            tmp = punct.char as u8;
-                            let r = (
-                                std::str::from_utf8(std::slice::from_ref(&tmp)).unwrap(),
-                                punct.span,
-                            );
-                            self.cursor.bump();
-                            r
-                        }
-                        tt::Leaf::Literal(lit) => {
-                            let buf_l = self.buf.len();
-                            format_to!(self.buf, "{lit}");
-                            debug_assert_ne!(self.buf.len() - buf_l, 0);
-                            self.text_pos += TextSize::new((self.buf.len() - buf_l) as u32);
-                            combined_span = match combined_span {
-                                None => Some(lit.span),
-                                Some(prev_span) => Some(Self::merge_spans(prev_span, lit.span)),
-                            };
-                            self.cursor.bump();
-                            continue 'tokens;
-                        }
-                    },
-                    Some(tt::TokenTree::Subtree(subtree)) => {
-                        self.cursor.bump();
-                        match delim_to_str(subtree.delimiter.kind, false) {
-                            Some(it) => (it, subtree.delimiter.open),
-                            None => continue,
-                        }
+            let Some((t, spacing)) = self.cursor.peek_token() else { break };
+            dbg!(t);
+            last_spacing = spacing;
+            let text = match &t.kind {
+                TokenKind::Eq => "=",
+                TokenKind::Lt => "<",
+                TokenKind::Le => "<=",
+                TokenKind::EqEq => "==",
+                TokenKind::Ne => "!=",
+                TokenKind::Ge => ">=",
+                TokenKind::Gt => ">",
+                TokenKind::AndAnd => "&&",
+                TokenKind::OrOr => "||",
+                TokenKind::Not => "!",
+                TokenKind::Tilde => "~",
+                TokenKind::BinOp(b) => match b {
+                    tt::BinOpToken::Plus => "+",
+                    tt::BinOpToken::Minus => "-",
+                    tt::BinOpToken::Star => "*",
+                    tt::BinOpToken::Slash => "/",
+                    tt::BinOpToken::Percent => "%",
+                    tt::BinOpToken::Caret => "^",
+                    tt::BinOpToken::And => "&",
+                    tt::BinOpToken::Or => "|",
+                    tt::BinOpToken::Shl => "<<",
+                    tt::BinOpToken::Shr => ">>",
+                },
+                TokenKind::BinOpEq(b) => match b {
+                    tt::BinOpToken::Plus => "+=",
+                    tt::BinOpToken::Minus => "-=",
+                    tt::BinOpToken::Star => "*=",
+                    tt::BinOpToken::Slash => "/=",
+                    tt::BinOpToken::Percent => "%=",
+                    tt::BinOpToken::Caret => "^=",
+                    tt::BinOpToken::And => "&=",
+                    tt::BinOpToken::Or => "|=",
+                    tt::BinOpToken::Shl => "<<=",
+                    tt::BinOpToken::Shr => ">>=",
+                },
+                TokenKind::At => "@",
+                TokenKind::Dot => ".",
+                TokenKind::DotDot => "..",
+                TokenKind::DotDotDot => "...",
+                TokenKind::DotDotEq => "..=",
+                TokenKind::Comma => ",",
+                TokenKind::Semi => ";",
+                TokenKind::Colon => ":",
+                TokenKind::PathSep => "::",
+                TokenKind::RArrow => "->",
+                TokenKind::LArrow => "<-",
+                TokenKind::FatArrow => "=>",
+                TokenKind::Pound => "#",
+                TokenKind::Dollar => "$",
+                TokenKind::Question => "?",
+                TokenKind::SingleQuote => "'",
+                &TokenKind::OpenDelim(d) => match delim_to_str(d, false) {
+                    Some(it) => it,
+                    None => continue,
+                },
+                &TokenKind::CloseDelim(d) => match delim_to_str(d, true) {
+                    Some(it) => it,
+                    None => continue,
+                },
+                TokenKind::Literal(lit) => {
+                    let buf_l = self.buf.len();
+                    format_to!(self.buf, "{lit}");
+                    debug_assert_ne!(self.buf.len() - buf_l, 0);
+                    self.text_pos += TextSize::new((self.buf.len() - buf_l) as u32);
+                    ""
+                }
+                TokenKind::Ident(ref ident, raw) => {
+                    if raw.yes() {
+                        self.buf.push_str("r#");
+                        self.text_pos += TextSize::of("r#");
                     }
-                    None => {
-                        let parent = self.cursor.end();
-                        match delim_to_str(parent.delimiter.kind, true) {
-                            Some(it) => (it, parent.delimiter.close),
-                            None => continue,
-                        }
-                    }
-                };
+                    ident.as_str()
+                }
+                TokenKind::Lifetime(_) => todo!(),
+                TokenKind::DocComment(_, _, _) => todo!(),
+                TokenKind::Eof => todo!(),
             };
             self.buf += text;
             self.text_pos += TextSize::of(text);
+            self.cursor.bump();
             combined_span = match combined_span {
-                None => Some(span),
-                Some(prev_span) => Some(Self::merge_spans(prev_span, span)),
+                None => Some(t.span),
+                Some(prev_span) => Some(Self::merge_spans(prev_span, t.span)),
             }
         }
 
@@ -969,18 +891,18 @@ where
         self.buf.clear();
         // FIXME: Emitting whitespace for this is really just a hack, we should get rid of it.
         // Add whitespace between adjoint puncts
-        if let Some([tt::Leaf::Punct(curr), tt::Leaf::Punct(next)]) = last_two {
-            // Note: We always assume the semi-colon would be the last token in
-            // other parts of RA such that we don't add whitespace here.
-            //
-            // When `next` is a `Punct` of `'`, that's a part of a lifetime identifier so we don't
-            // need to add whitespace either.
-            if curr.spacing == tt::Spacing::Alone && curr.char != ';' && next.char != '\'' {
-                self.inner.token(WHITESPACE, " ");
-                self.text_pos += TextSize::of(' ');
-                self.token_map.push(self.text_pos, curr.span);
-            }
-        }
+        // if let Some([tt::Token::Punct(curr), tt::Token::Punct(next)]) = last_two {
+        //     // Note: We always assume the semi-colon would be the last token in
+        //     // other parts of RA such that we don't add whitespace here.
+        //     //
+        //     // When `next` is a `Punct` of `'`, that's a part of a lifetime identifier so we don't
+        //     // need to add whitespace either.
+        //     if curr.spacing == tt::Spacing::Alone && curr.char != ';' && next.char != '\'' {
+        //         self.inner.token(WHITESPACE, " ");
+        //         self.text_pos += TextSize::of(' ');
+        //         self.token_map.push(self.text_pos, curr.span);
+        //     }
+        // }
     }
 
     fn start_node(&mut self, kind: SyntaxKind) {

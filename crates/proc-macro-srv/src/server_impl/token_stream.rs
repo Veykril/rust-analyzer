@@ -31,7 +31,7 @@ impl<S: Copy> TokenStream<S> {
     pub(crate) fn with_subtree(subtree: TopSubtree<S>) -> Self {
         let delimiter_kind = subtree.top_subtree().delimiter.kind;
         let mut token_trees = subtree.0;
-        if delimiter_kind == tt::DelimiterKind::Invisible {
+        if delimiter_kind == Delimiter::Invisible {
             token_trees.remove(0);
         }
         TokenStream { token_trees }
@@ -47,7 +47,7 @@ impl<S: Copy> TokenStream<S> {
                 delimiter: tt::Delimiter {
                     open: call_site,
                     close: call_site,
-                    kind: tt::DelimiterKind::Invisible,
+                    kind: Delimiter::Invisible,
                 },
                 len: self.token_trees.len() as u32,
             }),

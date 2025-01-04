@@ -65,15 +65,13 @@ pub use span::{HirFileId, MacroCallId, MacroFileId};
 
 pub mod tt {
     pub use span::Span;
-    pub use tt::{token_to_literal, DelimiterKind, IdentIsRaw, LitKind, Spacing};
+    pub use tt::{token_to_literal, BinOpToken, IdentIsRaw, LitKind, Spacing, TokenKind};
 
-    pub type Delimiter = ::tt::Delimiter<Span>;
+    pub type Delimiter = ::tt::Delimiter;
     pub type DelimSpan = ::tt::DelimSpan<Span>;
-    pub type Subtree = ::tt::Subtree<Span>;
-    pub type Leaf = ::tt::Leaf<Span>;
-    pub type Literal = ::tt::Literal<Span>;
-    pub type Punct = ::tt::Punct<Span>;
-    pub type Ident = ::tt::Ident<Span>;
+    pub type Subtree = ::tt::Subtree;
+    pub type Literal = ::tt::Literal;
+    pub type Token = ::tt::Token<Span>;
     pub type TokenTree = ::tt::TokenTree<Span>;
     pub type TopSubtree = ::tt::TopSubtree<Span>;
     pub type TopSubtreeBuilder = ::tt::TopSubtreeBuilder<Span>;

@@ -1,5 +1,7 @@
 //! See [`Input`].
 
+use core::fmt;
+
 use crate::SyntaxKind;
 
 #[allow(non_camel_case_types)]
@@ -17,6 +19,20 @@ pub struct Input {
     kind: Vec<SyntaxKind>,
     joint: Vec<bits>,
     contextual_kind: Vec<SyntaxKind>,
+}
+
+impl fmt::Debug for Input {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Input[")?;
+        for (i, (&k, &ck)) in self.kind.iter().zip(&self.contextual_kind).enumerate() {
+            if ck != SyntaxKind::EOF { ck } else { k }.fmt(f)?;
+            if self.is_joint(i) {
+                write!(f, "(Joint)")?
+            }
+            write!(f, ", ")?;
+        }
+        write!(f, "]")
+    }
 }
 
 /// `pub` impl used by callers to create `Tokens`.

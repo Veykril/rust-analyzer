@@ -112,7 +112,7 @@ fn parse_repr_tt(tt: &TopSubtree) -> Option<ReprOptions> {
         if let TtElement::Leaf(Leaf::Ident(ident)) = tt {
             flags.insert(match &ident.sym {
                 s if *s == sym::packed => {
-                    let pack = if let Some(TtElement::Subtree(_, mut tt_iter)) = tts.peek() {
+                    let pack = if let Some(TtElement::Delimited(_, mut tt_iter)) = tts.peek() {
                         tts.next();
                         if let Some(TtElement::Leaf(Leaf::Literal(lit))) = tt_iter.next() {
                             lit.symbol.as_str().parse().unwrap_or_default()
@@ -128,7 +128,7 @@ fn parse_repr_tt(tt: &TopSubtree) -> Option<ReprOptions> {
                     ReprFlags::empty()
                 }
                 s if *s == sym::align => {
-                    if let Some(TtElement::Subtree(_, mut tt_iter)) = tts.peek() {
+                    if let Some(TtElement::Delimited(_, mut tt_iter)) = tts.peek() {
                         tts.next();
                         if let Some(TtElement::Leaf(Leaf::Literal(lit))) = tt_iter.next() {
                             if let Ok(align) = lit.symbol.as_str().parse() {

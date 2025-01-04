@@ -1987,6 +1987,7 @@ dependencies = [
 name = "syntax-bridge"
 version = "0.0.0"
 dependencies = [
+ "expect-test",
  "intern",
  "parser",
  "rustc-hash 2.0.0",

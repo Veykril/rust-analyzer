@@ -68,18 +68,23 @@ impl CfgExpr {
 #[cfg(feature = "tt")]
 fn next_cfg_expr<S: Copy>(it: &mut tt::iter::TtIter<'_, S>) -> Option<CfgExpr> {
     use intern::sym;
-    use tt::iter::TtElement;
+    use tt::{iter::TtElement, Token, TokenKind, TokenTree};
 
     let name = match it.next() {
         None => return None,
-        Some(TtElement::Leaf(tt::Leaf::Ident(ident))) => ident.sym.clone(),
+        Some(TtElement::Token(Token { kind: TokenKind::Ident(ident, _raw), span: _ }, ..)) => {
+            ident.clone()
+        }
         Some(_) => return Some(CfgExpr::Invalid),
     };
 
     let ret = match it.peek() {
-        Some(TtElement::Leaf(tt::Leaf::Punct(punct))) if punct.char == '=' => {
+        Some(TtElement::Token(Token { kind: TokenKind::Eq, span: _ }, ..)) => {
             match it.remaining().flat_tokens().get(1) {
-                Some(tt::TokenTree::Leaf(tt::Leaf::Literal(literal))) => {
+                Some(TokenTree::Token(
+                    Token { kind: TokenKind::Literal(literal), span: _ },
+                    ..,
+                )) => {
                     it.next();
                     it.next();
                     CfgAtom::KeyValue { key: name, value: literal.symbol.clone() }.into()
@@ -87,7 +92,7 @@ fn next_cfg_expr<S: Copy>(it: &mut tt::iter::TtIter<'_, S>) -> Option<CfgExpr> {
                 _ => return Some(CfgExpr::Invalid),
             }
         }
-        Some(TtElement::Subtree(_, mut sub_it)) => {
+        Some(TtElement::Delimited(.., mut sub_it)) => {
             it.next();
             let mut subs = std::iter::from_fn(|| next_cfg_expr(&mut sub_it));
             match name {
@@ -103,10 +108,8 @@ fn next_cfg_expr<S: Copy>(it: &mut tt::iter::TtIter<'_, S>) -> Option<CfgExpr> {
     };
 
     // Eat comma separator
-    if let Some(TtElement::Leaf(tt::Leaf::Punct(punct))) = it.peek() {
-        if punct.char == ',' {
-            it.next();
-        }
+    if let Some(TtElement::Token(Token { kind: TokenKind::Comma, .. }, ..)) = it.peek() {
+        it.next();
     }
     Some(ret)
 }

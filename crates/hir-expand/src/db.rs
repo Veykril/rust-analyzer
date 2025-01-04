@@ -251,7 +251,7 @@ pub fn expand_speculative(
                         span,
                         DocCommentDesugarMode::ProcMacro,
                     );
-                    *tree.top_subtree_delimiter_mut() = tt::Delimiter::invisible_spanned(span);
+                    tree.make_invis(span);
 
                     Some(tree)
                 }
@@ -266,7 +266,7 @@ pub fn expand_speculative(
     let mut speculative_expansion = match loc.def.kind {
         MacroDefKind::ProcMacro(ast, expander, _) => {
             let span = db.proc_macro_span(ast);
-            *tt.top_subtree_delimiter_mut() = tt::Delimiter::invisible_spanned(span);
+            tt.make_invis(span);
             expander.expand(
                 db,
                 loc.def.krate,
@@ -430,7 +430,8 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
             let dummy_tt = |kind| {
                 (
                     Arc::new(tt::TopSubtree::from_token_trees(
-                        tt::Delimiter { open: span, close: span, kind },
+                        tt::DelimSpan { open: span, close: span },
+                        kind,
                         tt::TokenTreesView::new(&[]),
                     )),
                     SyntaxFixupUndoInfo::default(),
@@ -439,7 +440,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
             };
 
             let Some(tt) = node.token_tree() else {
-                return dummy_tt(tt::DelimiterKind::Invisible);
+                return dummy_tt(tt::Delimiter::Invisible);
             };
             let first = tt.left_delimiter_token().map(|it| it.kind()).unwrap_or(T!['(']);
             let last = tt.right_delimiter_token().map(|it| it.kind()).unwrap_or(T![.]);
@@ -458,11 +459,11 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
                 cov_mark::hit!(issue9358_bad_macro_stack_overflow);
 
                 let kind = match first {
-                    _ if loc.def.is_proc_macro() => tt::DelimiterKind::Invisible,
-                    T!['('] => tt::DelimiterKind::Parenthesis,
-                    T!['['] => tt::DelimiterKind::Bracket,
-                    T!['{'] => tt::DelimiterKind::Brace,
-                    _ => tt::DelimiterKind::Invisible,
+                    _ if loc.def.is_proc_macro() => tt::Delimiter::Invisible,
+                    T!['('] => tt::Delimiter::Parenthesis,
+                    T!['['] => tt::Delimiter::Bracket,
+                    T!['{'] => tt::Delimiter::Brace,
+                    _ => tt::Delimiter::Invisible,
                 };
                 return dummy_tt(kind);
             }
@@ -479,7 +480,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
             );
             if loc.def.is_proc_macro() {
                 // proc macros expect their inputs without parentheses, MBEs expect it with them included
-                tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Invisible;
+                *tt.top_subtree_delimiter_mut() = tt::Delimiter::Invisible;
             }
             return (Arc::new(tt), SyntaxFixupUndoInfo::NONE, span);
         }
@@ -537,7 +538,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
 
     if loc.def.is_proc_macro() {
         // proc macros expect their inputs without parentheses, MBEs expect it with them included
-        tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Invisible;
+        *tt.top_subtree_delimiter_mut() = tt::Delimiter::Invisible;
     }
 
     (Arc::new(tt), undo_info, span)
@@ -730,14 +731,14 @@ fn token_tree_to_syntax_node(
     syntax_bridge::token_tree_to_syntax_node(tt, entry_point, edition)
 }
 
-fn check_tt_count(tt: &tt::TopSubtree) -> Result<(), ExpandResult<()>> {
-    let tt = tt.top_subtree();
+fn check_tt_count(top: &tt::TopSubtree) -> Result<(), ExpandResult<()>> {
+    let tt = top.top_subtree();
     let count = tt.count();
     if TOKEN_LIMIT.check(count).is_err() {
         Err(ExpandResult {
             value: (),
             err: Some(ExpandError::other(
-                tt.delimiter.open,
+                top.top_subtree_delim_span().open,
                 format!(
                     "macro invocation exceeds token limit: produced {} tokens, limit is {}",
                     count,

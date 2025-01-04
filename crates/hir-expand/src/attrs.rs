@@ -6,7 +6,6 @@ use cfg::CfgExpr;
 use either::Either;
 use intern::{sym, Interned, Symbol};
 
-use mbe::{DelimiterKind, Punct};
 use smallvec::{smallvec, SmallVec};
 use span::{Span, SyntaxContextId};
 use syntax::unescape;
@@ -60,12 +59,10 @@ impl RawAttrs {
                         desugar_doc_comment_text(doc, DocCommentDesugarMode::ProcMacro);
                     Attr {
                         id,
-                        input: Some(Box::new(AttrInput::Literal(tt::Literal {
-                            symbol: text,
+                        input: Some(Box::new(AttrInput::Literal(
+                            tt::Literal { symbol: text, kind, suffix: None },
                             span,
-                            kind,
-                            suffix: None,
-                        }))),
+                        ))),
                         path: Interned::new(ModPath::from(Name::new_symbol(
                             sym::doc.clone(),
                             span.ctx,
@@ -152,7 +149,11 @@ impl RawAttrs {
                     );
 
                     let cfg_options = &crate_graph[krate].cfg_options;
-                    let cfg = TopSubtree::from_token_trees(subtree.top_subtree().delimiter, cfg);
+                    let cfg = TopSubtree::from_token_trees(
+                        *subtree.top_subtree_delim_span(),
+                        subtree.top_subtree_delimiter(),
+                        cfg,
+                    );
                     let cfg = CfgExpr::parse(&cfg);
                     if cfg_options.check(&cfg) == Some(false) {
                         smallvec![]
@@ -217,7 +218,7 @@ pub struct Attr {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AttrInput {
     /// `#[attr = "string"]`
-    Literal(tt::Literal),
+    Literal(tt::Literal, Span),
     /// `#[attr(subtree)]`
     TokenTree(tt::TopSubtree),
 }
@@ -225,7 +226,7 @@ pub enum AttrInput {
 impl fmt::Display for AttrInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AttrInput::Literal(lit) => write!(f, " = {lit}"),
+            AttrInput::Literal(lit, _) => write!(f, " = {lit}"),
             AttrInput::TokenTree(tt) => tt.fmt(f),
         }
     }
@@ -246,7 +247,7 @@ impl Attr {
         let span = span_map.span_for_range(range);
         let input = if let Some(ast::Expr::Literal(lit)) = ast.expr() {
             let token = lit.token();
-            Some(Box::new(AttrInput::Literal(token_to_literal(token.text(), span))))
+            Some(Box::new(AttrInput::Literal(token_to_literal(token.text()), span)))
         } else if let Some(tt) = ast.token_tree() {
             let tree = syntax_node_to_token_tree(
                 tt.syntax(),
@@ -267,11 +268,11 @@ impl Attr {
         id: AttrId,
     ) -> Option<Attr> {
         if matches!(tt.flat_tokens(),
-            [tt::TokenTree::Leaf(tt::Leaf::Ident(tt::Ident { sym, .. })), ..]
+            [tt::TokenTree::Token(tt::Token { kind: tt::TokenKind::Ident(sym, _), ..}, ..), ..]
             if *sym == sym::unsafe_
         ) {
             match tt.iter().nth(1) {
-                Some(tt::TtElement::Subtree(_, iter)) => tt = iter.remaining(),
+                Some(tt::TtElement::Delimited(.., iter)) => tt = iter.remaining(),
                 _ => return None,
             }
         }
@@ -287,9 +288,15 @@ impl Attr {
                 path = iter.from_savepoint(start);
                 if !matches!(
                     tt,
-                    tt::TtElement::Leaf(
-                        tt::Leaf::Punct(tt::Punct { char: ':' | '$', .. }) | tt::Leaf::Ident(_),
-                    )
+                    tt::TtElement::Token(
+                        tt::Token {
+                            kind: tt::TokenKind::Colon
+                                | tt::TokenKind::Dollar
+                                | tt::TokenKind::Ident(..),
+                            ..
+                        },
+                        ..
+                    ),
                 ) {
                     input = path_split_savepoint.remaining();
                     break;
@@ -305,11 +312,12 @@ impl Attr {
             (_, Some(tree)) => {
                 Some(Box::new(AttrInput::TokenTree(tt::TopSubtree::from_subtree(tree))))
             }
-            (Some(tt::TokenTree::Leaf(tt::Leaf::Punct(tt::Punct { char: '=', .. }))), _) => {
+            (Some(tt::TokenTree::Token(tt::Token { kind: tt::TokenKind::Eq, .. }, ..)), _) => {
                 let input = match input.flat_tokens().get(1) {
-                    Some(tt::TokenTree::Leaf(tt::Leaf::Literal(lit))) => {
-                        Some(Box::new(AttrInput::Literal(lit.clone())))
-                    }
+                    Some(tt::TokenTree::Token(
+                        tt::Token { kind: tt::TokenKind::Literal(lit), span },
+                        ..,
+                    )) => Some(Box::new(AttrInput::Literal((**lit).clone(), *span))),
                     _ => None,
                 };
                 input
@@ -328,11 +336,12 @@ impl Attr {
     /// #[path = "string"]
     pub fn string_value(&self) -> Option<&Symbol> {
         match self.input.as_deref()? {
-            AttrInput::Literal(tt::Literal {
-                symbol: text,
-                kind: tt::LitKind::Str | tt::LitKind::StrRaw(_),
-                ..
-            }) => Some(text),
+            AttrInput::Literal(
+                tt::Literal {
+                    symbol: text, kind: tt::LitKind::Str | tt::LitKind::StrRaw(_), ..
+                },
+                ..,
+            ) => Some(text),
             _ => None,
         }
     }
@@ -340,22 +349,25 @@ impl Attr {
     /// #[path = "string"]
     pub fn string_value_with_span(&self) -> Option<(&Symbol, span::Span)> {
         match self.input.as_deref()? {
-            AttrInput::Literal(tt::Literal {
-                symbol: text,
-                kind: tt::LitKind::Str | tt::LitKind::StrRaw(_),
+            AttrInput::Literal(
+                tt::Literal {
+                    symbol: text,
+                    kind: tt::LitKind::Str | tt::LitKind::StrRaw(_),
+                    suffix: _,
+                },
                 span,
-                suffix: _,
-            }) => Some((text, *span)),
+            ) => Some((text, *span)),
             _ => None,
         }
     }
 
     pub fn string_value_unescape(&self) -> Option<Cow<'_, str>> {
         match self.input.as_deref()? {
-            AttrInput::Literal(tt::Literal {
-                symbol: text, kind: tt::LitKind::StrRaw(_), ..
-            }) => Some(Cow::Borrowed(text.as_str())),
-            AttrInput::Literal(tt::Literal { symbol: text, kind: tt::LitKind::Str, .. }) => {
+            AttrInput::Literal(
+                tt::Literal { symbol: text, kind: tt::LitKind::StrRaw(_), .. },
+                ..,
+            ) => Some(Cow::Borrowed(text.as_str())),
+            AttrInput::Literal(tt::Literal { symbol: text, kind: tt::LitKind::Str, .. }, ..) => {
                 unescape(text.as_str())
             }
             _ => None,
@@ -363,10 +375,13 @@ impl Attr {
     }
 
     /// #[path(ident)]
-    pub fn single_ident_value(&self) -> Option<&tt::Ident> {
+    pub fn single_ident_value(&self) -> Option<&Symbol> {
         match self.input.as_deref()? {
             AttrInput::TokenTree(tt) => match tt.token_trees().flat_tokens() {
-                [tt::TokenTree::Leaf(tt::Leaf::Ident(ident))] => Some(ident),
+                [tt::TokenTree::Token(
+                    tt::Token { kind: tt::TokenKind::Ident(ident, _), .. },
+                    ..,
+                )] => Some(ident),
                 _ => None,
             },
             _ => None,
@@ -388,12 +403,14 @@ impl Attr {
     ) -> Option<impl Iterator<Item = (ModPath, Span)> + 'a> {
         let args = self.token_tree_value()?;
 
-        if args.top_subtree().delimiter.kind != DelimiterKind::Parenthesis {
+        if args.top_subtree_delimiter() != tt::Delimiter::Parenthesis {
             return None;
         }
         let paths = args
             .token_trees()
-            .split(|tt| matches!(tt, tt::TtElement::Leaf(tt::Leaf::Punct(Punct { char: ',', .. }))))
+            .split(|tt| {
+                matches!(tt, tt::TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, ..))
+            })
             .filter_map(move |tts| {
                 let span = tts.flat_tokens().first()?.first_span();
                 Some((ModPath::from_tt(db, tts)?, span))
@@ -482,9 +499,9 @@ fn inner_attributes(
 fn parse_cfg_attr_input(
     subtree: &TopSubtree,
 ) -> Option<(tt::TokenTreesView<'_>, impl Iterator<Item = tt::TokenTreesView<'_>>)> {
-    let mut parts = subtree
-        .token_trees()
-        .split(|tt| matches!(tt, tt::TtElement::Leaf(tt::Leaf::Punct(Punct { char: ',', .. }))));
+    let mut parts = subtree.token_trees().split(|tt| {
+        matches!(tt, tt::TtElement::Token(tt::Token { kind: tt::TokenKind::Comma, .. }, ..))
+    });
     let cfg = parts.next()?;
     Some((cfg, parts.filter(|it| !it.is_empty())))
 }

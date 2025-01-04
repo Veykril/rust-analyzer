@@ -115,7 +115,7 @@ fn invocation_fixtures(
                     let mut builder = tt::TopSubtreeBuilder::new(tt::Delimiter {
                         open: DUMMY,
                         close: DUMMY,
-                        kind: tt::DelimiterKind::Invisible,
+                        kind: Delimiter::Invisible,
                     });
                     for op in rule.lhs.iter() {
                         collect_from_op(op, &mut builder, &mut seed);
@@ -151,16 +151,16 @@ fn invocation_fixtures(
                     builder.push(make_punct('\''));
                     builder.push(make_ident("a"));
                 }
-                Some(MetaVarKind::Block) => make_subtree(tt::DelimiterKind::Brace, builder),
+                Some(MetaVarKind::Block) => make_subtree(Delimiter::Brace, builder),
                 Some(MetaVarKind::Item) => {
                     builder.push(make_ident("fn"));
                     builder.push(make_ident("foo"));
-                    make_subtree(tt::DelimiterKind::Parenthesis, builder);
-                    make_subtree(tt::DelimiterKind::Brace, builder);
+                    make_subtree(Delimiter::Parenthesis, builder);
+                    make_subtree(Delimiter::Brace, builder);
                 }
                 Some(MetaVarKind::Meta) => {
                     builder.push(make_ident("foo"));
-                    make_subtree(tt::DelimiterKind::Parenthesis, builder);
+                    make_subtree(Delimiter::Parenthesis, builder);
                 }
 
                 None => (),
@@ -168,7 +168,7 @@ fn invocation_fixtures(
             },
             Op::Literal(it) => builder.push(tt::Leaf::from(it.clone())),
             Op::Ident(it) => builder.push(tt::Leaf::from(it.clone())),
-            Op::Punct(puncts) => {
+            Op::Token(puncts) => {
                 for punct in puncts.as_slice() {
                     builder.push(tt::Leaf::from(*punct));
                 }
@@ -238,7 +238,7 @@ fn invocation_fixtures(
                 suffix: None,
             })
         }
-        fn make_subtree(kind: tt::DelimiterKind, builder: &mut tt::TopSubtreeBuilder<Span>) {
+        fn make_subtree(kind: Delimiter, builder: &mut tt::TopSubtreeBuilder<Span>) {
             builder.open(kind, DUMMY);
             builder.close(DUMMY);
         }

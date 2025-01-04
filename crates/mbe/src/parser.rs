@@ -6,7 +6,12 @@ use std::sync::Arc;
 use arrayvec::ArrayVec;
 use intern::{sym, Symbol};
 use span::{Edition, Span, SyntaxContextId};
-use tt::iter::{TtElement, TtIter};
+use tt::{
+    iter::{TtElement, TtIter},
+    BinOpToken, IdentIsRaw, Literal, TokenKind,
+};
+
+type Token = tt::Token<Span>;
 
 use crate::ParseError;
 
@@ -89,27 +94,26 @@ pub(crate) enum Op {
     Repeat {
         tokens: MetaTemplate,
         kind: RepeatKind,
-        separator: Option<Arc<Separator>>,
+        separator: Option<Token>,
     },
     Subtree {
         tokens: MetaTemplate,
-        delimiter: tt::Delimiter<Span>,
+        delim_span: tt::DelimSpan<Span>,
+        delimiter: tt::Delimiter,
     },
-    Literal(tt::Literal<Span>),
-    Punct(Box<ArrayVec<tt::Punct<Span>, 3>>),
-    Ident(tt::Ident<Span>),
+    Token(Token),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ConcatMetaVarExprElem {
     /// There is NO preceding dollar sign, which means that this identifier should be interpreted
     /// as a literal.
-    Ident(tt::Ident<Span>),
+    Ident(Symbol),
     /// There is a preceding dollar sign, which means that this identifier should be expanded
     /// and interpreted as a variable.
-    Var(tt::Ident<Span>),
+    Var(Symbol),
     /// For example, a number or a string.
-    Literal(tt::Literal<Span>),
+    Literal(Literal),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -147,31 +151,6 @@ pub(crate) enum MetaVarKind {
     Literal,
 }
 
-#[derive(Clone, Debug, Eq)]
-pub(crate) enum Separator {
-    Literal(tt::Literal<Span>),
-    Ident(tt::Ident<Span>),
-    Puncts(ArrayVec<tt::Punct<Span>, 3>),
-}
-
-// Note that when we compare a Separator, we just care about its textual value.
-impl PartialEq for Separator {
-    fn eq(&self, other: &Separator) -> bool {
-        use Separator::*;
-
-        match (self, other) {
-            (Ident(a), Ident(b)) => a.sym == b.sym,
-            (Literal(a), Literal(b)) => a.symbol == b.symbol,
-            (Puncts(a), Puncts(b)) if a.len() == b.len() => {
-                let a_iter = a.iter().map(|a| a.char);
-                let b_iter = b.iter().map(|b| b.char);
-                a_iter.eq(b_iter)
-            }
-            _ => false,
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 enum Mode {
     Pattern,
@@ -185,27 +164,21 @@ fn next_op(
     mode: Mode,
 ) -> Result<Op, ParseError> {
     let res = match first_peeked {
-        TtElement::Leaf(tt::Leaf::Punct(p @ tt::Punct { char: '$', .. })) => {
+        TtElement::Token(t @ tt::Token { kind: TokenKind::Dollar, .. }, ..) => {
             src.next().expect("first token already peeked");
             // Note that the '$' itself is a valid token inside macro_rules.
             let second = match src.next() {
-                None => {
-                    return Ok(Op::Punct({
-                        let mut res = ArrayVec::new();
-                        res.push(*p);
-                        Box::new(res)
-                    }))
-                }
+                None => return Ok(Op::Token(t.clone())),
                 Some(it) => it,
             };
             match second {
-                TtElement::Subtree(subtree, mut subtree_iter) => match subtree.delimiter.kind {
-                    tt::DelimiterKind::Parenthesis => {
+                TtElement::Delimited(_, _, delimiter, _, mut subtree_iter) => match delimiter {
+                    tt::Delimiter::Parenthesis => {
                         let (separator, kind) = parse_repeat(src)?;
                         let tokens = MetaTemplate::parse(edition, subtree_iter, mode)?;
-                        Op::Repeat { tokens, separator: separator.map(Arc::new), kind }
+                        Op::Repeat { tokens, separator, kind }
                     }
-                    tt::DelimiterKind::Brace => match mode {
+                    tt::Delimiter::Brace => match mode {
                         Mode::Template => parse_metavar_expr(&mut subtree_iter).map_err(|()| {
                             ParseError::unexpected("invalid metavariable expression")
                         })?,
@@ -221,66 +194,50 @@ fn next_op(
                         ))
                     }
                 },
-                TtElement::Leaf(leaf) => match leaf {
-                    tt::Leaf::Ident(ident) if ident.sym == sym::crate_ => {
+                TtElement::Token(t, _) => match &t.kind {
+                    TokenKind::Ident(ident, IdentIsRaw::No) if *ident == sym::crate_ => {
                         // We simply produce identifier `$crate` here. And it will be resolved when lowering ast to Path.
-                        Op::Ident(tt::Ident {
-                            sym: sym::dollar_crate.clone(),
-                            span: ident.span,
-                            is_raw: tt::IdentIsRaw::No,
-                        })
+                        // Op::Ident(tt::Ident {
+                        //     sym: sym::dollar_crate.clone(),
+                        //     span: t.span,
+                        //     is_raw: tt::IdentIsRaw::No,
+                        // })
+                        todo!()
                     }
-                    tt::Leaf::Ident(ident) => {
+                    TokenKind::Ident(ident, _raw) => {
                         let kind = eat_fragment_kind(edition, src, mode)?;
-                        let name = ident.sym.clone();
-                        let id = ident.span;
+                        let name = ident.clone();
+                        let id = t.span;
                         Op::Var { name, kind, id }
                     }
-                    tt::Leaf::Literal(lit) if is_boolean_literal(lit) => {
+                    TokenKind::Literal(lit) if is_boolean_literal(lit) => {
                         let kind = eat_fragment_kind(edition, src, mode)?;
                         let name = lit.symbol.clone();
-                        let id = lit.span;
+                        let id = t.span;
                         Op::Var { name, kind, id }
                     }
-                    tt::Leaf::Punct(punct @ tt::Punct { char: '$', .. }) => match mode {
+                    TokenKind::Dollar => match mode {
                         Mode::Pattern => {
                             return Err(ParseError::unexpected(
                                 "`$$` is not allowed on the pattern side",
                             ))
                         }
-                        Mode::Template => Op::Punct({
-                            let mut res = ArrayVec::new();
-                            res.push(*punct);
-                            Box::new(res)
-                        }),
+                        Mode::Template => Op::Token(t.clone()),
                     },
-                    tt::Leaf::Punct(_) | tt::Leaf::Literal(_) => {
-                        return Err(ParseError::expected("expected ident"))
-                    }
+                    _ => return Err(ParseError::expected("expected ident")),
                 },
             }
         }
 
-        TtElement::Leaf(tt::Leaf::Literal(it)) => {
+        TtElement::Token(token, _) => {
             src.next().expect("first token already peeked");
-            Op::Literal(it.clone())
+            Op::Token(token.clone())
         }
 
-        TtElement::Leaf(tt::Leaf::Ident(it)) => {
-            src.next().expect("first token already peeked");
-            Op::Ident(it.clone())
-        }
-
-        TtElement::Leaf(tt::Leaf::Punct(_)) => {
-            // There's at least one punct so this shouldn't fail.
-            let puncts = src.expect_glued_punct().unwrap();
-            Op::Punct(Box::new(puncts))
-        }
-
-        TtElement::Subtree(subtree, subtree_iter) => {
+        TtElement::Delimited(delim_span, _, delimiter, _, subtree_iter) => {
             src.next().expect("first token already peeked");
             let tokens = MetaTemplate::parse(edition, subtree_iter, mode)?;
-            Op::Subtree { tokens, delimiter: subtree.delimiter }
+            Op::Subtree { tokens, delim_span: *delim_span, delimiter }
         }
     };
     Ok(res)
@@ -292,15 +249,16 @@ fn eat_fragment_kind(
     mode: Mode,
 ) -> Result<Option<MetaVarKind>, ParseError> {
     if let Mode::Pattern = mode {
-        src.expect_char(':').map_err(|()| ParseError::unexpected("missing fragment specifier"))?;
-        let ident = src
+        src.expect_colon().map_err(|()| ParseError::unexpected("missing fragment specifier"))?;
+        let (ident, raw, span) = src
             .expect_ident()
             .map_err(|()| ParseError::unexpected("missing fragment specifier"))?;
-        let kind = match ident.sym.as_str() {
+        let kind = match ident.as_str() {
+            _ if raw.yes() => return Ok(None),
             "path" => MetaVarKind::Path,
             "ty" => MetaVarKind::Ty,
             "pat" => {
-                if edition(ident.span.ctx).at_least_2021() {
+                if edition(span.ctx).at_least_2021() {
                     MetaVarKind::Pat
                 } else {
                     MetaVarKind::PatParam
@@ -313,7 +271,7 @@ fn eat_fragment_kind(
             "item" => MetaVarKind::Item,
             "vis" => MetaVarKind::Vis,
             "expr" => {
-                if edition(ident.span.ctx).at_least_2024() {
+                if edition(span.ctx).at_least_2024() {
                     MetaVarKind::Expr(ExprKind::Expr)
                 } else {
                     MetaVarKind::Expr(ExprKind::Expr2021)
@@ -331,89 +289,98 @@ fn eat_fragment_kind(
     Ok(None)
 }
 
-fn is_boolean_literal(lit: &tt::Literal<Span>) -> bool {
+fn is_boolean_literal(lit: &Literal) -> bool {
     matches!(lit.symbol.as_str(), "true" | "false")
 }
 
-fn parse_repeat(src: &mut TtIter<'_, Span>) -> Result<(Option<Separator>, RepeatKind), ParseError> {
-    let mut separator = Separator::Puncts(ArrayVec::new());
-    for tt in src {
-        let tt = match tt {
-            TtElement::Leaf(leaf) => leaf,
-            TtElement::Subtree(..) => return Err(ParseError::InvalidRepeat),
-        };
-        let has_sep = match &separator {
-            Separator::Puncts(puncts) => !puncts.is_empty(),
-            _ => true,
-        };
-        match tt {
-            tt::Leaf::Ident(_) | tt::Leaf::Literal(_) if has_sep => {
-                return Err(ParseError::InvalidRepeat)
-            }
-            tt::Leaf::Ident(ident) => separator = Separator::Ident(ident.clone()),
-            tt::Leaf::Literal(lit) => separator = Separator::Literal(lit.clone()),
-            tt::Leaf::Punct(punct) => {
-                let repeat_kind = match punct.char {
-                    '*' => RepeatKind::ZeroOrMore,
-                    '+' => RepeatKind::OneOrMore,
-                    '?' => RepeatKind::ZeroOrOne,
-                    _ => match &mut separator {
-                        Separator::Puncts(puncts) if puncts.len() < 3 => {
-                            puncts.push(*punct);
-                            continue;
-                        }
-                        _ => return Err(ParseError::InvalidRepeat),
-                    },
-                };
-                return Ok((has_sep.then_some(separator), repeat_kind));
-            }
-        }
+fn parse_repeat(iter: &mut TtIter<'_, Span>) -> Result<(Option<Token>, RepeatKind), ParseError> {
+    match parse_kleene_op(iter) {
+        Ok(Ok((op, span))) => return Ok((None, op)),
+
+        // #1 is a separator followed by #2, a KleeneOp
+        Ok(Err(token)) => match parse_kleene_op(iter) {
+            // #2 is the `?` Kleene op, which does not take a separator (error)
+            Ok(Ok((RepeatKind::ZeroOrOne, span))) => Err(ParseError::InvalidRepeat),
+
+            // #2 is a KleeneOp :D
+            Ok(Ok((op, span))) => return Ok((Some(token), op)),
+
+            // #2 is a random token or not a token at all :(
+            Ok(Err(Token { .. })) | Err(_) => Err(ParseError::InvalidRepeat),
+        },
+
+        // #1 is not a token
+        Err(span) => Err(ParseError::InvalidRepeat),
     }
-    Err(ParseError::InvalidRepeat)
+}
+
+fn parse_kleene_op(
+    iter: &mut TtIter<'_, Span>,
+) -> Result<Result<(RepeatKind, Span), Token>, ParseError> {
+    match iter.next() {
+        Some(TtElement::Token(token, _)) => match kleene_op(token) {
+            Some(op) => Ok(Ok((op, token.span))),
+            None => Ok(Err(token.clone())),
+        },
+        _ => Err(ParseError::InvalidRepeat),
+    }
+}
+
+fn kleene_op(token: &Token) -> Option<RepeatKind> {
+    match token.kind {
+        TokenKind::BinOp(BinOpToken::Star) => Some(RepeatKind::ZeroOrMore),
+        TokenKind::BinOp(BinOpToken::Plus) => Some(RepeatKind::OneOrMore),
+        TokenKind::Question => Some(RepeatKind::ZeroOrOne),
+        _ => None,
+    }
 }
 
 fn parse_metavar_expr(src: &mut TtIter<'_, Span>) -> Result<Op, ()> {
-    let func = src.expect_ident()?;
-    let (args, mut args_iter) = src.expect_subtree()?;
+    let (func, raw, span) = src.expect_ident()?;
+    let func = func.clone();
+    let (delimiter, mut args_iter) = src.expect_subtree()?;
 
-    if args.delimiter.kind != tt::DelimiterKind::Parenthesis {
+    if delimiter != tt::Delimiter::Parenthesis {
         return Err(());
     }
 
-    let op = match &func.sym {
-        s if sym::ignore == *s => {
+    let op = match func {
+        s if sym::ignore == s => {
             args_iter.expect_dollar()?;
-            let ident = args_iter.expect_ident()?;
-            Op::Ignore { name: ident.sym.clone(), id: ident.span }
+            let (ident, raw, span) = args_iter.expect_ident()?;
+            Op::Ignore { name: ident.clone(), id: span }
         }
-        s if sym::index == *s => Op::Index { depth: parse_depth(&mut args_iter)? },
-        s if sym::len == *s => Op::Len { depth: parse_depth(&mut args_iter)? },
-        s if sym::count == *s => {
+        s if sym::index == s => Op::Index { depth: parse_depth(&mut args_iter)? },
+        s if sym::len == s => Op::Len { depth: parse_depth(&mut args_iter)? },
+        s if sym::count == s => {
             args_iter.expect_dollar()?;
-            let ident = args_iter.expect_ident()?;
+            let ident = args_iter.expect_ident()?.0.clone();
             let depth = if try_eat_comma(&mut args_iter) {
                 Some(parse_depth(&mut args_iter)?)
             } else {
                 None
             };
-            Op::Count { name: ident.sym.clone(), depth }
+            Op::Count { name: ident, depth }
         }
-        s if sym::concat == *s => {
+        s if sym::concat == s => {
             let mut elements = Vec::new();
             while let Some(next) = args_iter.peek() {
-                let element = if let TtElement::Leaf(tt::Leaf::Literal(lit)) = next {
-                    args_iter.next().expect("already peeked");
-                    ConcatMetaVarExprElem::Literal(lit.clone())
-                } else {
-                    let is_var = try_eat_dollar(&mut args_iter);
-                    let ident = args_iter.expect_ident_or_underscore()?.clone();
-
-                    if is_var {
-                        ConcatMetaVarExprElem::Var(ident)
+                let element =
+                    if let TtElement::Token(tt::Token { kind: TokenKind::Literal(lit), .. }, ..) =
+                        next
+                    {
+                        args_iter.next().expect("already peeked");
+                        ConcatMetaVarExprElem::Literal((**lit).clone())
                     } else {
-                        ConcatMetaVarExprElem::Ident(ident)
-                    }
-                };
+                        let is_var = try_eat_dollar(&mut args_iter);
+                        let (ident, _, _) = args_iter.expect_ident()?;
+
+                        if is_var {
+                            ConcatMetaVarExprElem::Var(ident.clone())
+                        } else {
+                            ConcatMetaVarExprElem::Ident(ident.clone())
+                        }
+                    };
                 elements.push(element);
                 if !args_iter.is_empty() {
                     args_iter.expect_comma()?;
@@ -422,7 +389,7 @@ fn parse_metavar_expr(src: &mut TtIter<'_, Span>) -> Result<Op, ()> {
             if elements.len() < 2 {
                 return Err(());
             }
-            Op::Concat { elements: elements.into_boxed_slice(), span: func.span }
+            Op::Concat { elements: elements.into_boxed_slice(), span }
         }
         _ => return Err(()),
     };
@@ -437,9 +404,7 @@ fn parse_metavar_expr(src: &mut TtIter<'_, Span>) -> Result<Op, ()> {
 fn parse_depth(src: &mut TtIter<'_, Span>) -> Result<usize, ()> {
     if src.is_empty() {
         Ok(0)
-    } else if let tt::Leaf::Literal(tt::Literal { symbol: text, suffix: None, .. }) =
-        src.expect_literal()?
-    {
+    } else if let Literal { symbol: text, suffix: None, .. } = src.expect_literal()?.0 {
         // Suffixes are not allowed.
         text.as_str().parse().map_err(|_| ())
     } else {
@@ -448,7 +413,7 @@ fn parse_depth(src: &mut TtIter<'_, Span>) -> Result<usize, ()> {
 }
 
 fn try_eat_comma(src: &mut TtIter<'_, Span>) -> bool {
-    if let Some(TtElement::Leaf(tt::Leaf::Punct(tt::Punct { char: ',', .. }))) = src.peek() {
+    if let Some(TtElement::Token(tt::Token { kind: TokenKind::Comma, .. }, ..)) = src.peek() {
         let _ = src.next();
         return true;
     }
@@ -456,7 +421,7 @@ fn try_eat_comma(src: &mut TtIter<'_, Span>) -> bool {
 }
 
 fn try_eat_dollar(src: &mut TtIter<'_, Span>) -> bool {
-    if let Some(TtElement::Leaf(tt::Leaf::Punct(tt::Punct { char: '$', .. }))) = src.peek() {
+    if let Some(TtElement::Token(tt::Token { kind: TokenKind::Dollar, .. }, ..)) = src.peek() {
         let _ = src.next();
         return true;
     }
