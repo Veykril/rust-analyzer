@@ -5,17 +5,17 @@ use std::{cell::Cell, cmp::Ordering, iter};
 use base_db::{Crate, CrateOrigin, LangCrateOrigin};
 use hir_expand::{
     Lookup,
+    mod_path::{ModPath, PathKind},
     name::{AsName, Name},
 };
 use intern::sym;
 use rustc_hash::FxHashSet;
 
 use crate::{
-    ImportPathConfig, ModuleDefId, ModuleId,
+    ImportPathConfig, ItemTreeLoc, ModuleDefId, ModuleId,
     db::DefDatabase,
     item_scope::ItemInNs,
     nameres::DefMap,
-    path::{ModPath, PathKind},
     visibility::{Visibility, VisibilityExplicitness},
 };
 
@@ -134,10 +134,10 @@ fn find_path_inner(ctx: &FindPathCtx<'_>, item: ItemInNs, max_len: usize) -> Opt
 
     if let Some(ModuleDefId::EnumVariantId(variant)) = item.as_module_def_id() {
         // - if the item is an enum variant, refer to it via the enum
-        if let Some(mut path) =
-            find_path_inner(ctx, ItemInNs::Types(variant.lookup(ctx.db).parent.into()), max_len)
-        {
-            path.push_segment(ctx.db.enum_variant_data(variant).name.clone());
+        let enum_id = variant.lookup(ctx.db).parent;
+        if let Some(mut path) = find_path_inner(ctx, ItemInNs::Types(enum_id.into()), max_len) {
+            let loc = enum_id.lookup(ctx.db);
+            path.push_segment(loc.item_tree_id().item_tree(ctx.db)[loc.id.value].name.clone());
             return Some(path);
         }
         // If this doesn't work, it seems we have no way of referring to the

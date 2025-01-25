@@ -402,22 +402,22 @@ pub type Ty = ();
             assert_eq!(module_data.scope.impls().count(), 1);
 
             for imp in module_data.scope.impls() {
-                db.impl_data(imp);
+                db.impl_signature(imp);
             }
 
             for (_, res) in module_data.scope.resolutions() {
                 match res.values.map(|it| it.def).or(res.types.map(|it| it.def)).unwrap() {
-                    ModuleDefId::FunctionId(f) => _ = db.function_data(f),
+                    ModuleDefId::FunctionId(f) => _ = db.function_signature(f),
                     ModuleDefId::AdtId(adt) => match adt {
-                        AdtId::StructId(it) => _ = db.struct_data(it),
-                        AdtId::UnionId(it) => _ = db.union_data(it),
-                        AdtId::EnumId(it) => _ = db.enum_data(it),
+                        AdtId::StructId(it) => _ = db.struct_signature(it),
+                        AdtId::UnionId(it) => _ = db.union_signature(it),
+                        AdtId::EnumId(it) => _ = db.enum_signature(it),
                     },
-                    ModuleDefId::ConstId(it) => _ = db.const_data(it),
-                    ModuleDefId::StaticId(it) => _ = db.static_data(it),
-                    ModuleDefId::TraitId(it) => _ = db.trait_data(it),
-                    ModuleDefId::TraitAliasId(it) => _ = db.trait_alias_data(it),
-                    ModuleDefId::TypeAliasId(it) => _ = db.type_alias_data(it),
+                    ModuleDefId::ConstId(it) => _ = db.const_signature(it),
+                    ModuleDefId::StaticId(it) => _ = db.static_signature(it),
+                    ModuleDefId::TraitId(it) => _ = db.trait_signature(it),
+                    ModuleDefId::TraitAliasId(it) => _ = db.trait_alias_signature(it),
+                    ModuleDefId::TypeAliasId(it) => _ = db.type_alias_signature(it),
                     ModuleDefId::EnumVariantId(_)
                     | ModuleDefId::ModuleId(_)
                     | ModuleDefId::MacroId(_)

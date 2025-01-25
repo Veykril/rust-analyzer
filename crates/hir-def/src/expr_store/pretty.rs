@@ -1,25 +1,32 @@
 //! A pretty-printer for HIR.
 
-use std::fmt::{self, Write};
+use std::{
+    fmt::{self, Write},
+    mem,
+};
 
+use hir_expand::{Lookup, mod_path::PathKind};
 use itertools::Itertools;
 use span::Edition;
 
 use crate::{
+    DefWithBodyId, ItemTreeLoc,
+    expr_store::path::{GenericArg, GenericArgs},
     hir::{Array, BindingAnnotation, CaptureBy, ClosureKind, Literal, Movability, Statement},
-    pretty::{print_generic_args, print_path, print_type_ref},
+    lang_item::LangItemTarget,
+    type_ref::{ConstRef, Mutability, TraitBoundModifier, TypeBound, UseArgRef},
 };
 
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum LineFormat {
+pub(crate) enum LineFormat {
     Oneline,
     Newline,
     Indentation,
 }
 
-pub(super) fn print_body_hir(
+pub(crate) fn print_body_hir(
     db: &dyn DefDatabase,
     body: &Body,
     owner: DefWithBodyId,
@@ -63,22 +70,14 @@ pub(super) fn print_body_hir(
         line_format: LineFormat::Newline,
         edition,
     };
-    if let DefWithBodyId::FunctionId(it) = owner {
+    if let DefWithBodyId::FunctionId(_) = owner {
         p.buf.push('(');
-        let function_data = db.function_data(it);
-        let (mut params, ret_type) = (function_data.params.iter(), &function_data.ret_type);
         if let Some(self_param) = body.self_param {
             p.print_binding(self_param);
-            p.buf.push_str(": ");
-            if let Some(ty) = params.next() {
-                p.print_type_ref(*ty, &function_data.types_map);
-                p.buf.push_str(", ");
-            }
+            p.buf.push_str(", ");
         }
-        body.params.iter().zip(params).for_each(|(&param, ty)| {
-            p.print_pat(param);
-            p.buf.push_str(": ");
-            p.print_type_ref(*ty, &function_data.types_map);
+        body.params.iter().for_each(|param| {
+            p.print_pat(*param);
             p.buf.push_str(", ");
         });
         // remove the last ", " in param list
@@ -86,9 +85,6 @@ pub(super) fn print_body_hir(
             p.buf.truncate(p.buf.len() - 2);
         }
         p.buf.push(')');
-        // return type
-        p.buf.push_str(" -> ");
-        p.print_type_ref(*ret_type, &function_data.types_map);
         p.buf.push(' ');
     }
     p.print_expr(body.body_expr);
@@ -98,7 +94,7 @@ pub(super) fn print_body_hir(
     p.buf
 }
 
-pub(super) fn print_expr_hir(
+pub(crate) fn print_expr_hir(
     db: &dyn DefDatabase,
     store: &ExpressionStore,
     _owner: DefWithBodyId,
@@ -117,7 +113,7 @@ pub(super) fn print_expr_hir(
     p.buf
 }
 
-pub(super) fn print_pat_hir(
+pub(crate) fn print_pat_hir(
     db: &dyn DefDatabase,
     store: &ExpressionStore,
     _owner: DefWithBodyId,
@@ -238,7 +234,7 @@ impl Printer<'_> {
             Expr::InlineAsm(_) => w!(self, "builtin#asm(_)"),
             Expr::OffsetOf(offset_of) => {
                 w!(self, "builtin#offset_of(");
-                self.print_type_ref(offset_of.container, &self.store.types);
+                self.print_type_ref(offset_of.container);
                 let edition = self.edition;
                 w!(
                     self,
@@ -291,8 +287,7 @@ impl Printer<'_> {
                 w!(self, ".{}", method_name.display(self.db.upcast(), self.edition));
                 if let Some(args) = generic_args {
                     w!(self, "::<");
-                    let edition = self.edition;
-                    print_generic_args(self.db, args, &self.store.types, self, edition).unwrap();
+                    self.print_generic_args(args);
                     w!(self, ">");
                 }
                 w!(self, "(");
@@ -401,7 +396,7 @@ impl Printer<'_> {
             Expr::Cast { expr, type_ref } => {
                 self.print_expr(*expr);
                 w!(self, " as ");
-                self.print_type_ref(*type_ref, &self.store.types);
+                self.print_type_ref(*type_ref);
             }
             Expr::Ref { expr, rawness, mutability } => {
                 w!(self, "&");
@@ -489,13 +484,13 @@ impl Printer<'_> {
                     self.print_pat(*pat);
                     if let Some(ty) = ty {
                         w!(self, ": ");
-                        self.print_type_ref(*ty, &self.store.types);
+                        self.print_type_ref(*ty);
                     }
                 }
                 w!(self, "|");
                 if let Some(ret_ty) = ret_type {
                     w!(self, " -> ");
-                    self.print_type_ref(*ret_ty, &self.store.types);
+                    self.print_type_ref(*ret_ty);
                 }
                 self.whitespace();
                 self.print_expr(*body);
@@ -731,7 +726,7 @@ impl Printer<'_> {
                 self.print_pat(*pat);
                 if let Some(ty) = type_ref {
                     w!(self, ": ");
-                    self.print_type_ref(*ty, &self.store.types);
+                    self.print_type_ref(*ty);
                 }
                 if let Some(init) = initializer {
                     w!(self, " = ");
@@ -782,16 +777,6 @@ impl Printer<'_> {
         }
     }
 
-    fn print_type_ref(&mut self, ty: TypeRefId, map: &TypesMap) {
-        let edition = self.edition;
-        print_type_ref(self.db, ty, map, self, edition).unwrap();
-    }
-
-    fn print_path(&mut self, path: &Path) {
-        let edition = self.edition;
-        print_path(self.db, path, &self.store.types, self, edition).unwrap();
-    }
-
     fn print_binding(&mut self, id: BindingId) {
         let Binding { name, mode, .. } = &self.store.bindings[id];
         let mode = match mode {
@@ -801,5 +786,266 @@ impl Printer<'_> {
             BindingAnnotation::RefMut => "ref mut ",
         };
         w!(self, "{}{}", mode, name.display(self.db.upcast(), self.edition));
+    }
+
+    fn print_path(&mut self, path: &Path) {
+        if let Path::LangItem(it, s) = path {
+            w!(self, "builtin#lang(");
+            macro_rules! write_name {
+                ($it:ident) => {{
+                    let loc = $it.lookup(self.db);
+                    let tree = loc.item_tree_id().item_tree(self.db);
+                    let name = &tree[loc.id.value].name;
+                    w!(self, "{}", name.display(self.db.upcast(), self.edition));
+                }};
+            }
+            match *it {
+                LangItemTarget::ImplDef(it) => w!(self, "{it:?}"),
+                LangItemTarget::EnumId(it) => write_name!(it),
+                LangItemTarget::Function(it) => write_name!(it),
+                LangItemTarget::Static(it) => write_name!(it),
+                LangItemTarget::Struct(it) => write_name!(it),
+                LangItemTarget::Union(it) => write_name!(it),
+                LangItemTarget::TypeAlias(it) => write_name!(it),
+                LangItemTarget::Trait(it) => write_name!(it),
+                LangItemTarget::EnumVariant(it) => write_name!(it),
+            }
+
+            if let Some(s) = s {
+                w!(self, "::{}", s.display(self.db.upcast(), self.edition));
+            }
+            return w!(self, ")");
+        }
+        match path.type_anchor() {
+            Some(anchor) => {
+                w!(self, "<");
+                self.print_type_ref(anchor);
+                w!(self, ">::");
+            }
+            None => match path.kind() {
+                PathKind::Plain => {}
+                &PathKind::SELF => w!(self, "self"),
+                PathKind::Super(n) => {
+                    for i in 0..*n {
+                        if i == 0 {
+                            w!(self, "super");
+                        } else {
+                            w!(self, "::super");
+                        }
+                    }
+                }
+                PathKind::Crate => w!(self, "crate"),
+                PathKind::Abs => {}
+                PathKind::DollarCrate(krate) => w!(
+                    self,
+                    "{}",
+                    krate
+                        .extra_data(self.db)
+                        .display_name
+                        .as_ref()
+                        .map(|it| it.crate_name().symbol().as_str())
+                        .unwrap_or("$crate")
+                ),
+            },
+        }
+
+        for (i, segment) in path.segments().iter().enumerate() {
+            if i != 0 || !matches!(path.kind(), PathKind::Plain) {
+                w!(self, "::");
+            }
+
+            w!(self, "{}", segment.name.display(self.db.upcast(), self.edition));
+            if let Some(generics) = segment.args_and_bindings {
+                w!(self, "::<");
+                self.print_generic_args(generics);
+
+                w!(self, ">");
+            }
+        }
+    }
+
+    pub(crate) fn print_generic_args(&mut self, generics: &GenericArgs) {
+        let mut first = true;
+        let args = if generics.has_self_type {
+            let (self_ty, args) = generics.args.split_first().unwrap();
+            w!(self, "Self=");
+            self.print_generic_arg(self_ty);
+            first = false;
+            args
+        } else {
+            &generics.args
+        };
+        for arg in args {
+            if !first {
+                w!(self, ", ");
+            }
+            first = false;
+            self.print_generic_arg(arg);
+        }
+        for binding in generics.bindings.iter() {
+            if !first {
+                w!(self, ", ");
+            }
+            first = false;
+            w!(self, "{}", binding.name.display(self.db.upcast(), self.edition));
+            if !binding.bounds.is_empty() {
+                w!(self, ": ");
+                self.print_type_bounds(&binding.bounds);
+            }
+            if let Some(ty) = binding.type_ref {
+                w!(self, " = ");
+                self.print_type_ref(ty);
+            }
+        }
+    }
+
+    pub(crate) fn print_generic_arg(&mut self, arg: &GenericArg) {
+        match arg {
+            GenericArg::Type(ty) => self.print_type_ref(*ty),
+            GenericArg::Const(ConstRef { expr: Some(expr) }) => self.print_expr(*expr),
+            GenericArg::Const(_) => w!(self, "?"),
+            GenericArg::Lifetime(lt) => {
+                w!(self, "{}", lt.name.display(self.db.upcast(), self.edition))
+            }
+        }
+    }
+
+    pub(crate) fn print_type_ref(&mut self, type_ref: TypeRefId) {
+        // FIXME: deduplicate with `HirDisplay` impl
+        match &self.store[type_ref] {
+            TypeRef::Never => w!(self, "!"),
+            TypeRef::Placeholder => w!(self, "_"),
+            TypeRef::Tuple(fields) => {
+                w!(self, "(");
+                for (i, field) in fields.iter().enumerate() {
+                    if i != 0 {
+                        w!(self, ", ");
+                    }
+                    self.print_type_ref(*field);
+                }
+                w!(self, ")");
+            }
+            TypeRef::Path(path) => self.print_path(path),
+            TypeRef::RawPtr(pointee, mtbl) => {
+                let mtbl = match mtbl {
+                    Mutability::Shared => "*const",
+                    Mutability::Mut => "*mut",
+                };
+                w!(self, "{mtbl} ");
+                self.print_type_ref(*pointee);
+            }
+            TypeRef::Reference(ref_) => {
+                let mtbl = match ref_.mutability {
+                    Mutability::Shared => "",
+                    Mutability::Mut => "mut ",
+                };
+                w!(self, "&");
+                if let Some(lt) = &ref_.lifetime {
+                    w!(self, "{} ", lt.name.display(self.db.upcast(), self.edition));
+                }
+                w!(self, "{mtbl}");
+                self.print_type_ref(ref_.ty);
+            }
+            TypeRef::Array(array) => {
+                w!(self, "[");
+                self.print_type_ref(array.ty);
+                w!(self, "; ");
+                self.print_generic_arg(&GenericArg::Const(array.len.clone()));
+                w!(self, "]");
+            }
+            TypeRef::Slice(elem) => {
+                w!(self, "[");
+                self.print_type_ref(*elem);
+                w!(self, "]");
+            }
+            TypeRef::Fn(fn_) => {
+                let ((_, return_type), args) =
+                    fn_.params().split_last().expect("TypeRef::Fn is missing return type");
+                if fn_.is_unsafe() {
+                    w!(self, "unsafe ");
+                }
+                if let Some(abi) = fn_.abi() {
+                    w!(self, "extern ");
+                    w!(self, "{}", abi.as_str());
+                    w!(self, " ");
+                }
+                w!(self, "fn(");
+                for (i, (_, typeref)) in args.iter().enumerate() {
+                    if i != 0 {
+                        w!(self, ", ");
+                    }
+                    self.print_type_ref(*typeref);
+                }
+                if fn_.is_varargs() {
+                    if !args.is_empty() {
+                        w!(self, ", ");
+                    }
+                    w!(self, "...");
+                }
+                w!(self, ") -> ");
+                self.print_type_ref(*return_type);
+            }
+            TypeRef::Error => w!(self, "{{unknown}}"),
+            TypeRef::ImplTrait(bounds) => {
+                w!(self, "impl ");
+                self.print_type_bounds(bounds);
+            }
+            TypeRef::DynTrait(bounds) => {
+                w!(self, "dyn ");
+                self.print_type_bounds(bounds);
+            }
+        }
+    }
+
+    pub(crate) fn print_type_bounds(&mut self, bounds: &[TypeBound]) {
+        for (i, bound) in bounds.iter().enumerate() {
+            if i != 0 {
+                w!(self, " + ");
+            }
+
+            match bound {
+                TypeBound::Path(path, modifier) => {
+                    match modifier {
+                        TraitBoundModifier::None => (),
+                        TraitBoundModifier::Maybe => w!(self, "?"),
+                    }
+                    self.print_path(&self.store[*path]);
+                }
+                TypeBound::ForLifetime(lifetimes, path) => {
+                    w!(
+                        self,
+                        "for<{}> ",
+                        lifetimes
+                            .iter()
+                            .map(|it| it.display(self.db.upcast(), self.edition))
+                            .format(", ")
+                            .to_string()
+                    );
+                    self.print_path(&self.store[*path]);
+                }
+                TypeBound::Lifetime(lt) => {
+                    w!(self, "{}", lt.name.display(self.db.upcast(), self.edition))
+                }
+                TypeBound::Use(args) => {
+                    w!(self, "use<");
+                    let mut first = true;
+                    for arg in args {
+                        if !mem::take(&mut first) {
+                            w!(self, ", ");
+                        }
+                        match arg {
+                            UseArgRef::Name(it) => {
+                                w!(self, "{}", it.display(self.db.upcast(), self.edition))
+                            }
+                            UseArgRef::Lifetime(it) => {
+                                w!(self, "{}", it.name.display(self.db.upcast(), self.edition))
+                            }
+                        }
+                    }
+                    w!(self, ">")
+                }
+                TypeBound::Error => w!(self, "{{unknown}}"),
+            }
+        }
     }
 }

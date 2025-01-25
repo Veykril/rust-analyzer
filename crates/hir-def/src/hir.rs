@@ -13,6 +13,7 @@
 //! See also a neighboring `body` module.
 
 pub mod format_args;
+pub mod generics;
 pub mod type_ref;
 
 use std::fmt;
@@ -27,7 +28,7 @@ use type_ref::TypeRefId;
 use crate::{
     BlockId, ConstBlockId,
     builtin_type::{BuiltinFloat, BuiltinInt, BuiltinUint},
-    path::{GenericArgs, Path},
+    expr_store::path::{GenericArgs, Path},
     type_ref::{Mutability, Rawness},
 };
 

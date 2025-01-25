@@ -4,12 +4,12 @@ use syntax::ast::{self, make};
 use test_fixture::WithFixture;
 
 use crate::{
+    expr_store::pretty,
     lower::LowerCtx,
     path::{
         Path,
         lower::{SEGMENT_LOWERING_MAP, hir_segment_to_ast_segment},
     },
-    pretty,
     test_db::TestDB,
     type_ref::{TypesMap, TypesSourceMap},
 };
@@ -114,8 +114,7 @@ fn check_path_lowering(path: &str, expected: Expect) {
     let (db, types_map, lowered_path) = lower_path(make::path_from_text(path));
     let lowered_path = lowered_path.expect("failed to lower path");
     let mut buf = String::new();
-    pretty::print_path(&db, &lowered_path, &types_map, &mut buf, Edition::CURRENT)
-        .expect("failed to pretty-print path");
+    pretty::print_path(&db, &lowered_path, &types_map, &mut buf, Edition::CURRENT);
     expected.assert_eq(&buf);
 }
 

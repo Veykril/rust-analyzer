@@ -7,6 +7,7 @@
 //! Note that `hir_def` is a work in progress, so not all of the above is
 //! actually true.
 
+#![allow(unused_imports)]
 #![cfg_attr(feature = "in-rust-tree", feature(rustc_private))]
 
 #[cfg(feature = "in-rust-tree")]
@@ -32,18 +33,18 @@ pub mod db;
 pub mod attr;
 pub mod builtin_type;
 pub mod item_scope;
-pub mod path;
 pub mod per_ns;
 
-pub mod expander;
-pub mod lower;
+pub mod signatures;
 
 pub mod dyn_map;
 
 pub mod item_tree;
 
-pub mod data;
-pub mod generics;
+pub mod data {
+    // pub mod adt;
+}
+// pub mod generics;
 pub mod lang_item;
 
 pub mod hir;
@@ -63,9 +64,10 @@ use intern::Interned;
 pub use rustc_abi as layout;
 use triomphe::Arc;
 
+pub use crate::signatures::LocalFieldId;
+
 #[cfg(test)]
 mod macro_expansion_tests;
-mod pretty;
 #[cfg(test)]
 mod test_db;
 
@@ -79,6 +81,7 @@ use hir_expand::{
     db::ExpandDatabase,
     eager::expand_eager_macro_input,
     impl_intern_lookup,
+    mod_path::ModPath,
     name::Name,
     proc_macro::{CustomProcMacroExpander, ProcMacroKind},
 };
@@ -93,13 +96,14 @@ pub use hir_expand::{Intern, Lookup, tt};
 
 use crate::{
     builtin_type::BuiltinType,
-    data::adt::VariantData,
     db::DefDatabase,
+    hir::generics::{LocalLifetimeParamId, LocalTypeOrConstParamId},
     item_tree::{
         Const, Enum, ExternCrate, Function, Impl, ItemTreeId, ItemTreeNode, Macro2, MacroRules,
         Static, Struct, Trait, TraitAlias, TypeAlias, Union, Use, Variant,
     },
     nameres::LocalDefMap,
+    signatures::VariantFields,
 };
 
 type FxIndexMap<K, V> = indexmap::IndexMap<K, V, rustc_hash::FxBuildHasher>;
@@ -330,7 +334,7 @@ impl_intern!(ConstBlockId, ConstBlockLoc, intern_anonymous_const, lookup_intern_
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct ConstBlockLoc {
     /// The parent of the anonymous const block.
-    pub parent: DefWithBodyId,
+    pub parent: GenericDefId,
     /// The root expression of this const block in the parent body.
     pub root: hir::ExprId,
 }
@@ -489,8 +493,6 @@ pub struct FieldId {
     pub local_id: LocalFieldId,
 }
 
-pub type LocalFieldId = Idx<data::adt::FieldData>;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TupleId(pub u32);
 
@@ -558,14 +560,11 @@ impl From<ConstParamId> for TypeOrConstParamId {
     }
 }
 
-pub type LocalTypeOrConstParamId = Idx<generics::TypeOrConstParamData>;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LifetimeParamId {
     pub parent: GenericDefId,
     pub local_id: LocalLifetimeParamId,
 }
-pub type LocalLifetimeParamId = Idx<generics::LifetimeParamData>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ItemContainerId {
@@ -818,7 +817,7 @@ impl GeneralConstId {
         match self {
             GeneralConstId::ConstId(it) => Some(it.into()),
             GeneralConstId::StaticId(it) => Some(it.into()),
-            GeneralConstId::ConstBlockId(it) => it.lookup(db).parent.as_generic_def_id(db),
+            GeneralConstId::ConstBlockId(it) => Some(it.lookup(db).parent),
             GeneralConstId::InTypeConstId(it) => it.lookup(db).owner.as_generic_def_id(db),
         }
     }
@@ -826,15 +825,19 @@ impl GeneralConstId {
     pub fn name(self, db: &dyn DefDatabase) -> String {
         match self {
             GeneralConstId::StaticId(it) => {
-                db.static_data(it).name.display(db.upcast(), Edition::CURRENT).to_string()
+                let loc = it.lookup(db);
+                let tree = loc.item_tree_id().item_tree(db);
+                let name = tree[loc.id.value].name.display(db.upcast(), Edition::CURRENT);
+                name.to_string()
             }
-            GeneralConstId::ConstId(const_id) => db
-                .const_data(const_id)
-                .name
-                .as_ref()
-                .map(|it| it.as_str())
-                .unwrap_or("_")
-                .to_owned(),
+            GeneralConstId::ConstId(const_id) => {
+                let loc = const_id.lookup(db);
+                let tree = loc.item_tree_id().item_tree(db);
+                tree[loc.id.value].name.as_ref().map_or_else(
+                    || "_".to_owned(),
+                    |name| name.display(db.upcast(), Edition::CURRENT).to_string(),
+                )
+            }
             GeneralConstId::ConstBlockId(id) => format!("{{anonymous const {id:?}}}"),
             GeneralConstId::InTypeConstId(id) => format!("{{in type const {id:?}}}"),
         }
@@ -1005,7 +1008,6 @@ impl CallableDefId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AttrDefId {
     ModuleId(ModuleId),
-    FieldId(FieldId),
     AdtId(AdtId),
     FunctionId(FunctionId),
     EnumVariantId(EnumVariantId),
@@ -1024,7 +1026,6 @@ pub enum AttrDefId {
 
 impl_from!(
     ModuleId,
-    FieldId,
     AdtId(StructId, EnumId, UnionId),
     EnumVariantId,
     StaticId,
@@ -1099,8 +1100,8 @@ pub enum VariantId {
 impl_from!(EnumVariantId, StructId, UnionId for VariantId);
 
 impl VariantId {
-    pub fn variant_data(self, db: &dyn DefDatabase) -> Arc<VariantData> {
-        db.variant_data(self)
+    pub fn variant_data(self, db: &dyn DefDatabase) -> Arc<VariantFields> {
+        db.variant_fields(self)
     }
 
     pub fn file_id(self, db: &dyn DefDatabase) -> HirFileId {
@@ -1324,7 +1325,6 @@ impl HasModule for AttrDefId {
     fn module(&self, db: &dyn DefDatabase) -> ModuleId {
         match self {
             AttrDefId::ModuleId(it) => *it,
-            AttrDefId::FieldId(it) => it.parent.module(db),
             AttrDefId::AdtId(it) => it.module(db),
             AttrDefId::FunctionId(it) => it.module(db),
             AttrDefId::EnumVariantId(it) => it.module(db),
@@ -1375,7 +1375,7 @@ pub trait AsMacroCall {
         &self,
         db: &dyn ExpandDatabase,
         krate: Crate,
-        resolver: impl Fn(&path::ModPath) -> Option<MacroDefId> + Copy,
+        resolver: impl Fn(&ModPath) -> Option<MacroDefId> + Copy,
     ) -> Option<MacroCallId> {
         self.as_call_id_with_errors(db, krate, resolver).ok()?.value
     }
@@ -1384,7 +1384,7 @@ pub trait AsMacroCall {
         &self,
         db: &dyn ExpandDatabase,
         krate: Crate,
-        resolver: impl Fn(&path::ModPath) -> Option<MacroDefId> + Copy,
+        resolver: impl Fn(&ModPath) -> Option<MacroDefId> + Copy,
     ) -> Result<ExpandResult<Option<MacroCallId>>, UnresolvedMacro>;
 }
 
@@ -1393,14 +1393,14 @@ impl AsMacroCall for InFile<&ast::MacroCall> {
         &self,
         db: &dyn ExpandDatabase,
         krate: Crate,
-        resolver: impl Fn(&path::ModPath) -> Option<MacroDefId> + Copy,
+        resolver: impl Fn(&ModPath) -> Option<MacroDefId> + Copy,
     ) -> Result<ExpandResult<Option<MacroCallId>>, UnresolvedMacro> {
         let expands_to = hir_expand::ExpandTo::from_call_site(self.value);
         let ast_id = AstId::new(self.file_id, db.ast_id_map(self.file_id).ast_id(self.value));
         let span_map = db.span_map(self.file_id);
         let path = self.value.path().and_then(|path| {
             let range = path.syntax().text_range();
-            let mod_path = path::ModPath::from_src(db, path, &mut |range| {
+            let mod_path = ModPath::from_src(db, path, &mut |range| {
                 span_map.as_ref().span_for_range(range).ctx
             })?;
             let call_site = span_map.span_for_range(range);
@@ -1431,15 +1431,11 @@ impl AsMacroCall for InFile<&ast::MacroCall> {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct AstIdWithPath<T: AstIdNode> {
     ast_id: AstId<T>,
-    path: Interned<path::ModPath>,
+    path: Interned<ModPath>,
 }
 
 impl<T: AstIdNode> AstIdWithPath<T> {
-    fn new(
-        file_id: HirFileId,
-        ast_id: FileAstId<T>,
-        path: Interned<path::ModPath>,
-    ) -> AstIdWithPath<T> {
+    fn new(file_id: HirFileId, ast_id: FileAstId<T>, path: Interned<ModPath>) -> AstIdWithPath<T> {
         AstIdWithPath { ast_id: AstId::new(file_id, ast_id), path }
     }
 }
@@ -1450,7 +1446,7 @@ fn macro_call_as_call_id(
     call_site: SyntaxContext,
     expand_to: ExpandTo,
     krate: Crate,
-    resolver: impl Fn(&path::ModPath) -> Option<MacroDefId> + Copy,
+    resolver: impl Fn(&ModPath) -> Option<MacroDefId> + Copy,
 ) -> Result<Option<MacroCallId>, UnresolvedMacro> {
     macro_call_as_call_id_with_eager(
         db,
@@ -1468,12 +1464,12 @@ fn macro_call_as_call_id(
 fn macro_call_as_call_id_with_eager(
     db: &dyn ExpandDatabase,
     ast_id: AstId<ast::MacroCall>,
-    path: &path::ModPath,
+    path: &ModPath,
     call_site: SyntaxContext,
     expand_to: ExpandTo,
     krate: Crate,
-    resolver: impl FnOnce(&path::ModPath) -> Option<MacroDefId>,
-    eager_resolver: impl Fn(&path::ModPath) -> Option<MacroDefId>,
+    resolver: impl FnOnce(&ModPath) -> Option<MacroDefId>,
+    eager_resolver: impl Fn(&ModPath) -> Option<MacroDefId>,
 ) -> Result<ExpandResult<Option<MacroCallId>>, UnresolvedMacro> {
     let def = resolver(path).ok_or_else(|| UnresolvedMacro { path: path.clone() })?;
 
@@ -1503,7 +1499,7 @@ fn macro_call_as_call_id_with_eager(
 
 #[derive(Debug)]
 pub struct UnresolvedMacro {
-    pub path: hir_expand::mod_path::ModPath,
+    pub path: ModPath,
 }
 
 #[derive(Default, Debug, Eq, PartialEq, Clone, Copy)]
