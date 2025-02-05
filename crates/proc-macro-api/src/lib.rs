@@ -9,6 +9,9 @@ pub mod legacy_protocol {
     pub mod json;
     pub mod msg;
 }
+pub mod ng_protocol {
+    pub mod msg;
+}
 mod process;
 
 use paths::{AbsPath, AbsPathBuf};

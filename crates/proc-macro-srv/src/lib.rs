@@ -51,12 +51,22 @@ pub enum ProcMacroKind {
     Bang,
 }
 
+pub enum Request {}
+
+pub enum Response {}
+
 pub const RUSTC_VERSION_STRING: &str = env!("RUSTC_VERSION");
 
 pub struct ProcMacroSrv<'env> {
     expanders: Mutex<HashMap<Utf8PathBuf, Arc<dylib::Expander>>>,
     env: &'env EnvSnapshot,
 }
+
+// assert that ProcMacroSrv is Send and Sync
+const _: () = {
+    const fn _assert<T: Send + Sync>() {}
+    _assert::<ProcMacroSrv<'static>>();
+};
 
 impl<'env> ProcMacroSrv<'env> {
     pub fn new(env: &'env EnvSnapshot) -> Self {
@@ -78,6 +88,7 @@ impl ProcMacroSrv<'_> {
         def_site: S,
         call_site: S,
         mixed_site: S,
+        chan: impl Fn(Request) -> Response,
     ) -> Result<Vec<tt::TokenTree<S>>, String> {
         let snapped_env = self.env;
         let expander =

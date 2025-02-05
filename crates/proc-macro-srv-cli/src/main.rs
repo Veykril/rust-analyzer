@@ -6,10 +6,14 @@
 #[cfg(feature = "in-rust-tree")]
 extern crate rustc_driver as _;
 
-#[cfg(any(feature = "sysroot-abi", rust_analyzer))]
+#[cfg(all(not(feature = "ng"), any(feature = "sysroot-abi", rust_analyzer)))]
 mod main_loop;
-#[cfg(any(feature = "sysroot-abi", rust_analyzer))]
+#[cfg(all(not(feature = "ng"), any(feature = "sysroot-abi", rust_analyzer)))]
 use main_loop::run;
+#[cfg(all(feature = "ng", any(feature = "sysroot-abi", rust_analyzer)))]
+mod main_loop_ng;
+#[cfg(all(feature = "ng", any(feature = "sysroot-abi", rust_analyzer)))]
+use main_loop_ng::run;
 
 fn main() -> std::io::Result<()> {
     let v = std::env::var("RUST_ANALYZER_INTERNALS_DO_NOT_USE");
@@ -23,7 +27,7 @@ fn main() -> std::io::Result<()> {
         std::process::exit(122);
     }
 
-    run()
+    run(proc_macro_api::ng_protocol::msg::SpanMode::RustAnalyzer)
 }
 
 #[cfg(not(any(feature = "sysroot-abi", rust_analyzer)))]

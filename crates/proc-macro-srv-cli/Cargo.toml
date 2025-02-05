@@ -13,10 +13,14 @@ rust-version.workspace = true
 proc-macro-srv.workspace = true
 proc-macro-api.workspace = true
 tt.workspace = true
+crossbeam-channel = "0.5.13"
+postcard = "*"
 
 [features]
 sysroot-abi = ["proc-macro-srv/sysroot-abi"]
 in-rust-tree = ["proc-macro-srv/in-rust-tree", "sysroot-abi"]
+ng = []
+default = ["ng"]
 
 
 [[bin]]
