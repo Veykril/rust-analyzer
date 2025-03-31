@@ -283,9 +283,10 @@ impl ExpressionStore {
             | Expr::Const(_)
             | Expr::Missing
             | Expr::Path(_)
-            | Expr::OffsetOf(_)
+            | Expr::OffsetOfBase(_)
             | Expr::Literal(_)
             | Expr::Underscore => {}
+            Expr::OffsetOf(expr) => f(*expr),
             Expr::InlineAsm(it) => it.operands.iter().for_each(|(_, op)| match op {
                 AsmOperand::In { expr, .. }
                 | AsmOperand::Out { expr: Some(expr), .. }
@@ -416,9 +417,10 @@ impl ExpressionStore {
             | Expr::Const(_)
             | Expr::Missing
             | Expr::Path(_)
-            | Expr::OffsetOf(_)
+            | Expr::OffsetOfBase(_)
             | Expr::Literal(_)
             | Expr::Underscore => {}
+            Expr::OffsetOf(exr) => f(*exr),
             Expr::InlineAsm(it) => it.operands.iter().for_each(|(_, op)| match op {
                 AsmOperand::In { expr, .. }
                 | AsmOperand::Out { expr: Some(expr), .. }

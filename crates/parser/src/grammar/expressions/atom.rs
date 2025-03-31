@@ -248,6 +248,9 @@ fn tuple_expr(p: &mut Parser<'_>) -> CompletedMarker {
 //     builtin#asm("");
 //     builtin#format_args("", 0, 1, a = 2 + 3, a + b);
 //     builtin#offset_of(Foo, bar.baz.0);
+//     builtin#offset_of(Foo, 1.2.0);
+//     builtin#offset_of(Foo, 1.2);
+//     builtin#offset_of(Foo, 1.baz.2);
 // }
 fn builtin_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     let m = p.start();
@@ -258,11 +261,18 @@ fn builtin_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
         p.expect(T!['(']);
         type_(p);
         p.expect(T![,]);
-        while !p.at(EOF) && !p.at(T![')']) {
-            name_ref_mod_path_or_index(p);
-            if !p.at(T![')']) {
-                p.expect(T![.]);
+        let lhs = p.start();
+        match format_args_field_expr::<false>(p, lhs) {
+            Ok(mut lhs) => {
+                while p.at(T![.]) {
+                    let m = lhs.precede(p);
+                    lhs = match format_args_field_expr::<false>(p, m) {
+                        Ok(it) => it,
+                        Err(_) => break,
+                    };
+                }
             }
+            Err(_) => (),
         }
         p.expect(T![')']);
         Some(m.complete(p, OFFSET_OF_EXPR))
@@ -295,6 +305,31 @@ fn builtin_expr(p: &mut Parser<'_>) -> Option<CompletedMarker> {
     } else {
         m.abandon(p);
         None
+    }
+}
+
+fn format_args_field_expr<const FLOAT_RECOVERY: bool>(
+    p: &mut Parser<'_>,
+    m: Marker,
+) -> Result<CompletedMarker, CompletedMarker> {
+    if !FLOAT_RECOVERY {
+        p.eat(T![.]);
+    }
+    if p.at_ts(PATH_NAME_REF_OR_INDEX_KINDS) {
+        name_ref_mod_path_or_index(p);
+        Ok(m.complete(p, FIELD_EXPR))
+    } else if p.at(FLOAT_NUMBER) {
+        match p.split_float(m) {
+            (true, m) => {
+                let lhs = m.complete(p, FIELD_EXPR);
+                let lhs = lhs.precede(p);
+                format_args_field_expr::<true>(p, lhs)
+            }
+            (false, m) => Ok(m.complete(p, FIELD_EXPR)),
+        }
+    } else {
+        p.err_recover("expected field name or number", TokenSet::new(&[T![')']]));
+        Err(m.complete(p, FIELD_EXPR))
     }
 }
 

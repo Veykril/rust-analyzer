@@ -60,7 +60,7 @@ impl InferenceContext<'_> {
                     | AsmOperand::Const(_) => (),
                 });
             }
-            Expr::OffsetOf(_) => (),
+            Expr::OffsetOf(_) | Expr::OffsetOfBase(_) => (),
             &Expr::If { condition, then_branch, else_branch } => {
                 self.infer_mut_expr(condition, Mutability::Not);
                 self.infer_mut_expr(then_branch, Mutability::Not);

@@ -407,7 +407,7 @@ impl<'ctx> MirLowerCtx<'ctx> {
         mut current: BasicBlockId,
     ) -> Result<Option<BasicBlockId>> {
         match &self.body.exprs[expr_id] {
-            Expr::OffsetOf(_) => {
+            Expr::OffsetOf(_) | Expr::OffsetOfBase(_) => {
                 not_supported!("builtin#offset_of")
             }
             Expr::InlineAsm(_) => {

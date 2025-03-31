@@ -40,7 +40,7 @@ use crate::{
     },
     hir::{
         Array, Binding, BindingAnnotation, BindingId, BindingProblems, CaptureBy, ClosureKind,
-        Expr, ExprId, Item, Label, LabelId, Literal, MatchArm, Movability, OffsetOf, Pat, PatId,
+        Expr, ExprId, Item, Label, LabelId, Literal, MatchArm, Movability, Pat, PatId,
         RecordFieldPat, RecordLitField, Statement,
         format_args::{
             self, FormatAlignment, FormatArgs, FormatArgsPiece, FormatArgument, FormatArgumentKind,
@@ -53,7 +53,7 @@ use crate::{
     lower::LowerCtx,
     nameres::{DefMap, LocalDefMap, MacroSubNs},
     path::{GenericArgs, Path},
-    type_ref::{Mutability, Rawness, TypeRef},
+    type_ref::{Mutability, Rawness, TypeRef, TypeRefId},
 };
 
 type FxIndexSet<K> = indexmap::IndexSet<K, std::hash::BuildHasherDefault<rustc_hash::FxHasher>>;
@@ -802,11 +802,33 @@ impl ExprCollector<'_> {
             ast::Expr::AsmExpr(e) => self.lower_inline_asm(e, syntax_ptr),
             ast::Expr::OffsetOfExpr(e) => {
                 let container = TypeRef::from_ast_opt(&mut self.ctx(), e.ty());
-                let fields = e.fields().map(|it| it.as_name()).collect();
-                self.alloc_expr(Expr::OffsetOf(OffsetOf { container, fields }), syntax_ptr)
+                let field_chain = self.collect_offset_of_recursive(container, e.expr());
+                self.alloc_expr(Expr::OffsetOf(field_chain), syntax_ptr)
             }
             ast::Expr::FormatArgsExpr(f) => self.collect_format_args(f, syntax_ptr),
         })
+    }
+
+    fn collect_offset_of_recursive(
+        &mut self,
+        container: TypeRefId,
+        expr: Option<ast::Expr>,
+    ) -> ExprId {
+        let Some(expr) = expr else {
+            return self.alloc_expr_desugared(Expr::OffsetOfBase(container));
+        };
+        let syntax_ptr = AstPtr::new(&expr);
+        match expr {
+            ast::Expr::FieldExpr(e) => {
+                let expr = self.collect_offset_of_recursive(container, e.expr());
+                let name = match e.field_access() {
+                    Some(kind) => kind.as_name(),
+                    _ => Name::missing(),
+                };
+                self.alloc_expr(Expr::Field { expr, name }, syntax_ptr)
+            }
+            _ => self.alloc_expr(Expr::OffsetOfBase(container), syntax_ptr),
+        }
     }
 
     fn parse_path(&mut self, path: ast::Path) -> Option<Path> {

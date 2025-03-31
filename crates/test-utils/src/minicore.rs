@@ -46,6 +46,7 @@
 //!     manually_drop: drop
 //!     non_null:
 //!     non_zero:
+//!     offset_of:
 //!     option: panic
 //!     ord: eq, option
 //!     panic: fmt
@@ -365,6 +366,13 @@ pub mod convert {
 }
 
 pub mod mem {
+    // region:offset_of
+    pub macro offset_of($Container:ty, $($fields:expr)+ $(,)?) {
+        // The `{}` is for better error messages
+        {builtin # offset_of($Container, $($fields)+)}
+    }
+    // endregion:offset_of
+
     // region:manually_drop
     #[lang = "manually_drop"]
     #[repr(transparent)]

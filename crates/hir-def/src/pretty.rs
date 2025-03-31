@@ -179,11 +179,9 @@ pub(crate) fn print_type_ref(
         TypeRef::Placeholder => write!(buf, "_")?,
         TypeRef::Tuple(fields) => {
             write!(buf, "(")?;
-            for (i, field) in fields.iter().enumerate() {
-                if i != 0 {
-                    write!(buf, ", ")?;
-                }
+            for field in fields {
                 print_type_ref(db, *field, map, buf, edition)?;
+                write!(buf, ", ")?;
             }
             write!(buf, ")")?;
         }

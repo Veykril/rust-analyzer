@@ -314,14 +314,10 @@ pub enum Expr {
     Array(Array),
     Literal(Literal),
     Underscore,
-    OffsetOf(OffsetOf),
+    // This effectively contains a recursive `Expr::Field` chain with `OffsetOfBase` as the base case.
+    OffsetOf(ExprId),
+    OffsetOfBase(TypeRefId),
     InlineAsm(InlineAsm),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OffsetOf {
-    pub container: TypeRefId,
-    pub fields: Box<[Name]>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

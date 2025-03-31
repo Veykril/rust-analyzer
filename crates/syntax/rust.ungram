@@ -398,7 +398,7 @@ Expr =
 | UnderscoreExpr
 
 OffsetOfExpr =
-  Attr* 'builtin' '#' 'offset_of' '(' Type ',' fields:(NameRef ('.' NameRef)* ) ')'
+  Attr* 'builtin' '#' 'offset_of' '(' Type ',' Expr ')'
 
 // asm := "asm!(" format_string *("," format_string) *("," operand) [","] ")"
 // global_asm := "global_asm!(" format_string *("," format_string) *("," operand) [","] ")"
@@ -524,7 +524,7 @@ MethodCallExpr =
   Attr* receiver:Expr '.' NameRef GenericArgList? ArgList
 
 FieldExpr =
-  Attr* Expr '.' NameRef
+  Attr* Expr? '.' NameRef
 
 ClosureExpr =
   Attr* ClosureBinder? 'const'? 'static'? 'async'? 'gen'? 'move'?  ParamList RetType?

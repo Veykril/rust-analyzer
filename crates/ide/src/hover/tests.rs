@@ -11040,3 +11040,95 @@ impl PublicFlags for NoteDialects {
         "#]],
     );
 }
+
+#[test]
+fn offset_of() {
+    check(
+        r#"
+//- minicore:offset_of
+fn foo() {
+    let _ = core::mem::offset_of!((i32,), 0$0);
+}
+    "#,
+        expect![[r#"
+            *0*
+
+            ```rust
+            pub 0: i32
+            ```
+        "#]],
+    );
+    check(
+        r#"
+//- minicore:offset_of
+fn foo() {
+    let _ = core::mem::offset_of!(((i32, u32),), 0.0$0);
+}
+    "#,
+        expect![[r#"
+            *0.0*
+
+            ```rust
+            pub 0: (i32, u32)
+            ```
+
+            ---
+
+            ```rust
+            pub 0: i32
+            ```
+        "#]],
+    );
+    check(
+        r#"
+//- minicore:offset_of
+fn foo() {
+    let _ = core::mem::offset_of!(((i32, u32),), 0$0.0);
+}
+    "#,
+        expect![[r#"
+            *0.0*
+
+            ```rust
+            pub 0: (i32, u32)
+            ```
+
+            ---
+
+            ```rust
+            pub 0: i32
+            ```
+        "#]],
+    );
+    check(
+        r#"
+//- minicore:offset_of
+struct S { field: u32 }
+fn foo() {
+    let _ = core::mem::offset_of!(S, field$0);
+}
+    "#,
+        expect![[r#"
+            *field*
+
+            ```rust
+            ra_test_fixture::S
+            ```
+
+            ```rust
+            field: u32
+            ```
+        "#]],
+    );
+    check(
+        r#"
+//- minicore:offset_of
+struct S { field: (u32, f32) }
+fn foo() {
+    let _ = core::mem::offset_of!((S,), 0.field$0.0);
+}
+    "#,
+        expect![[r#"
+        "#]],
+    );
+}

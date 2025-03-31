@@ -90,14 +90,94 @@ SOURCE_FILE
                     IDENT "Foo"
             COMMA ","
             WHITESPACE " "
-            NAME_REF
-              IDENT "bar"
-            DOT "."
-            NAME_REF
-              IDENT "baz"
-            DOT "."
-            NAME_REF
-              INT_NUMBER "0"
+            FIELD_EXPR
+              FIELD_EXPR
+                FIELD_EXPR
+                  NAME_REF
+                    IDENT "bar"
+                DOT "."
+                NAME_REF
+                  IDENT "baz"
+              DOT "."
+              NAME_REF
+                INT_NUMBER "0"
+            R_PAREN ")"
+          SEMICOLON ";"
+        WHITESPACE "\n    "
+        EXPR_STMT
+          OFFSET_OF_EXPR
+            BUILTIN_KW "builtin"
+            POUND "#"
+            OFFSET_OF_KW "offset_of"
+            L_PAREN "("
+            PATH_TYPE
+              PATH
+                PATH_SEGMENT
+                  NAME_REF
+                    IDENT "Foo"
+            COMMA ","
+            WHITESPACE " "
+            FIELD_EXPR
+              FIELD_EXPR
+                FIELD_EXPR
+                  NAME_REF
+                    INT_NUMBER "1"
+                DOT "."
+                NAME_REF
+                  INT_NUMBER "2"
+              DOT "."
+              NAME_REF
+                INT_NUMBER "0"
+            R_PAREN ")"
+          SEMICOLON ";"
+        WHITESPACE "\n    "
+        EXPR_STMT
+          OFFSET_OF_EXPR
+            BUILTIN_KW "builtin"
+            POUND "#"
+            OFFSET_OF_KW "offset_of"
+            L_PAREN "("
+            PATH_TYPE
+              PATH
+                PATH_SEGMENT
+                  NAME_REF
+                    IDENT "Foo"
+            COMMA ","
+            WHITESPACE " "
+            FIELD_EXPR
+              FIELD_EXPR
+                NAME_REF
+                  INT_NUMBER "1"
+              DOT "."
+              NAME_REF
+                INT_NUMBER "2"
+            R_PAREN ")"
+          SEMICOLON ";"
+        WHITESPACE "\n    "
+        EXPR_STMT
+          OFFSET_OF_EXPR
+            BUILTIN_KW "builtin"
+            POUND "#"
+            OFFSET_OF_KW "offset_of"
+            L_PAREN "("
+            PATH_TYPE
+              PATH
+                PATH_SEGMENT
+                  NAME_REF
+                    IDENT "Foo"
+            COMMA ","
+            WHITESPACE " "
+            FIELD_EXPR
+              FIELD_EXPR
+                FIELD_EXPR
+                  NAME_REF
+                    INT_NUMBER "1"
+                DOT "."
+                NAME_REF
+                  IDENT "baz"
+              DOT "."
+              NAME_REF
+                INT_NUMBER "2"
             R_PAREN ")"
           SEMICOLON ";"
         WHITESPACE "\n"

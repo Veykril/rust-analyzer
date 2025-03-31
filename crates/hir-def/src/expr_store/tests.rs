@@ -257,6 +257,29 @@ fn main() {
 }
 
 #[test]
+fn offset_of() {
+    let (db, body, def) = lower(
+        r#"
+fn main() {
+    builtin#offset_of(((i32,),), 0.0);
+    builtin#offset_of(((i32,),), ba.faa);
+    builtin#offset_of(((i32,),), ba.0.faa);
+    builtin#offset_of(((i32,),), 0.faa.0);
+}
+"#,
+    );
+
+    expect![[r#"
+        fn main() -> () {
+            builtin#offset_of(<((i32, ), )>.0.0);
+            builtin#offset_of(<((i32, ), )>.ba.faa);
+            builtin#offset_of(<((i32, ), )>.ba.0.faa);
+            builtin#offset_of(<((i32, ), )>.0.faa.0);
+        }"#]]
+    .assert_eq(&body.pretty_print(&db, def, Edition::CURRENT))
+}
+
+#[test]
 fn test_macro_hygiene() {
     let (db, body, def) = lower(
         r##"

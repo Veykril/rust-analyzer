@@ -166,6 +166,7 @@ fn hover_offset(
     let original_token = pick_best_token(file.token_at_offset(offset), |kind| match kind {
         IDENT
         | INT_NUMBER
+        | FLOAT_NUMBER
         | LIFETIME_IDENT
         | T![self]
         | T![super]

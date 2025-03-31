@@ -226,6 +226,7 @@ impl InferenceContext<'_> {
             | Expr::Loop { .. }
             | Expr::InlineAsm(..)
             | Expr::OffsetOf(..)
+            | Expr::OffsetOfBase(..)
             | Expr::Literal(..)
             | Expr::Const(..)
             | Expr::UnaryOp { .. }
@@ -1071,7 +1072,11 @@ impl InferenceContext<'_> {
                 });
                 expected
             }
-            Expr::OffsetOf(_) => TyKind::Scalar(Scalar::Uint(UintTy::Usize)).intern(Interner),
+            &Expr::OffsetOfBase(type_ref) => self.make_body_ty(type_ref),
+            &Expr::OffsetOf(expr) => {
+                self.infer_expr_inner(expr, &Expectation::none(), ExprIsRead::No);
+                TyKind::Scalar(Scalar::Uint(UintTy::Usize)).intern(Interner)
+            }
             Expr::InlineAsm(asm) => {
                 let mut check_expr_asm_operand = |expr, is_input: bool| {
                     let ty = self.infer_expr_no_expect(expr, ExprIsRead::Yes);

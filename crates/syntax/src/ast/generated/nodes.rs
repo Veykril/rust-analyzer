@@ -1086,7 +1086,7 @@ pub struct OffsetOfExpr {
 impl ast::HasAttrs for OffsetOfExpr {}
 impl OffsetOfExpr {
     #[inline]
-    pub fn fields(&self) -> AstChildren<NameRef> { support::children(&self.syntax) }
+    pub fn expr(&self) -> Option<Expr> { support::child(&self.syntax) }
     #[inline]
     pub fn ty(&self) -> Option<Type> { support::child(&self.syntax) }
     #[inline]

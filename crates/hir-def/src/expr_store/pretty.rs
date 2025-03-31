@@ -236,18 +236,15 @@ impl Printer<'_> {
             Expr::Missing => w!(self, "�"),
             Expr::Underscore => w!(self, "_"),
             Expr::InlineAsm(_) => w!(self, "builtin#asm(_)"),
-            Expr::OffsetOf(offset_of) => {
+            Expr::OffsetOfBase(base) => {
+                w!(self, "<");
+                self.print_type_ref(*base, &self.store.types);
+                w!(self, ">")
+            }
+            Expr::OffsetOf(expr) => {
                 w!(self, "builtin#offset_of(");
-                self.print_type_ref(offset_of.container, &self.store.types);
-                let edition = self.edition;
-                w!(
-                    self,
-                    ", {})",
-                    offset_of
-                        .fields
-                        .iter()
-                        .format_with(".", |field, f| f(&field.display(self.db.upcast(), edition)))
-                );
+                self.print_expr(*expr);
+                w!(self, ")",);
             }
             Expr::Path(path) => self.print_path(path),
             Expr::If { condition, then_branch, else_branch } => {
