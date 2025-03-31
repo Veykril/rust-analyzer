@@ -682,6 +682,10 @@ impl ExpressionStoreSourceMap {
         self.expansions.iter()
     }
 
+    pub fn expansion(&self, node: InFile<&ast::MacroCall>) -> Option<MacroFileId> {
+        self.expansions.get(&node.map(AstPtr::new)).copied()
+    }
+
     pub fn implicit_format_args(
         &self,
         node: InFile<&ast::FormatArgsExpr>,

@@ -1180,16 +1180,7 @@ impl ModuleDefId {
 }
 
 /// A helper trait for converting to MacroCallId
-pub trait AsMacroCall {
-    fn as_call_id(
-        &self,
-        db: &dyn ExpandDatabase,
-        krate: Crate,
-        resolver: impl Fn(&ModPath) -> Option<MacroDefId> + Copy,
-    ) -> Option<MacroCallId> {
-        self.as_call_id_with_errors(db, krate, resolver).ok()?.value
-    }
-
+trait AsMacroCall {
     fn as_call_id_with_errors(
         &self,
         db: &dyn ExpandDatabase,

@@ -464,7 +464,7 @@ impl<'ctx> MirLowerCtx<'ctx> {
                                 self.db,
                                 p,
                                 DisplayTarget::from_crate(self.db, self.krate()),
-                                &self.body,
+                                self.body,
                             )
                         })?;
                     self.resolver.reset_to_guard(resolver_guard);
@@ -838,7 +838,7 @@ impl<'ctx> MirLowerCtx<'ctx> {
                 let variant_id =
                     self.infer.variant_resolution_for_expr(expr_id).ok_or_else(|| match path {
                         Some(p) => MirLowerError::UnresolvedName(
-                            hir_display_with_store(&**p, &self.body)
+                            hir_display_with_store(&**p, self.body)
                                 .display(self.db, self.display_target())
                                 .to_string(),
                         ),
@@ -1370,7 +1370,7 @@ impl<'ctx> MirLowerCtx<'ctx> {
                         self.db,
                         c,
                         DisplayTarget::from_crate(db, owner.krate(db.upcast())),
-                        &self.body,
+                        self.body,
                     )
                 };
                 let pr = self
@@ -1634,10 +1634,12 @@ impl<'ctx> MirLowerCtx<'ctx> {
         f: impl FnOnce(&mut MirLowerCtx<'_>, BasicBlockId) -> Result<()>,
     ) -> Result<Option<BasicBlockId>> {
         let begin = self.new_basic_block();
-        let prev = mem::replace(
-            &mut self.current_loop_blocks,
-            Some(LoopBlocks { begin, end: None, place, drop_scope_index: self.drop_scopes.len() }),
-        );
+        let prev = self.current_loop_blocks.replace(LoopBlocks {
+            begin,
+            end: None,
+            place,
+            drop_scope_index: self.drop_scopes.len(),
+        });
         let prev_label = if let Some(label) = label {
             // We should generate the end now, to make sure that it wouldn't change later. It is
             // bad as we may emit end (unnecessary unreachable block) for unterminating loop, but

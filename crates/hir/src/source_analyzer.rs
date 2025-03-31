@@ -14,8 +14,8 @@ use crate::{
 };
 use either::Either;
 use hir_def::{
-    AsMacroCall, AssocItemId, CallableDefId, ConstId, DefWithBodyId, FieldId, FunctionId,
-    ItemContainerId, LocalFieldId, Lookup, ModuleDefId, StructId, TraitId, VariantId,
+    AssocItemId, CallableDefId, ConstId, DefWithBodyId, FieldId, FunctionId, ItemContainerId,
+    LocalFieldId, Lookup, ModuleDefId, StructId, TraitId, VariantId,
     expr_store::{
         Body, BodySourceMap, ExpressionStore, HygieneId,
         lower::ExprCollector,
@@ -23,6 +23,7 @@ use hir_def::{
         scope::{ExprScopes, ScopeId},
     },
     hir::{BindingId, Expr, ExprId, ExprOrPatId, Pat},
+    item_tree::TreeId,
     lang_item::LangItem,
     nameres::MacroSubNs,
     resolver::{Resolver, TypeNs, ValueNs, resolver_for_scope},
@@ -47,10 +48,13 @@ use hir_ty::{
 use intern::sym;
 use itertools::Itertools;
 use smallvec::SmallVec;
-use syntax::ast::{RangeItem, RangeOp};
 use syntax::{
     SyntaxKind, SyntaxNode, TextRange, TextSize,
     ast::{self, AstNode},
+};
+use syntax::{
+    ast::{RangeItem, RangeOp},
+    match_ast,
 };
 use triomphe::Arc;
 
@@ -115,10 +119,10 @@ impl SourceAnalyzer {
         SourceAnalyzer { resolver, def: None, infer: None, file_id: node.file_id }
     }
 
-    fn body_source_map(&self) -> Option<&BodySourceMap> {
+    pub fn body_source_map(&self) -> Option<&BodySourceMap> {
         self.def.as_ref().map(|(.., source_map)| &**source_map)
     }
-    fn body(&self) -> Option<&Body> {
+    pub fn body(&self) -> Option<&Body> {
         self.def.as_ref().map(|(_, body, _)| &**body)
     }
 
@@ -632,7 +636,15 @@ impl SourceAnalyzer {
         db: &dyn HirDatabase,
         macro_call: InFile<&ast::MacroCall>,
     ) -> Option<Macro> {
-        todo!("replace this entirely")
+        let bs = self.body_source_map()?;
+        bs.expansion(macro_call).and_then(|it| {
+            // FIXME: Block def maps
+            let def = it.macro_call_id.lookup(db).def;
+            db.crate_def_map(def.krate)
+                .macro_def_to_macro_id
+                .get(&def.kind.erased_ast_id())
+                .map(|it| (*it).into())
+        })
     }
 
     pub(crate) fn resolve_bind_pat_to_const(
@@ -654,7 +666,7 @@ impl SourceAnalyzer {
             },
         };
 
-        let res = resolve_hir_path(db, &self.resolver, path, HygieneId::ROOT, &body.store)?;
+        let res = resolve_hir_path(db, &self.resolver, path, HygieneId::ROOT, Some(&body.store))?;
         match res {
             PathResolution::Def(def) => Some(def),
             _ => None,
@@ -962,7 +974,7 @@ impl SourceAnalyzer {
                 &hir_path,
                 prefer_value_ns,
                 name_hygiene(db, InFile::new(self.file_id, path.syntax())),
-                &store,
+                Some(&store),
             )?;
             let subst = (|| {
                 let parent = parent()?;
@@ -1074,17 +1086,11 @@ impl SourceAnalyzer {
 
     pub(crate) fn expand(
         &self,
-        db: &dyn HirDatabase,
+        _db: &dyn HirDatabase,
         macro_call: InFile<&ast::MacroCall>,
     ) -> Option<MacroFileId> {
-        let krate = self.resolver.krate();
-        // FIXME: This causes us to parse, generally this is the wrong approach for resolving a
-        // macro call to a macro call id!
-        let macro_call_id = macro_call.as_call_id(db.upcast(), krate, |path| {
-            self.resolver.resolve_path_as_macro_def(db.upcast(), path, Some(MacroSubNs::Bang))
-        })?;
-        // why the 64?
-        Some(macro_call_id.as_macro_file()).filter(|it| it.expansion_level(db.upcast()) < 64)
+        let bs = self.body_source_map()?;
+        bs.expansion(macro_call)
     }
 
     pub(crate) fn resolve_variant(&self, record_lit: ast::RecordExpr) -> Option<VariantId> {
@@ -1338,7 +1344,7 @@ pub(crate) fn resolve_hir_path(
     resolver: &Resolver,
     path: &Path,
     hygiene: HygieneId,
-    store: &ExpressionStore,
+    store: Option<&ExpressionStore>,
 ) -> Option<PathResolution> {
     resolve_hir_path_(db, resolver, path, false, hygiene, store)
 }
@@ -1361,14 +1367,15 @@ fn resolve_hir_path_(
     path: &Path,
     prefer_value_ns: bool,
     hygiene: HygieneId,
-    store: &ExpressionStore,
+    store: Option<&ExpressionStore>,
 ) -> Option<PathResolution> {
     let types = || {
         let (ty, unresolved) = match path.type_anchor() {
-            Some(type_ref) => {
-                let (_, res) = TyLoweringContext::new(db, resolver, store).lower_ty_ext(type_ref);
+            Some(type_ref) => resolver.generic_def().and_then(|def| {
+                let (_, res) =
+                    TyLoweringContext::new(db, resolver, store?, def).lower_ty_ext(type_ref);
                 res.map(|ty_ns| (ty_ns, path.segments().first()))
-            }
+            }),
             None => {
                 let (ty, remaining_idx, _) = resolver.resolve_path_in_type_ns(db.upcast(), path)?;
                 match remaining_idx {
@@ -1491,10 +1498,11 @@ fn resolve_hir_path_qualifier(
 ) -> Option<PathResolution> {
     (|| {
         let (ty, unresolved) = match path.type_anchor() {
-            Some(type_ref) => {
-                let (_, res) = TyLoweringContext::new(db, resolver, store).lower_ty_ext(type_ref);
+            Some(type_ref) => resolver.generic_def().and_then(|def| {
+                let (_, res) =
+                    TyLoweringContext::new(db, resolver, store, def).lower_ty_ext(type_ref);
                 res.map(|ty_ns| (ty_ns, path.segments().first()))
-            }
+            }),
             None => {
                 let (ty, remaining_idx, _) = resolver.resolve_path_in_type_ns(db.upcast(), path)?;
                 match remaining_idx {

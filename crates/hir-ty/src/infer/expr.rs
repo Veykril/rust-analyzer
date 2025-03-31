@@ -469,8 +469,7 @@ impl InferenceContext<'_> {
                 let prev_diverges = mem::replace(&mut self.diverges, Diverges::Maybe);
                 let prev_closure = mem::replace(&mut self.current_closure, id);
                 let prev_ret_ty = mem::replace(&mut self.return_ty, ret_ty.clone());
-                let prev_ret_coercion =
-                    mem::replace(&mut self.return_coercion, Some(CoerceMany::new(ret_ty)));
+                let prev_ret_coercion = self.return_coercion.replace(CoerceMany::new(ret_ty));
                 let prev_resume_yield_tys =
                     mem::replace(&mut self.resume_yield_tys, resume_yield_tys);
 
@@ -904,9 +903,7 @@ impl InferenceContext<'_> {
             }
             Expr::Index { base, index } => {
                 let base_ty = self.infer_expr_inner(*base, &Expectation::none(), ExprIsRead::Yes);
-                dbg!(&base_ty);
                 let index_ty = self.infer_expr(*index, &Expectation::none(), ExprIsRead::Yes);
-                dbg!(&index_ty);
 
                 if let Some(index_trait) = self.resolve_lang_trait(LangItem::Index) {
                     let canonicalized = self.canonicalize(base_ty.clone());
@@ -916,12 +913,10 @@ impl InferenceContext<'_> {
                         canonicalized,
                         index_trait,
                     );
-                    dbg!(&receiver_adjustments);
                     let (self_ty, mut adj) = receiver_adjustments
                         .map_or((self.err_ty(), Vec::new()), |adj| {
                             adj.apply(&mut self.table, base_ty)
                         });
-                    dbg!(&self_ty);
 
                     // mutability will be fixed up in `InferenceContext::infer_mut`;
                     adj.push(Adjustment::borrow(
@@ -936,7 +931,6 @@ impl InferenceContext<'_> {
                         .method_by_name(&Name::new_symbol_root(sym::index.clone()))
                     {
                         let subst = TyBuilder::subst_for_def(self.db, index_trait, None);
-                        dbg!(subst.remaining());
                         if subst.remaining() != 2 {
                             return self.err_ty();
                         }
@@ -1171,8 +1165,7 @@ impl InferenceContext<'_> {
         let ret_ty = self.table.new_type_var();
         let prev_diverges = mem::replace(&mut self.diverges, Diverges::Maybe);
         let prev_ret_ty = mem::replace(&mut self.return_ty, ret_ty.clone());
-        let prev_ret_coercion =
-            mem::replace(&mut self.return_coercion, Some(CoerceMany::new(ret_ty.clone())));
+        let prev_ret_coercion = self.return_coercion.replace(CoerceMany::new(ret_ty.clone()));
 
         // FIXME: We should handle async blocks like we handle closures
         let expected = &Expectation::has_type(ret_ty);

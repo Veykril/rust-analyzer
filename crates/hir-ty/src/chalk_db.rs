@@ -615,8 +615,9 @@ pub(crate) fn associated_ty_data_query(
     let type_alias_data = db.type_alias_signature(type_alias);
     let generic_params = generics(db.upcast(), type_alias.into());
     let resolver = hir_def::resolver::HasResolver::resolver(type_alias, db.upcast());
-    let mut ctx = crate::TyLoweringContext::new(db, &resolver, &type_alias_data.store)
-        .with_type_param_mode(crate::lower::ParamLoweringMode::Variable);
+    let mut ctx =
+        crate::TyLoweringContext::new(db, &resolver, &type_alias_data.store, type_alias.into())
+            .with_type_param_mode(crate::lower::ParamLoweringMode::Variable);
 
     let trait_subst = TyBuilder::subst_for_def(db, trait_, None)
         .fill_with_bound_vars(crate::DebruijnIndex::INNERMOST, generic_params.len_self())
