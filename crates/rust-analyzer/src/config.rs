@@ -36,7 +36,6 @@ use vfs::{AbsPath, AbsPathBuf, VfsPath};
 
 use crate::{
     diagnostics::DiagnosticsMapConfig,
-    flycheck::{CargoOptions, FlycheckConfig},
     lsp::capabilities::ClientCapabilities,
     lsp_ext::{WorkspaceSymbolSearchKind, WorkspaceSymbolSearchScope},
 };
@@ -2099,83 +2098,6 @@ impl Config {
         *self.check_workspace(source_root)
     }
 
-    pub(crate) fn cargo_test_options(&self, source_root: Option<SourceRootId>) -> CargoOptions {
-        CargoOptions {
-            target_tuples: self.cargo_target(source_root).clone().into_iter().collect(),
-            all_targets: false,
-            no_default_features: *self.cargo_noDefaultFeatures(source_root),
-            all_features: matches!(self.cargo_features(source_root), CargoFeaturesDef::All),
-            features: match self.cargo_features(source_root).clone() {
-                CargoFeaturesDef::All => vec![],
-                CargoFeaturesDef::Selected(it) => it,
-            },
-            extra_args: self.extra_args(source_root).clone(),
-            extra_test_bin_args: self.runnables_extraTestBinaryArgs(source_root).clone(),
-            extra_env: self.extra_env(source_root).clone(),
-            target_dir: self.target_dir_from_config(source_root),
-        }
-    }
-
-    pub(crate) fn flycheck(&self, source_root: Option<SourceRootId>) -> FlycheckConfig {
-        match &self.check_overrideCommand(source_root) {
-            Some(args) if !args.is_empty() => {
-                let mut args = args.clone();
-                let command = args.remove(0);
-                FlycheckConfig::CustomCommand {
-                    command,
-                    args,
-                    extra_env: self.check_extra_env(source_root),
-                    invocation_strategy: match self.check_invocationStrategy(source_root) {
-                        InvocationStrategy::Once => crate::flycheck::InvocationStrategy::Once,
-                        InvocationStrategy::PerWorkspace => {
-                            crate::flycheck::InvocationStrategy::PerWorkspace
-                        }
-                    },
-                }
-            }
-            Some(_) | None => FlycheckConfig::CargoCommand {
-                command: self.check_command(source_root).clone(),
-                options: CargoOptions {
-                    target_tuples: self
-                        .check_targets(source_root)
-                        .clone()
-                        .and_then(|targets| match &targets.0[..] {
-                            [] => None,
-                            targets => Some(targets.into()),
-                        })
-                        .unwrap_or_else(|| {
-                            self.cargo_target(source_root).clone().into_iter().collect()
-                        }),
-                    all_targets: self
-                        .check_allTargets(source_root)
-                        .unwrap_or(*self.cargo_allTargets(source_root)),
-                    no_default_features: self
-                        .check_noDefaultFeatures(source_root)
-                        .unwrap_or(*self.cargo_noDefaultFeatures(source_root)),
-                    all_features: matches!(
-                        self.check_features(source_root)
-                            .as_ref()
-                            .unwrap_or(self.cargo_features(source_root)),
-                        CargoFeaturesDef::All
-                    ),
-                    features: match self
-                        .check_features(source_root)
-                        .clone()
-                        .unwrap_or_else(|| self.cargo_features(source_root).clone())
-                    {
-                        CargoFeaturesDef::All => vec![],
-                        CargoFeaturesDef::Selected(it) => it,
-                    },
-                    extra_args: self.check_extra_args(source_root),
-                    extra_test_bin_args: self.runnables_extraTestBinaryArgs(source_root).clone(),
-                    extra_env: self.check_extra_env(source_root),
-                    target_dir: self.target_dir_from_config(source_root),
-                },
-                ansi_color_output: self.color_diagnostic_output(),
-            },
-        }
-    }
-
     fn target_dir_from_config(&self, source_root: Option<SourceRootId>) -> Option<Utf8PathBuf> {
         self.cargo_targetDir(source_root).as_ref().and_then(|target_dir| match target_dir {
             TargetDirectory::UseSubdirectory(true) => {
@@ -3786,65 +3708,6 @@ mod tests {
         assert_eq!(
             config.proc_macro_srv(),
             Some(AbsPathBuf::try_from(project_root().join("./server")).unwrap())
-        );
-    }
-
-    #[test]
-    fn cargo_target_dir_unset() {
-        let mut config =
-            Config::new(AbsPathBuf::assert(project_root()), Default::default(), vec![], None);
-
-        let mut change = ConfigChange::default();
-
-        change.change_client_config(serde_json::json!({
-            "rust" : { "analyzerTargetDir" : null }
-        }));
-
-        (config, _, _) = config.apply_change(change);
-        assert_eq!(config.cargo_targetDir(None), &None);
-        assert!(
-            matches!(config.flycheck(None), FlycheckConfig::CargoCommand { options, .. } if options.target_dir.is_none())
-        );
-    }
-
-    #[test]
-    fn cargo_target_dir_subdir() {
-        let mut config =
-            Config::new(AbsPathBuf::assert(project_root()), Default::default(), vec![], None);
-
-        let mut change = ConfigChange::default();
-        change.change_client_config(serde_json::json!({
-            "rust" : { "analyzerTargetDir" : true }
-        }));
-
-        (config, _, _) = config.apply_change(change);
-
-        assert_eq!(config.cargo_targetDir(None), &Some(TargetDirectory::UseSubdirectory(true)));
-        let target =
-            Utf8PathBuf::from(std::env::var("CARGO_TARGET_DIR").unwrap_or("target".to_owned()));
-        assert!(
-            matches!(config.flycheck(None), FlycheckConfig::CargoCommand { options, .. } if options.target_dir == Some(target.join("rust-analyzer")))
-        );
-    }
-
-    #[test]
-    fn cargo_target_dir_relative_dir() {
-        let mut config =
-            Config::new(AbsPathBuf::assert(project_root()), Default::default(), vec![], None);
-
-        let mut change = ConfigChange::default();
-        change.change_client_config(serde_json::json!({
-            "rust" : { "analyzerTargetDir" : "other_folder" }
-        }));
-
-        (config, _, _) = config.apply_change(change);
-
-        assert_eq!(
-            config.cargo_targetDir(None),
-            &Some(TargetDirectory::Directory(Utf8PathBuf::from("other_folder")))
-        );
-        assert!(
-            matches!(config.flycheck(None), FlycheckConfig::CargoCommand { options, .. } if options.target_dir == Some(Utf8PathBuf::from("other_folder")))
         );
     }
 }

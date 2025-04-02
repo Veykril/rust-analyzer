@@ -1,20 +1,14 @@
 //! Book keeping for keeping diagnostics easily in sync with the client.
-pub(crate) mod to_proto;
 
 use std::mem;
 
-use cargo_metadata::PackageId;
 use ide::FileId;
 use ide_db::FxHashMap;
 use itertools::Itertools;
 use rustc_hash::FxHashSet;
 use stdx::iter_eq_by;
-use triomphe::Arc;
 
-use crate::{global_state::GlobalStateSnapshot, lsp, lsp_ext, main_loop::DiagnosticsTaskKind};
-
-pub(crate) type CheckFixes =
-    Arc<Vec<FxHashMap<Option<Arc<PackageId>>, FxHashMap<FileId, Vec<Fix>>>>>;
+use crate::{global_state::GlobalStateSnapshot, lsp, main_loop::DiagnosticsTaskKind};
 
 #[derive(Debug, Default, Clone)]
 pub struct DiagnosticsMapConfig {
@@ -33,10 +27,6 @@ pub(crate) struct DiagnosticCollection {
         FxHashMap<FileId, (DiagnosticsGeneration, Vec<lsp_types::Diagnostic>)>,
     pub(crate) native_semantic:
         FxHashMap<FileId, (DiagnosticsGeneration, Vec<lsp_types::Diagnostic>)>,
-    // FIXME: should be Vec<flycheck::Diagnostic>
-    pub(crate) check:
-        Vec<FxHashMap<Option<Arc<PackageId>>, FxHashMap<FileId, Vec<lsp_types::Diagnostic>>>>,
-    pub(crate) check_fixes: CheckFixes,
     changes: FxHashSet<FileId>,
     /// Counter for supplying a new generation number for diagnostics.
     /// This is used to keep track of when to clear the diagnostics for a given file as we compute
@@ -45,89 +35,10 @@ pub(crate) struct DiagnosticCollection {
     generation: DiagnosticsGeneration,
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct Fix {
-    // Fixes may be triggerable from multiple ranges.
-    pub(crate) ranges: Vec<lsp_types::Range>,
-    pub(crate) action: lsp_ext::CodeAction,
-}
-
 impl DiagnosticCollection {
-    pub(crate) fn clear_check(&mut self, flycheck_id: usize) {
-        let Some(check) = self.check.get_mut(flycheck_id) else {
-            return;
-        };
-        self.changes.extend(check.drain().flat_map(|(_, v)| v.into_keys()));
-        if let Some(fixes) = Arc::make_mut(&mut self.check_fixes).get_mut(flycheck_id) {
-            fixes.clear();
-        }
-    }
-
-    pub(crate) fn clear_check_all(&mut self) {
-        Arc::make_mut(&mut self.check_fixes).clear();
-        self.changes.extend(
-            self.check.iter_mut().flat_map(|it| it.drain().flat_map(|(_, v)| v.into_keys())),
-        )
-    }
-
-    pub(crate) fn clear_check_for_package(
-        &mut self,
-        flycheck_id: usize,
-        package_id: Arc<PackageId>,
-    ) {
-        let Some(check) = self.check.get_mut(flycheck_id) else {
-            return;
-        };
-        let package_id = Some(package_id);
-        if let Some(checks) = check.remove(&package_id) {
-            self.changes.extend(checks.into_keys());
-        }
-        if let Some(fixes) = Arc::make_mut(&mut self.check_fixes).get_mut(flycheck_id) {
-            fixes.remove(&package_id);
-        }
-    }
-
     pub(crate) fn clear_native_for(&mut self, file_id: FileId) {
         self.native_syntax.remove(&file_id);
         self.native_semantic.remove(&file_id);
-        self.changes.insert(file_id);
-    }
-
-    pub(crate) fn add_check_diagnostic(
-        &mut self,
-        flycheck_id: usize,
-        package_id: &Option<Arc<PackageId>>,
-        file_id: FileId,
-        diagnostic: lsp_types::Diagnostic,
-        fix: Option<Box<Fix>>,
-    ) {
-        if self.check.len() <= flycheck_id {
-            self.check.resize_with(flycheck_id + 1, Default::default);
-        }
-        let diagnostics = self.check[flycheck_id]
-            .entry(package_id.clone())
-            .or_default()
-            .entry(file_id)
-            .or_default();
-        for existing_diagnostic in diagnostics.iter() {
-            if are_diagnostics_equal(existing_diagnostic, &diagnostic) {
-                return;
-            }
-        }
-
-        if let Some(fix) = fix {
-            let check_fixes = Arc::make_mut(&mut self.check_fixes);
-            if check_fixes.len() <= flycheck_id {
-                check_fixes.resize_with(flycheck_id + 1, Default::default);
-            }
-            check_fixes[flycheck_id]
-                .entry(package_id.clone())
-                .or_default()
-                .entry(file_id)
-                .or_default()
-                .push(*fix);
-        }
-        diagnostics.push(diagnostic);
         self.changes.insert(file_id);
     }
 
@@ -174,13 +85,8 @@ impl DiagnosticCollection {
     ) -> impl Iterator<Item = &lsp_types::Diagnostic> {
         let native_syntax = self.native_syntax.get(&file_id).into_iter().flat_map(|(_, d)| d);
         let native_semantic = self.native_semantic.get(&file_id).into_iter().flat_map(|(_, d)| d);
-        let check = self
-            .check
-            .iter()
-            .flat_map(|it| it.values())
-            .filter_map(move |it| it.get(&file_id))
-            .flatten();
-        native_syntax.chain(native_semantic).chain(check)
+
+        native_syntax.chain(native_semantic)
     }
 
     pub(crate) fn take_changes(&mut self) -> Option<FxHashSet<FileId>> {

@@ -31,7 +31,6 @@ use vfs::{AbsPath, AbsPathBuf, ChangeKind};
 
 use crate::{
     config::{Config, FilesWatcher, LinkedProject},
-    flycheck::{FlycheckConfig, FlycheckHandle},
     global_state::{
         FetchBuildDataResponse, FetchWorkspaceRequest, FetchWorkspaceResponse, GlobalState,
     },
@@ -101,8 +100,6 @@ impl GlobalState {
         {
             let req = FetchWorkspaceRequest { path: None, force_crate_graph_reload: false };
             self.fetch_workspaces_queue.request_op("discovered projects changed".to_owned(), req)
-        } else if self.config.flycheck(None) != old_config.flycheck(None) {
-            self.reload_flycheck();
         }
 
         if self.analysis_host.raw_database().expand_proc_attr_macros()
@@ -146,11 +143,6 @@ impl GlobalState {
         if let Some(err) = &self.config_errors {
             status.health |= lsp_ext::Health::Warning;
             format_to!(message, "{err}\n");
-        }
-        if let Some(err) = &self.last_flycheck_error {
-            status.health |= lsp_ext::Health::Warning;
-            message.push_str(err);
-            message.push('\n');
         }
 
         if self.config.linked_or_discovered_projects().is_empty()
@@ -777,7 +769,6 @@ impl GlobalState {
 
     pub(crate) fn finish_loading_crate_graph(&mut self) {
         self.process_changes();
-        self.reload_flycheck();
     }
 
     pub(super) fn fetch_workspace_error(&self) -> Result<(), String> {
@@ -828,74 +819,6 @@ impl GlobalState {
         }
 
         if buf.is_empty() { Ok(()) } else { Err(buf) }
-    }
-
-    fn reload_flycheck(&mut self) {
-        let _p = tracing::info_span!("GlobalState::reload_flycheck").entered();
-        let config = self.config.flycheck(None);
-        let sender = self.flycheck_sender.clone();
-        let invocation_strategy = match config {
-            FlycheckConfig::CargoCommand { .. } => {
-                crate::flycheck::InvocationStrategy::PerWorkspace
-            }
-            FlycheckConfig::CustomCommand { ref invocation_strategy, .. } => {
-                invocation_strategy.clone()
-            }
-        };
-
-        self.flycheck = match invocation_strategy {
-            crate::flycheck::InvocationStrategy::Once => {
-                vec![FlycheckHandle::spawn(
-                    0,
-                    sender,
-                    config,
-                    None,
-                    self.config.root_path().clone(),
-                    None,
-                )]
-            }
-            crate::flycheck::InvocationStrategy::PerWorkspace => {
-                self.workspaces
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(id, ws)| {
-                        Some((
-                            id,
-                            match &ws.kind {
-                                ProjectWorkspaceKind::Cargo { cargo, .. }
-                                | ProjectWorkspaceKind::DetachedFile {
-                                    cargo: Some((cargo, _, _)),
-                                    ..
-                                } => (cargo.workspace_root(), Some(cargo.manifest_path())),
-                                ProjectWorkspaceKind::Json(project) => {
-                                    // Enable flychecks for json projects if a custom flycheck command was supplied
-                                    // in the workspace configuration.
-                                    match config {
-                                        FlycheckConfig::CustomCommand { .. } => {
-                                            (project.path(), None)
-                                        }
-                                        _ => return None,
-                                    }
-                                }
-                                ProjectWorkspaceKind::DetachedFile { .. } => return None,
-                            },
-                            ws.sysroot.root().map(ToOwned::to_owned),
-                        ))
-                    })
-                    .map(|(id, (root, manifest_path), sysroot_root)| {
-                        FlycheckHandle::spawn(
-                            id,
-                            sender.clone(),
-                            config.clone(),
-                            sysroot_root,
-                            root.to_path_buf(),
-                            manifest_path.map(|it| it.to_path_buf()),
-                        )
-                    })
-                    .collect()
-            }
-        }
-        .into();
     }
 }
 

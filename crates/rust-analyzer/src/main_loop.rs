@@ -20,10 +20,9 @@ use crate::{
     config::Config,
     diagnostics::{DiagnosticsGeneration, NativeDiagnosticsFetchKind, fetch_native_diagnostics},
     discover::{DiscoverArgument, DiscoverCommand, DiscoverProjectMessage},
-    flycheck::{self, FlycheckMessage},
     global_state::{
         FetchBuildDataResponse, FetchWorkspaceRequest, FetchWorkspaceResponse, GlobalState,
-        file_id_to_url, url_to_file_id,
+        file_id_to_url,
     },
     handlers::{
         dispatch::{NotificationDispatcher, RequestDispatcher},
@@ -68,7 +67,6 @@ enum Event {
     Task(Task),
     QueuedTask(QueuedTask),
     Vfs(vfs::loader::Message),
-    Flycheck(FlycheckMessage),
     TestResult(CargoTestMessage),
     DiscoverProject(DiscoverProjectMessage),
 }
@@ -79,7 +77,6 @@ impl fmt::Display for Event {
             Event::Lsp(_) => write!(f, "Event::Lsp"),
             Event::Task(_) => write!(f, "Event::Task"),
             Event::Vfs(_) => write!(f, "Event::Vfs"),
-            Event::Flycheck(_) => write!(f, "Event::Flycheck"),
             Event::QueuedTask(_) => write!(f, "Event::QueuedTask"),
             Event::TestResult(_) => write!(f, "Event::TestResult"),
             Event::DiscoverProject(_) => write!(f, "Event::DiscoverProject"),
@@ -155,7 +152,6 @@ impl fmt::Debug for Event {
             Event::Task(it) => fmt::Debug::fmt(it, f),
             Event::QueuedTask(it) => fmt::Debug::fmt(it, f),
             Event::Vfs(it) => fmt::Debug::fmt(it, f),
-            Event::Flycheck(it) => fmt::Debug::fmt(it, f),
             Event::TestResult(it) => fmt::Debug::fmt(it, f),
             Event::DiscoverProject(it) => fmt::Debug::fmt(it, f),
         }
@@ -275,9 +271,6 @@ impl GlobalState {
             recv(self.loader.receiver) -> task =>
                 task.map(Event::Vfs),
 
-            recv(self.flycheck_receiver) -> task =>
-                task.map(Event::Flycheck),
-
             recv(self.test_run_receiver) -> task =>
                 task.map(Event::TestResult),
 
@@ -389,14 +382,6 @@ impl GlobalState {
                     self.handle_vfs_msg(message);
                 }
             }
-            Event::Flycheck(message) => {
-                let _p = tracing::info_span!("GlobalState::handle_event/flycheck").entered();
-                self.handle_flycheck_msg(message);
-                // Coalesce many flycheck updates into a single loop turn
-                while let Ok(message) = self.flycheck_receiver.try_recv() {
-                    self.handle_flycheck_msg(message);
-                }
-            }
             Event::TestResult(message) => {
                 let _p = tracing::info_span!("GlobalState::handle_event/test_result").entered();
                 self.handle_cargo_test_msg(message);
@@ -425,17 +410,8 @@ impl GlobalState {
 
         if self.is_quiescent() {
             let became_quiescent = !was_quiescent;
-            if became_quiescent {
-                if self.config.check_on_save(None)
-                    && self.config.flycheck_workspace(None)
-                    && !self.fetch_build_data_queue.op_requested()
-                {
-                    // Project has loaded properly, kick off initial flycheck
-                    self.flycheck.iter().for_each(|flycheck| flycheck.restart_workspace(None));
-                }
-                if self.config.prefill_caches() {
-                    self.prime_caches_queue.request_op("became quiescent".to_owned(), ());
-                }
+            if became_quiescent && self.config.prefill_caches() {
+                self.prime_caches_queue.request_op("became quiescent".to_owned(), ());
             }
 
             let client_refresh = became_quiescent || state_changed;
@@ -746,7 +722,6 @@ impl GlobalState {
                             error!("FetchWorkspaceError: {e}");
                         }
                         self.wants_to_switch = Some("fetched workspace".to_owned());
-                        self.diagnostics.clear_check_all();
                         (Progress::End, None)
                     }
                 };
@@ -989,79 +964,6 @@ impl GlobalState {
         }
     }
 
-    fn handle_flycheck_msg(&mut self, message: FlycheckMessage) {
-        match message {
-            FlycheckMessage::AddDiagnostic { id, workspace_root, diagnostic, package_id } => {
-                let snap = self.snapshot();
-                let diagnostics = crate::diagnostics::to_proto::map_rust_diagnostic_to_lsp(
-                    &self.config.diagnostics_map(None),
-                    &diagnostic,
-                    &workspace_root,
-                    &snap,
-                );
-                for diag in diagnostics {
-                    match url_to_file_id(&self.vfs.read().0, &diag.url) {
-                        Ok(Some(file_id)) => self.diagnostics.add_check_diagnostic(
-                            id,
-                            &package_id,
-                            file_id,
-                            diag.diagnostic,
-                            diag.fix,
-                        ),
-                        Ok(None) => {}
-                        Err(err) => {
-                            error!(
-                                "flycheck {id}: File with cargo diagnostic not found in VFS: {}",
-                                err
-                            );
-                        }
-                    };
-                }
-            }
-            FlycheckMessage::ClearDiagnostics { id, package_id: None } => {
-                self.diagnostics.clear_check(id)
-            }
-            FlycheckMessage::ClearDiagnostics { id, package_id: Some(package_id) } => {
-                self.diagnostics.clear_check_for_package(id, package_id)
-            }
-            FlycheckMessage::Progress { id, progress } => {
-                let (state, message) = match progress {
-                    flycheck::Progress::DidStart => (Progress::Begin, None),
-                    flycheck::Progress::DidCheckCrate(target) => (Progress::Report, Some(target)),
-                    flycheck::Progress::DidCancel => {
-                        self.last_flycheck_error = None;
-                        (Progress::End, None)
-                    }
-                    flycheck::Progress::DidFailToRestart(err) => {
-                        self.last_flycheck_error =
-                            Some(format!("cargo check failed to start: {err}"));
-                        return;
-                    }
-                    flycheck::Progress::DidFinish(result) => {
-                        self.last_flycheck_error =
-                            result.err().map(|err| format!("cargo check failed to start: {err}"));
-                        (Progress::End, None)
-                    }
-                };
-
-                // When we're running multiple flychecks, we have to include a disambiguator in
-                // the title, or the editor complains. Note that this is a user-facing string.
-                let title = if self.flycheck.len() == 1 {
-                    format!("{}", self.config.flycheck(None))
-                } else {
-                    format!("{} (#{})", self.config.flycheck(None), id + 1)
-                };
-                self.report_progress(
-                    &title,
-                    state,
-                    message,
-                    None,
-                    Some(format!("rust-analyzer/flycheck/{id}")),
-                );
-            }
-        }
-    }
-
     /// Registers and handles a request. This should only be called once per incoming request.
     fn on_new_request(&mut self, request_received: Instant, req: Request) {
         let _p =
@@ -1208,9 +1110,6 @@ impl GlobalState {
                 handlers::handle_did_change_workspace_folders,
             )
             .on_sync_mut::<notifs::DidChangeWatchedFiles>(handlers::handle_did_change_watched_files)
-            .on_sync_mut::<lsp_ext::CancelFlycheck>(handlers::handle_cancel_flycheck)
-            .on_sync_mut::<lsp_ext::ClearFlycheck>(handlers::handle_clear_flycheck)
-            .on_sync_mut::<lsp_ext::RunFlycheck>(handlers::handle_run_flycheck)
             .on_sync_mut::<lsp_ext::AbortRunTest>(handlers::handle_abort_run_test)
             .finish();
     }

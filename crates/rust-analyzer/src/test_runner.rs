@@ -8,10 +8,7 @@ use serde::Deserialize as _;
 use serde_derive::Deserialize;
 use toolchain::Tool;
 
-use crate::{
-    command::{CargoParser, CommandHandle},
-    flycheck::CargoOptions,
-};
+use crate::command::{CargoParser, CommandHandle};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "event", rename_all = "camelCase")]
@@ -96,7 +93,7 @@ pub(crate) struct TestTarget {
 impl CargoTestHandle {
     pub(crate) fn new(
         path: Option<&str>,
-        options: CargoOptions,
+        // options: CargoOptions,
         root: &AbsPath,
         test_target: TestTarget,
         sender: Sender<CargoTestMessage>,
@@ -122,7 +119,7 @@ impl CargoTestHandle {
         cmd.arg("--no-fail-fast");
         cmd.arg("--manifest-path");
         cmd.arg(root.join("Cargo.toml"));
-        options.apply_on_command(&mut cmd);
+        // options.apply_on_command(&mut cmd);
         cmd.arg("--");
         if let Some(path) = path {
             cmd.arg(path);
@@ -130,9 +127,9 @@ impl CargoTestHandle {
         cmd.args(["-Z", "unstable-options"]);
         cmd.arg("--format=json");
 
-        for extra_arg in options.extra_test_bin_args {
-            cmd.arg(extra_arg);
-        }
+        // for extra_arg in options.extra_test_bin_args {
+        //     cmd.arg(extra_arg);
+        // }
 
         Ok(Self {
             _handle: CommandHandle::spawn(cmd, CargoTestOutputParser::new(&test_target), sender)?,

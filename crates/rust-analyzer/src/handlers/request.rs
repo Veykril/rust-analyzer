@@ -271,7 +271,7 @@ pub(crate) fn handle_run_test(
             for (target, path) in tests {
                 let handle = CargoTestHandle::new(
                     path,
-                    state.config.cargo_test_options(None),
+                    // state.config.cargo_test_options(None),
                     cargo.workspace_root(),
                     target,
                     state.test_run_sender.clone(),
@@ -1416,7 +1416,6 @@ pub(crate) fn handle_code_action(
     }
 
     let file_id = try_default!(from_proto::file_id(&snap, &params.text_document.uri)?);
-    let line_index = snap.file_line_index(file_id)?;
     let frange = try_default!(from_proto::file_range(&snap, &params.text_document, params.range)?);
     let source_root = snap.analysis.source_root_id(file_id)?;
 
@@ -1460,27 +1459,6 @@ pub(crate) fn handle_code_action(
         }
 
         res.push(code_action)
-    }
-
-    // Fixes from `cargo check`.
-    for fix in snap
-        .check_fixes
-        .iter()
-        .flat_map(|it| it.values())
-        .filter_map(|it| it.get(&frange.file_id))
-        .flatten()
-    {
-        // FIXME: this mapping is awkward and shouldn't exist. Refactor
-        // `snap.check_fixes` to not convert to LSP prematurely.
-        let intersect_fix_range = fix
-            .ranges
-            .iter()
-            .copied()
-            .filter_map(|range| from_proto::text_range(&line_index, range).ok())
-            .any(|fix_range| fix_range.intersect(frange.range).is_some());
-        if intersect_fix_range {
-            res.push(fix.action.clone());
-        }
     }
 
     Ok(Some(res))

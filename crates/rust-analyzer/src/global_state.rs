@@ -25,9 +25,8 @@ use vfs::{AbsPathBuf, AnchoredPathBuf, ChangeKind, Vfs, VfsPath};
 
 use crate::{
     config::{Config, ConfigChange, ConfigErrors, RatomlFileKind},
-    diagnostics::{CheckFixes, DiagnosticCollection},
+    diagnostics::DiagnosticCollection,
     discover,
-    flycheck::{FlycheckHandle, FlycheckMessage},
     line_index::{LineEndings, LineIndex},
     lsp::{from_proto, to_proto::url_from_abs_path},
     lsp_ext,
@@ -96,12 +95,6 @@ pub(crate) struct GlobalState {
     // proc macros
     pub(crate) proc_macro_clients: Arc<[anyhow::Result<ProcMacroClient>]>,
     pub(crate) build_deps_changed: bool,
-
-    // Flycheck
-    pub(crate) flycheck: Arc<[FlycheckHandle]>,
-    pub(crate) flycheck_sender: Sender<FlycheckMessage>,
-    pub(crate) flycheck_receiver: Receiver<FlycheckMessage>,
-    pub(crate) last_flycheck_error: Option<String>,
 
     // Test explorer
     pub(crate) test_run_session: Option<Vec<CargoTestHandle>>,
@@ -177,7 +170,6 @@ pub(crate) struct GlobalState {
 pub(crate) struct GlobalStateSnapshot {
     pub(crate) config: Arc<Config>,
     pub(crate) analysis: Analysis,
-    pub(crate) check_fixes: CheckFixes,
     mem_docs: MemDocs,
     pub(crate) semantic_tokens_cache: Arc<Mutex<FxHashMap<Url, SemanticTokens>>>,
     vfs: Arc<RwLock<(vfs::Vfs, FxHashMap<FileId, LineEndings>)>>,
@@ -186,7 +178,6 @@ pub(crate) struct GlobalStateSnapshot {
     // proc-macros have been loaded
     // FIXME: Can we derive this from somewhere else?
     pub(crate) proc_macros_loaded: bool,
-    pub(crate) flycheck: Arc<[FlycheckHandle]>,
 }
 
 impl std::panic::UnwindSafe for GlobalStateSnapshot {}
@@ -220,7 +211,6 @@ impl GlobalState {
         if let Some(capacities) = config.lru_query_capacities_config() {
             analysis_host.update_lru_capacities(capacities);
         }
-        let (flycheck_sender, flycheck_receiver) = unbounded();
         let (test_run_sender, test_run_receiver) = unbounded();
 
         let (discover_sender, discover_receiver) = unbounded();
@@ -249,11 +239,6 @@ impl GlobalState {
             proc_macro_clients: Arc::from_iter([]),
 
             build_deps_changed: false,
-
-            flycheck: Arc::from_iter([]),
-            flycheck_sender,
-            flycheck_receiver,
-            last_flycheck_error: None,
 
             test_run_session: None,
             test_run_sender,
@@ -525,12 +510,10 @@ impl GlobalState {
             workspaces: Arc::clone(&self.workspaces),
             analysis: self.analysis_host.analysis(),
             vfs: Arc::clone(&self.vfs),
-            check_fixes: Arc::clone(&self.diagnostics.check_fixes),
             mem_docs: self.mem_docs.clone(),
             semantic_tokens_cache: Arc::clone(&self.semantic_tokens_cache),
             proc_macros_loaded: !self.config.expand_proc_macros()
                 || self.fetch_proc_macros_queue.last_op_result().copied().unwrap_or(false),
-            flycheck: self.flycheck.clone(),
         }
     }
 
