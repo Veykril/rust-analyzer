@@ -85,7 +85,7 @@ dependencies = [
  "query-group-macro",
  "rustc-hash 2.1.1",
  "salsa",
- "salsa-macros",
+ "salsa-macros 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "semver",
  "span",
  "syntax",
@@ -631,7 +631,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "rustc_apfloat",
  "salsa",
- "salsa-macros",
+ "salsa-macros 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec",
  "span",
  "stdx",
@@ -662,7 +662,7 @@ dependencies = [
  "query-group-macro",
  "rustc-hash 2.1.1",
  "salsa",
- "salsa-macros",
+ "salsa-macros 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "smallvec",
  "span",
  "stdx",
@@ -703,7 +703,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "rustc_apfloat",
  "salsa",
- "salsa-macros",
+ "salsa-macros 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "scoped-tls",
  "smallvec",
  "span",
@@ -940,7 +940,7 @@ dependencies = [
  "rayon",
  "rustc-hash 2.1.1",
  "salsa",
- "salsa-macros",
+ "salsa-macros 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "span",
  "stdx",
  "syntax",
@@ -1734,7 +1734,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "salsa",
- "salsa-macros",
+ "salsa-macros 0.21.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "syn",
 ]
 
@@ -2040,8 +2040,6 @@ checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
 [[package]]
 name = "salsa"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f80d5cf3c3fcab2cef898012f242a670477a1baa609267376af9cb4409026c5"
 dependencies = [
  "boxcar",
  "crossbeam-queue",
@@ -2054,7 +2052,7 @@ dependencies = [
  "rayon",
  "rustc-hash 2.1.1",
  "salsa-macro-rules",
- "salsa-macros",
+ "salsa-macros 0.21.1",
  "smallvec",
  "thin-vec",
  "tracing",
@@ -2063,8 +2061,17 @@ dependencies = [
 [[package]]
 name = "salsa-macro-rules"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "05303d72606fbf2b9c9523cda2039bb8ecb00304027a3cd7e52b02a65c7d9185"
+
+[[package]]
+name = "salsa-macros"
+version = "0.21.1"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+ "synstructure",
+]
 
 [[package]]
 name = "salsa-macros"

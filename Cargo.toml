@@ -46,7 +46,7 @@ debug = 2
 
 # ungrammar = { path = "../ungrammar" }
 
-# salsa = { path = "../salsa" }
+salsa = { path = "../salsa" }
 
 [workspace.dependencies]
 # local crates
