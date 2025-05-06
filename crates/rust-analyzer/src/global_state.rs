@@ -214,12 +214,16 @@ impl GlobalState {
 
         let task_pool = {
             let (sender, receiver) = unbounded();
-            let handle = TaskPool::new_with_threads(sender, config.main_loop_num_threads());
+            let handle = TaskPool::new_with_threads(
+                sender,
+                "MainLoopWorker",
+                config.main_loop_num_threads(),
+            );
             Handle { handle, receiver }
         };
         let fmt_pool = {
             let (sender, receiver) = unbounded();
-            let handle = TaskPool::new_with_threads(sender, 1);
+            let handle = TaskPool::new_with_threads(sender, "FmtWorker", 1);
             Handle { handle, receiver }
         };
         let cancellation_pool = thread::Pool::new(1);

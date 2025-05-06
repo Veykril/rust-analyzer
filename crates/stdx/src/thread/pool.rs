@@ -44,7 +44,7 @@ impl Pool {
     ///
     /// Panics if job panics
     #[must_use]
-    pub fn new(threads: usize) -> Self {
+    pub fn new(thread_prefix: &str, threads: usize) -> Self {
         const STACK_SIZE: usize = 8 * 1024 * 1024;
         const INITIAL_INTENT: ThreadIntent = ThreadIntent::Worker;
 
@@ -53,7 +53,7 @@ impl Pool {
 
         let mut handles = Vec::with_capacity(threads);
         for idx in 0..threads {
-            let handle = Builder::new(INITIAL_INTENT, format!("Worker{idx}",))
+            let handle = Builder::new(INITIAL_INTENT, format!("{thread_prefix}{idx}",))
                 .stack_size(STACK_SIZE)
                 .allow_leak(true)
                 .spawn({

@@ -196,6 +196,9 @@ impl flags::AnalysisStats {
 
         eprintln!("{:<20} {}", "Item Tree Collection:", item_tree_time);
         report_metric("item tree time", item_tree_time.time.as_millis() as u64, "ms");
+        host.raw_database_mut().trigger_lru_eviction();
+        let db = host.raw_database();
+
         eprintln!("  Total Statistics:");
 
         let mut crate_def_map_sw = self.stop_watch();
@@ -342,8 +345,7 @@ impl flags::AnalysisStats {
             self.run_term_search(&workspace, db, &vfs, file_ids, verbosity);
         }
 
-        let db = host.raw_database_mut();
-        db.trigger_lru_eviction();
+        host.raw_database_mut().trigger_lru_eviction();
 
         let total_span = analysis_sw.elapsed();
         eprintln!("{:<20} {total_span}", "Total:");
