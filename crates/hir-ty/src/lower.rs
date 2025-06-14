@@ -1745,7 +1745,7 @@ pub(crate) fn trait_environment_for_body_query(
     def: DefWithBodyId,
 ) -> Arc<TraitEnvironment<'_>> {
     let Some(def) = def.as_generic_def_id(db) else {
-        let krate = def.module(db).krate();
+        let krate = def.module(db).krate(db);
         return TraitEnvironment::empty(krate);
     };
     db.trait_environment(def)
@@ -1756,7 +1756,7 @@ pub(crate) fn trait_environment_query<'db>(
     def: GenericDefId,
 ) -> Arc<TraitEnvironment<'db>> {
     let module = def.module(db);
-    let interner = DbInterner::new_with(db, module.krate());
+    let interner = DbInterner::new_with(db, module.krate(db));
     let predicates = GenericPredicates::query_all(db, def);
     let traits_in_scope = predicates
         .iter_identity_copied()
@@ -1771,7 +1771,7 @@ pub(crate) fn trait_environment_query<'db>(
 
     // FIXME: We should normalize projections here, like rustc does.
 
-    TraitEnvironment::new(module.krate(), module.containing_block(), traits_in_scope, env)
+    TraitEnvironment::new(module.krate(db), module.block(db), traits_in_scope, env)
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -2289,7 +2289,7 @@ pub(crate) fn associated_type_by_name_including_super_traits<'db>(
     name: &Name,
 ) -> Option<(TraitRef<'db>, TypeAliasId)> {
     let module = trait_ref.def_id.0.module(db);
-    let interner = DbInterner::new_with(db, module.krate());
+    let interner = DbInterner::new_with(db, module.krate(db));
     rustc_type_ir::elaborate::supertraits(interner, Binder::dummy(trait_ref)).find_map(|t| {
         let trait_id = t.as_ref().skip_binder().def_id.0;
         let assoc_type = trait_id.trait_items(db).associated_type_by_name(name)?;
