@@ -1,10 +1,10 @@
 //! Name resolution for expressions.
-use hir_expand::{MacroDefId, name::Name};
+use hir_expand::name::Name;
 use la_arena::{Arena, ArenaMap, Idx, IdxRange, RawIdx};
 use triomphe::Arc;
 
 use crate::{
-    BlockId, DefWithBodyId,
+    BlockId, DefWithBodyId, MacroId,
     db::DefDatabase,
     expr_store::{Body, ExpressionStore, HygieneId},
     hir::{Binding, BindingId, Expr, ExprId, Item, LabelId, Pat, PatId, Statement},
@@ -46,7 +46,7 @@ pub struct ScopeData {
     block: Option<BlockId>,
     label: Option<(LabelId, Name)>,
     // FIXME: We can compress this with an enum for this and `label`/`block` if memory usage matters.
-    macro_def: Option<Box<MacroDefId>>,
+    macro_def: Option<MacroId>,
     entries: IdxRange<ScopeEntry>,
 }
 
@@ -68,9 +68,8 @@ impl ExprScopes {
     }
 
     /// If `scope` refers to a macro def scope, returns the corresponding `MacroId`.
-    #[allow(clippy::borrowed_box)] // If we return `&MacroDefId` we need to move it, this way we just clone the `Box`.
-    pub fn macro_def(&self, scope: ScopeId) -> Option<&Box<MacroDefId>> {
-        self.scopes[scope].macro_def.as_ref()
+    pub fn macro_def(&self, scope: ScopeId) -> Option<MacroId> {
+        self.scopes[scope].macro_def
     }
 
     /// If `scope` refers to a labeled expression scope, returns the corresponding `Label`.
@@ -162,7 +161,7 @@ impl ExprScopes {
         })
     }
 
-    fn new_macro_def_scope(&mut self, parent: ScopeId, macro_id: Box<MacroDefId>) -> ScopeId {
+    fn new_macro_def_scope(&mut self, parent: ScopeId, macro_id: MacroId) -> ScopeId {
         self.scopes.alloc(ScopeData {
             parent: Some(parent),
             block: None,
@@ -233,8 +232,8 @@ fn compute_block_scopes(
             Statement::Expr { expr, .. } => {
                 compute_expr_scopes(*expr, store, scopes, scope);
             }
-            Statement::Item(Item::MacroDef(macro_id)) => {
-                *scope = scopes.new_macro_def_scope(*scope, macro_id.clone());
+            &Statement::Item(Item::MacroDef(macro_id)) => {
+                *scope = scopes.new_macro_def_scope(*scope, macro_id);
             }
             Statement::Item(Item::Other) => (),
         }

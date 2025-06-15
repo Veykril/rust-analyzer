@@ -26,7 +26,7 @@ use triomphe::Arc;
 
 use crate::{
     AstId, EagerCallInfo, ExpandError, ExpandResult, ExpandTo, ExpansionSpanMap, InFile,
-    MacroCallId, MacroCallKind, MacroDefId, MacroDefKind,
+    MacroCallId, MacroCallKind,
     ast::{self, AstNode},
     db::ExpandDatabase,
     mod_path::ModPath,
@@ -37,15 +37,16 @@ pub type EagerCallBackFn<'a> = &'a mut dyn FnMut(
     MacroCallId,
 );
 
-pub fn expand_eager_macro_input(
+pub fn expand_eager_macro_input<MacroDefId: Copy>(
     db: &dyn ExpandDatabase,
     krate: Crate,
     macro_call: &ast::MacroCall,
     ast_id: AstId<ast::MacroCall>,
     def: MacroDefId,
     call_site: SyntaxContext,
-    resolver: &dyn Fn(&ModPath) -> Option<MacroDefId>,
+    resolver: &dyn Fn(&ModPath) -> Option<(MacroDefId, /*is eager?*/ bool)>,
     eager_callback: EagerCallBackFn<'_>,
+    intern_call: &mut dyn FnMut(MacroDefId, MacroCallKind, SyntaxContext) -> MacroCallId,
 ) -> ExpandResult<Option<MacroCallId>> {
     let expand_to = ExpandTo::from_call_site(macro_call);
 
@@ -53,9 +54,8 @@ pub fn expand_eager_macro_input(
     // When `lazy_expand` is called, its *parent* file must already exist.
     // Here we store an eager macro id for the argument expanded subtree
     // for that purpose.
-    let arg_id = def.make_call(
-        db,
-        krate,
+    let arg_id = intern_call(
+        def,
         MacroCallKind::FnLike { ast_id, expand_to: ExpandTo::Expr, eager: None },
         call_site,
     );
@@ -77,6 +77,7 @@ pub fn expand_eager_macro_input(
             call_site,
             resolver,
             eager_callback,
+            intern_call,
         )
     };
     let err = parse_err.or(err);
@@ -97,9 +98,8 @@ pub fn expand_eager_macro_input(
 
     subtree.top_subtree_delimiter_mut().kind = crate::tt::DelimiterKind::Invisible;
 
-    let call = def.make_call(
-        db,
-        krate,
+    let call = intern_call(
+        def,
         MacroCallKind::FnLike {
             ast_id,
             expand_to,
@@ -116,28 +116,23 @@ pub fn expand_eager_macro_input(
     ExpandResult { value: Some(call), err }
 }
 
-fn lazy_expand(
+fn lazy_expand<MacroDefId: Copy>(
     db: &dyn ExpandDatabase,
-    def: &MacroDefId,
     macro_call: &ast::MacroCall,
     ast_id: AstId<ast::MacroCall>,
-    krate: Crate,
+    def: MacroDefId,
     call_site: SyntaxContext,
     eager_callback: EagerCallBackFn<'_>,
+    intern_call: &mut dyn FnMut(MacroDefId, MacroCallKind, SyntaxContext) -> MacroCallId,
 ) -> ExpandResult<(InFile<Parse<SyntaxNode>>, Arc<ExpansionSpanMap>)> {
     let expand_to = ExpandTo::from_call_site(macro_call);
-    let id = def.make_call(
-        db,
-        krate,
-        MacroCallKind::FnLike { ast_id, expand_to, eager: None },
-        call_site,
-    );
+    let id = intern_call(def, MacroCallKind::FnLike { ast_id, expand_to, eager: None }, call_site);
     eager_callback(ast_id.map(|ast_id| (AstPtr::new(macro_call), ast_id)), id);
 
     db.parse_macro_expansion(id).map(|parse| (InFile::new(id.into(), parse.0), parse.1))
 }
 
-fn eager_macro_recur(
+fn eager_macro_recur<MacroDefId: Copy>(
     db: &dyn ExpandDatabase,
     span_map: &ExpansionSpanMap,
     expanded_map: &mut ExpansionSpanMap,
@@ -145,8 +140,9 @@ fn eager_macro_recur(
     curr: InFile<SyntaxNode>,
     krate: Crate,
     call_site: SyntaxContext,
-    macro_resolver: &dyn Fn(&ModPath) -> Option<MacroDefId>,
+    macro_resolver: &dyn Fn(&ModPath) -> Option<(MacroDefId, bool)>,
     eager_callback: EagerCallBackFn<'_>,
+    intern_call: &mut dyn FnMut(MacroDefId, MacroCallKind, SyntaxContext) -> MacroCallId,
 ) -> ExpandResult<Option<(SyntaxNode, TextSize)>> {
     let original = curr.value.clone_for_update();
 
@@ -177,7 +173,7 @@ fn eager_macro_recur(
             }
         };
 
-        let def = match call.path().and_then(|path| {
+        let (def, is_eager) = match call.path().and_then(|path| {
             ModPath::from_src(db, path, &mut |range| span_map.span_at(range.start()).ctx)
         }) {
             Some(path) => match macro_resolver(&path) {
@@ -202,73 +198,68 @@ fn eager_macro_recur(
             }
         };
         let ast_id = db.ast_id_map(curr.file_id).ast_id(&call);
-        let ExpandResult { value, err } = match def.kind {
-            MacroDefKind::BuiltInEager(..) => {
-                let ExpandResult { value, err } = expand_eager_macro_input(
-                    db,
-                    krate,
-                    &call,
-                    curr.with_value(ast_id),
-                    def,
-                    call_site,
-                    macro_resolver,
-                    eager_callback,
-                );
-                match value {
-                    Some(call_id) => {
-                        eager_callback(
-                            curr.with_value(ast_id).map(|ast_id| (AstPtr::new(&call), ast_id)),
-                            call_id,
-                        );
-                        let ExpandResult { value: (parse, map), err: err2 } =
-                            db.parse_macro_expansion(call_id);
+        let ExpandResult { value, err } = if is_eager {
+            let ExpandResult { value, err } = expand_eager_macro_input(
+                db,
+                krate,
+                &call,
+                curr.with_value(ast_id),
+                def,
+                call_site,
+                macro_resolver,
+                eager_callback,
+                intern_call,
+            );
+            match value {
+                Some(call_id) => {
+                    eager_callback(
+                        curr.with_value(ast_id).map(|ast_id| (AstPtr::new(&call), ast_id)),
+                        call_id,
+                    );
+                    let ExpandResult { value: (parse, map), err: err2 } =
+                        db.parse_macro_expansion(call_id);
 
-                        map.iter().for_each(|(o, span)| expanded_map.push(o + offset, span));
+                    map.iter().for_each(|(o, span)| expanded_map.push(o + offset, span));
 
-                        let syntax_node = parse.syntax_node();
-                        ExpandResult {
-                            value: Some((
-                                syntax_node.clone_for_update(),
-                                offset + syntax_node.text_range().len(),
-                            )),
-                            err: err.or(err2),
-                        }
+                    let syntax_node = parse.syntax_node();
+                    ExpandResult {
+                        value: Some((
+                            syntax_node.clone_for_update(),
+                            offset + syntax_node.text_range().len(),
+                        )),
+                        err: err.or(err2),
                     }
-                    None => ExpandResult { value: None, err },
                 }
+                None => ExpandResult { value: None, err },
             }
-            MacroDefKind::Declarative(_)
-            | MacroDefKind::BuiltIn(..)
-            | MacroDefKind::BuiltInAttr(..)
-            | MacroDefKind::BuiltInDerive(..)
-            | MacroDefKind::ProcMacro(..) => {
-                let ExpandResult { value: (parse, tm), err } = lazy_expand(
-                    db,
-                    &def,
-                    &call,
-                    curr.with_value(ast_id),
-                    krate,
-                    call_site,
-                    eager_callback,
-                );
+        } else {
+            let ExpandResult { value: (parse, tm), err } = lazy_expand(
+                db,
+                &call,
+                curr.with_value(ast_id),
+                def,
+                call_site,
+                eager_callback,
+                intern_call,
+            );
 
-                // replace macro inside
-                let ExpandResult { value, err: error } = eager_macro_recur(
-                    db,
-                    &tm,
-                    expanded_map,
-                    offset,
-                    // FIXME: We discard parse errors here
-                    parse.as_ref().map(|it| it.syntax_node()),
-                    krate,
-                    call_site,
-                    macro_resolver,
-                    eager_callback,
-                );
-                let err = err.or(error);
+            // replace macro inside
+            let ExpandResult { value, err: error } = eager_macro_recur(
+                db,
+                &tm,
+                expanded_map,
+                offset,
+                // FIXME: We discard parse errors here
+                parse.as_ref().map(|it| it.syntax_node()),
+                krate,
+                call_site,
+                macro_resolver,
+                eager_callback,
+                intern_call,
+            );
+            let err = err.or(error);
 
-                ExpandResult { value, err }
-            }
+            ExpandResult { value, err }
         };
         if err.is_some() {
             error = err;

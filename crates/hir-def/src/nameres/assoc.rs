@@ -4,7 +4,7 @@ use std::mem;
 
 use cfg::CfgOptions;
 use hir_expand::{
-    AstId, ExpandTo, HirFileId, InFile, Intern, Lookup, MacroCallKind, MacroDefKind,
+    AstId, ExpandTo, HirFileId, InFile, MacroCallKind,
     mod_path::ModPath,
     name::{AsName, Name},
     span_map::SpanMap,
@@ -19,8 +19,8 @@ use thin_vec::ThinVec;
 use triomphe::Arc;
 
 use crate::{
-    AssocItemId, AstIdWithPath, ConstLoc, FunctionId, FunctionLoc, ImplId, ItemContainerId,
-    ItemLoc, MacroCallId, ModuleId, TraitId, TypeAliasId, TypeAliasLoc,
+    AssocItemId, AstIdWithPath, ConstLoc, FunctionId, FunctionLoc, ImplId, Intern, ItemContainerId,
+    ItemLoc, Lookup, MacroCallId, ModuleId, TraitId, TypeAliasId, TypeAliasLoc,
     attr::Attrs,
     db::DefDatabase,
     macro_call_as_call_id,
@@ -204,8 +204,8 @@ impl<'a> AssocItemCollector<'a> {
                 attr,
             ) {
                 Ok(ResolvedAttr::Macro(call_id)) => {
-                    let loc = self.db.lookup_intern_macro_call(call_id);
-                    if let MacroDefKind::ProcMacro(_, exp, _) = loc.def.kind {
+                    let loc = call_id.lookup(self.db);
+                    if let Some(exp) = loc.def.proc_macro_expander(self.db) {
                         // If there's no expander for the proc macro (e.g. the
                         // proc macro is ignored, or building the proc macro
                         // crate failed), skip expansion like we would if it was
@@ -295,7 +295,6 @@ impl<'a> AssocItemCollector<'a> {
                         )
                         .0
                         .take_macros()
-                        .map(|it| self.db.macro_def(it))
                 };
                 match macro_call_as_call_id(
                     self.db,
@@ -303,7 +302,7 @@ impl<'a> AssocItemCollector<'a> {
                     &path,
                     ctxt,
                     ExpandTo::Items,
-                    self.module_id.krate(),
+                    self.module_id,
                     resolver,
                     &mut |ptr, call_id| {
                         self.macro_calls.push((ptr.map(|(_, it)| it.upcast()), call_id))

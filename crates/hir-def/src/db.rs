@@ -2,7 +2,7 @@
 use base_db::{Crate, RootQueryDb, SourceDatabase};
 use either::Either;
 use hir_expand::{
-    EditionedFileId, HirFileId, InFile, Lookup, MacroCallId, MacroDefId, MacroDefKind,
+    EditionedFileId, HirFileId, MacroCallId, MacroCallKind, builtin::include_input_to_file_id,
     db::ExpandDatabase,
 };
 use intern::sym;
@@ -11,12 +11,12 @@ use syntax::{AstPtr, ast};
 use triomphe::Arc;
 
 use crate::{
-    AssocItemId, AttrDefId, ConstId, ConstLoc, DeclMacroExpander, DefWithBodyId, EnumId, EnumLoc,
-    EnumVariantId, EnumVariantLoc, ExternBlockId, ExternBlockLoc, ExternCrateId, ExternCrateLoc,
-    FunctionId, FunctionLoc, GenericDefId, ImplId, ImplLoc, LocalFieldId, Macro2Id, Macro2Loc,
-    MacroId, MacroRulesId, MacroRulesLoc, MacroRulesLocFlags, ProcMacroId, ProcMacroLoc, StaticId,
-    StaticLoc, StructId, StructLoc, TraitAliasId, TraitAliasLoc, TraitId, TraitLoc, TypeAliasId,
-    TypeAliasLoc, UnionId, UnionLoc, UseId, UseLoc, VariantId,
+    AssocItemId, AttrDefId, ConstId, ConstLoc, DefWithBodyId, EnumId, EnumLoc, EnumVariantId,
+    EnumVariantLoc, ExternBlockId, ExternBlockLoc, ExternCrateId, ExternCrateLoc, FunctionId,
+    FunctionLoc, GenericDefId, ImplId, ImplLoc, LocalFieldId, Lookup, Macro2Id, Macro2Loc,
+    MacroRulesId, MacroRulesLoc, ProcMacroId, ProcMacroLoc, StaticId, StaticLoc, StructId,
+    StructLoc, TraitAliasId, TraitAliasLoc, TraitId, TraitLoc, TypeAliasId, TypeAliasLoc, UnionId,
+    UnionLoc, UseId, UseLoc, VariantId,
     attr::{Attrs, AttrsWithOwner},
     expr_store::{
         Body, BodySourceMap, ExpressionStore, ExpressionStoreSourceMap, scope::ExprScopes,
@@ -103,10 +103,6 @@ pub trait DefDatabase: InternDatabase + ExpandDatabase + SourceDatabase {
     #[salsa::invoke(file_item_tree_query)]
     #[salsa::transparent]
     fn file_item_tree(&self, file_id: HirFileId) -> &ItemTree;
-
-    /// Turns a MacroId into a MacroDefId, describing the macro's definition post name resolution.
-    #[salsa::invoke(macro_def)]
-    fn macro_def(&self, m: MacroId) -> MacroDefId;
 
     // region:data
 
@@ -325,9 +321,16 @@ fn include_macro_invoc(
         .values()
         .flat_map(|m| m.scope.iter_macro_invoc())
         .filter_map(|invoc| {
-            db.lookup_intern_macro_call(*invoc.1)
-                .include_file_id(db, *invoc.1)
-                .map(|x| (*invoc.1, x))
+            let lookup = invoc.1.lookup(db);
+            if lookup.def.expander(db).is_include() {
+                if let MacroCallKind::FnLike { eager: Some(eager), .. } = &lookup.kind {
+                    if let Ok(it) = include_input_to_file_id(db, *invoc.1, &eager.arg) {
+                        return Some(it).map(|x| (*invoc.1, x));
+                    }
+                }
+            }
+
+            None
         })
         .collect()
 }
@@ -363,47 +366,4 @@ fn crate_supports_no_std(db: &dyn DefDatabase, crate_id: Crate) -> bool {
     }
 
     false
-}
-
-fn macro_def(db: &dyn DefDatabase, id: MacroId) -> MacroDefId {
-    let kind = |expander, file_id, m| {
-        let in_file = InFile::new(file_id, m);
-        match expander {
-            DeclMacroExpander::Declarative => MacroDefKind::Declarative(in_file),
-            DeclMacroExpander::BuiltIn(it) => MacroDefKind::BuiltIn(in_file, it),
-            DeclMacroExpander::BuiltInAttr(it) => MacroDefKind::BuiltInAttr(in_file, it),
-            DeclMacroExpander::BuiltInDerive(it) => MacroDefKind::BuiltInDerive(in_file, it),
-            DeclMacroExpander::BuiltInEager(it) => MacroDefKind::BuiltInEager(in_file, it),
-        }
-    };
-
-    match id {
-        MacroId::Macro2Id(it) => {
-            let loc: Macro2Loc = it.lookup(db);
-
-            MacroDefId {
-                krate: loc.container.krate,
-                kind: kind(loc.expander, loc.id.file_id, loc.id.value.upcast()),
-                local_inner: false,
-            }
-        }
-        MacroId::MacroRulesId(it) => {
-            let loc: MacroRulesLoc = it.lookup(db);
-
-            MacroDefId {
-                krate: loc.container.krate,
-                kind: kind(loc.expander, loc.id.file_id, loc.id.value.upcast()),
-                local_inner: loc.flags.contains(MacroRulesLocFlags::LOCAL_INNER),
-            }
-        }
-        MacroId::ProcMacroId(it) => {
-            let loc = it.lookup(db);
-
-            MacroDefId {
-                krate: loc.container.krate,
-                kind: MacroDefKind::ProcMacro(loc.id, loc.expander, loc.kind),
-                local_inner: false,
-            }
-        }
-    }
 }

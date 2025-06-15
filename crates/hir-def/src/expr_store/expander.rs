@@ -2,13 +2,12 @@
 
 use std::mem;
 
-use base_db::Crate;
 use cfg::CfgOptions;
 use drop_bomb::DropBomb;
 use hir_expand::AstId;
 use hir_expand::span_map::SpanMapRef;
 use hir_expand::{
-    ExpandError, ExpandErrorKind, ExpandResult, HirFileId, InFile, Lookup, MacroCallId,
+    ExpandError, ExpandErrorKind, ExpandResult, HirFileId, InFile, MacroCallId,
     eager::EagerCallBackFn, mod_path::ModPath, span_map::SpanMap,
 };
 use span::{AstIdMap, Edition, SyntaxContext};
@@ -19,9 +18,9 @@ use tt::TextRange;
 
 use crate::attr::Attrs;
 use crate::expr_store::HygieneId;
-use crate::macro_call_as_call_id;
 use crate::nameres::DefMap;
-use crate::{MacroId, UnresolvedMacro, db::DefDatabase};
+use crate::{Lookup, MacroId, UnresolvedMacro, db::DefDatabase};
+use crate::{ModuleId, macro_call_as_call_id};
 
 #[derive(Debug)]
 pub(super) struct Expander {
@@ -86,8 +85,8 @@ impl Expander {
         &mut self,
         db: &dyn DefDatabase,
         macro_call: ast::MacroCall,
-        krate: Crate,
-        resolver: impl Fn(&ModPath) -> Option<MacroId>,
+        module: ModuleId,
+        resolver: impl Fn(&ModPath) -> Option<MacroId> + Copy,
         eager_callback: EagerCallBackFn<'_>,
     ) -> Result<ExpandResult<Option<(Mark, Option<Parse<T>>)>>, UnresolvedMacro> {
         // FIXME: within_limit should support this, instead of us having to extract the error
@@ -120,8 +119,8 @@ impl Expander {
                 &path,
                 call_site.ctx,
                 expands_to,
-                krate,
-                |path| resolver(path).map(|it| db.macro_def(it)),
+                module,
+                resolver,
                 eager_callback,
             ) {
                 Ok(call_id) => call_id,

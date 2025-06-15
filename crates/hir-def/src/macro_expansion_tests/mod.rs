@@ -19,7 +19,7 @@ use std::{any::TypeId, iter, ops::Range, sync};
 use base_db::RootQueryDb;
 use expect_test::Expect;
 use hir_expand::{
-    AstId, InFile, MacroCallId, MacroCallKind, MacroKind,
+    AstId, DepInjectDatabase, InFile, MacroCallId, MacroCallKind, MacroKind,
     db::ExpandDatabase,
     proc_macro::{ProcMacro, ProcMacroExpander, ProcMacroExpansionError, ProcMacroKind},
     span_map::SpanMapRef,
@@ -56,7 +56,7 @@ fn check_errors(#[rust_analyzer::rust_fixture] ra_fixture: &str, expect: Expect)
         .filter_map(|macro_call| {
             let errors = db.parse_macro_expansion_error(macro_call)?;
             let errors = errors.err.as_ref()?.render_to_string(&db);
-            let macro_loc = db.lookup_intern_macro_call(macro_call);
+            let macro_loc = macro_call.lookup(&db);
             let ast_id = match macro_loc.kind {
                 MacroCallKind::FnLike { ast_id, .. } => ast_id.map(|it| it.erase()),
                 MacroCallKind::Derive { ast_id, .. } => ast_id.map(|it| it.erase()),
@@ -223,9 +223,9 @@ pub fn identity_when_valid(_attr: TokenStream, item: TokenStream) -> TokenStream
                 if let MacroKind::Derive
                 | MacroKind::DeriveBuiltIn
                 | MacroKind::Attr
-                | MacroKind::AttrBuiltIn = file_id.kind(&db)
+                | MacroKind::AttrBuiltIn = file_id.lookup(&db).def.kind(&db)
                 {
-                    let call = file_id.call_node(&db);
+                    let call = db.to_node(file_id);
                     let mut show_spans = false;
                     let mut show_ctxt = false;
                     for comment in
@@ -249,7 +249,9 @@ pub fn identity_when_valid(_attr: TokenStream, item: TokenStream) -> TokenStream
     for impl_id in def_map[local_id].scope.impls() {
         let src = impl_id.lookup(&db).source(&db);
         if let Some(macro_file) = src.file_id.macro_file() {
-            if let MacroKind::DeriveBuiltIn | MacroKind::Derive = macro_file.kind(&db) {
+            if let MacroKind::DeriveBuiltIn | MacroKind::Derive =
+                macro_file.lookup(&db).def.kind(&db)
+            {
                 let pp = pretty_print_macro_expansion(
                     src.value.syntax().clone(),
                     db.span_map(macro_file.into()).as_ref(),

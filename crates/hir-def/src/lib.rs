@@ -65,12 +65,9 @@ use std::hash::{Hash, Hasher};
 
 use base_db::{Crate, impl_intern_key};
 use hir_expand::{
-    AstId, ExpandResult, ExpandTo, HirFileId, InFile, MacroCallId, MacroCallKind, MacroDefId,
-    MacroDefKind,
-    builtin::{BuiltinAttrExpander, BuiltinDeriveExpander, BuiltinFnLikeExpander, EagerExpander},
-    db::ExpandDatabase,
+    AstId, ExpandResult, ExpandTo, HirFileId, InFile, MacroCallId, MacroCallKind, MacroExpander,
+    MacroKind,
     eager::expand_eager_macro_input,
-    impl_intern_lookup,
     mod_path::ModPath,
     name::Name,
     proc_macro::{CustomProcMacroExpander, ProcMacroKind},
@@ -81,7 +78,7 @@ use span::{AstIdNode, Edition, FileAstId, SyntaxContext};
 use stdx::impl_from;
 use syntax::{AstNode, ast};
 
-pub use hir_expand::{Intern, Lookup, tt};
+pub use hir_expand::{DeclMacroExpander, tt};
 
 use crate::{
     attr::Attrs,
@@ -109,6 +106,38 @@ pub struct ImportPathConfig {
     /// If true, paths containing `#[unstable]` segments may be returned, but only if if there is no
     /// stable path. This does not check, whether the item itself that is being imported is `#[unstable]`.
     pub allow_unstable: bool,
+}
+
+#[macro_export]
+macro_rules! impl_intern_lookup {
+    ($db:ident, $id:ident, $loc:ident, $intern:ident, $lookup:ident) => {
+        impl $crate::Intern for $loc {
+            type Database = dyn $db;
+            type ID = $id;
+            fn intern(self, db: &Self::Database) -> Self::ID {
+                db.$intern(self)
+            }
+        }
+
+        impl $crate::Lookup for $id {
+            type Database = dyn $db;
+            type Data = $loc;
+            fn lookup(&self, db: &Self::Database) -> Self::Data {
+                db.$lookup(*self)
+            }
+        }
+    };
+}
+pub trait Intern {
+    type Database: ?Sized;
+    type ID;
+    fn intern(self, db: &Self::Database) -> Self::ID;
+}
+
+pub trait Lookup {
+    type Database: ?Sized;
+    type Data;
+    fn lookup(&self, db: &Self::Database) -> Self::Data;
 }
 
 #[derive(Debug)]
@@ -328,17 +357,17 @@ pub struct EnumVariantLoc {
 }
 impl_intern!(EnumVariantId, EnumVariantLoc, intern_enum_variant, lookup_intern_enum_variant);
 impl_loc!(EnumVariantLoc, id: Variant, parent: EnumId);
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Macro2Loc {
     pub container: ModuleId,
     pub id: AstId<ast::MacroDef>,
     pub expander: DeclMacroExpander,
-    pub allow_internal_unsafe: bool,
+    pub flags: MacroRulesLocFlags,
 }
 impl_intern!(Macro2Id, Macro2Loc, intern_macro2, lookup_intern_macro2);
 impl_loc!(Macro2Loc, id: MacroDef, container: ModuleId);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MacroRulesLoc {
     pub container: ModuleId,
     pub id: AstId<ast::MacroRules>,
@@ -357,15 +386,6 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DeclMacroExpander {
-    Declarative,
-    BuiltIn(BuiltinFnLikeExpander),
-    BuiltInAttr(BuiltinAttrExpander),
-    BuiltInDerive(BuiltinDeriveExpander),
-    BuiltInEager(EagerExpander),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProcMacroLoc {
     pub container: CrateRootModuleId,
     pub id: AstId<ast::Fn>,
@@ -374,6 +394,69 @@ pub struct ProcMacroLoc {
 }
 impl_intern!(ProcMacroId, ProcMacroLoc, intern_proc_macro, lookup_intern_proc_macro);
 impl_loc!(ProcMacroLoc, id: Fn, container: CrateRootModuleId);
+
+/// Macro ids. That's probably the tricksiest bit in rust-analyzer, and the
+/// reason why we use salsa at all.
+///
+/// We encode macro definitions into ids of macro calls, this what allows us
+/// to be incremental.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MacroCallLoc {
+    pub container: ModuleId,
+    pub def: MacroId,
+    pub kind: MacroCallKind,
+    pub ctxt: SyntaxContext,
+}
+
+const _: () = {
+    use salsa::plumbing as zalsa_;
+    use zalsa_::interned as zalsa_struct_;
+
+    #[unsafe(no_mangle)]
+    extern "Rust" fn inject_macro_call_loc(
+        zalsa: &salsa::plumbing::Zalsa,
+    ) -> salsa::IngredientIndex {
+        zalsa.add_or_lookup_jar_by_type::<salsa::plumbing::interned::JarImpl<Configuration_>>()
+    }
+
+    impl Intern for MacroCallLoc {
+        type Database = dyn DefDatabase;
+        type ID = MacroCallId;
+        fn intern(self, db: &Self::Database) -> Self::ID {
+            Configuration_::ingredient(db).intern(db.as_dyn_database(), self, |_, data| data)
+        }
+    }
+    impl Lookup for MacroCallId {
+        type Database = dyn DefDatabase;
+        type Data = MacroCallLoc;
+        fn lookup(&self, db: &Self::Database) -> Self::Data {
+            let fields = Configuration_::ingredient(db).fields(db.as_dyn_database(), *self);
+            fields.clone()
+        }
+    }
+
+    type Configuration_ = MacroCallLoc;
+    type MacroCallLocData<'db> = (MacroCallLoc,);
+    impl salsa::plumbing::interned::Configuration for MacroCallLoc {
+        const LOCATION: zalsa_::Location = zalsa_::Location { file: file!(), line: line!() };
+        const DEBUG_NAME: &'static str = "MacroCallLoc";
+        type Fields<'a> = MacroCallLoc;
+        type Struct<'db> = MacroCallId;
+    }
+    impl Configuration_ {
+        pub fn ingredient<Db>(db: &Db) -> &zalsa_struct_::IngredientImpl<Self>
+        where
+            Db: ?Sized + zalsa_::Database,
+        {
+            static CACHE: zalsa_::IngredientCache<zalsa_struct_::IngredientImpl<Configuration_>> =
+                zalsa_::IngredientCache::new();
+            let zalsa = db.zalsa();
+            CACHE.get_or_create(zalsa, || {
+                zalsa.add_or_lookup_jar_by_type::<zalsa_struct_::JarImpl<Configuration_>>()
+            })
+        }
+    }
+};
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct BlockLoc {
@@ -387,14 +470,14 @@ pub struct BlockIdLt<'db> {
     pub loc: BlockLoc,
 }
 pub type BlockId = BlockIdLt<'static>;
-impl hir_expand::Intern for BlockLoc {
+impl Intern for BlockLoc {
     type Database = dyn DefDatabase;
     type ID = BlockId;
     fn intern(self, db: &Self::Database) -> Self::ID {
         unsafe { std::mem::transmute::<BlockIdLt<'_>, BlockId>(BlockIdLt::new(db, self)) }
     }
 }
-impl hir_expand::Lookup for BlockId {
+impl Lookup for BlockId {
     type Database = dyn DefDatabase;
     type Data = BlockLoc;
     fn lookup(&self, db: &Self::Database) -> Self::Data {
@@ -684,7 +767,107 @@ impl_from!(Macro2Id, MacroRulesId, ProcMacroId for MacroId);
 
 impl MacroId {
     pub fn is_attribute(self, db: &dyn DefDatabase) -> bool {
-        matches!(self, MacroId::ProcMacroId(it) if it.lookup(db).kind == ProcMacroKind::Attr)
+        match self {
+            MacroId::ProcMacroId(it) => matches!(it.lookup(db).kind, ProcMacroKind::Attr),
+            MacroId::Macro2Id(it) => {
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltInAttr(_))
+            }
+            MacroId::MacroRulesId(_) => false,
+        }
+    }
+
+    pub fn is_derive(self, db: &dyn DefDatabase) -> bool {
+        match self {
+            MacroId::ProcMacroId(it) => matches!(it.lookup(db).kind, ProcMacroKind::CustomDerive),
+            MacroId::Macro2Id(it) => {
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltInDerive(_))
+            }
+            MacroId::MacroRulesId(_) => false,
+        }
+    }
+
+    pub fn proc_macro_expander(self, db: &dyn DefDatabase) -> Option<CustomProcMacroExpander> {
+        match self {
+            MacroId::ProcMacroId(it) => Some(it.lookup(db).expander),
+            MacroId::Macro2Id(_) | MacroId::MacroRulesId(_) => None,
+        }
+    }
+
+    pub fn kind(self, db: &dyn DefDatabase) -> MacroKind {
+        match self.expander(db) {
+            MacroExpander::Declarative(..) => MacroKind::Declarative,
+            MacroExpander::BuiltIn(..) | MacroExpander::BuiltInEager(..) => {
+                MacroKind::DeclarativeBuiltIn
+            }
+            MacroExpander::BuiltInDerive(..) => MacroKind::DeriveBuiltIn,
+            MacroExpander::ProcMacro(_, ProcMacroKind::CustomDerive) => MacroKind::Derive,
+            MacroExpander::ProcMacro(_, ProcMacroKind::Attr) => MacroKind::Attr,
+            MacroExpander::ProcMacro(_, ProcMacroKind::Bang) => MacroKind::ProcMacro,
+            MacroExpander::BuiltInAttr(..) => MacroKind::AttrBuiltIn,
+        }
+    }
+
+    pub fn expander(self, db: &dyn DefDatabase) -> MacroExpander {
+        match self {
+            MacroId::Macro2Id(macro2_id) => match macro2_id.lookup(db).expander.clone() {
+                DeclMacroExpander::Declarative(declarative_macro_expander) => {
+                    MacroExpander::Declarative(declarative_macro_expander)
+                }
+                DeclMacroExpander::BuiltIn(builtin_fn_like_expander) => {
+                    MacroExpander::BuiltIn(builtin_fn_like_expander)
+                }
+                DeclMacroExpander::BuiltInAttr(builtin_attr_expander) => {
+                    MacroExpander::BuiltInAttr(builtin_attr_expander)
+                }
+                DeclMacroExpander::BuiltInDerive(builtin_derive_expander) => {
+                    MacroExpander::BuiltInDerive(builtin_derive_expander)
+                }
+                DeclMacroExpander::BuiltInEager(eager_expander) => {
+                    MacroExpander::BuiltInEager(eager_expander)
+                }
+            },
+            MacroId::MacroRulesId(macro_rules_id) => {
+                match macro_rules_id.lookup(db).expander.clone() {
+                    DeclMacroExpander::Declarative(declarative_macro_expander) => {
+                        MacroExpander::Declarative(declarative_macro_expander)
+                    }
+                    DeclMacroExpander::BuiltIn(builtin_fn_like_expander) => {
+                        MacroExpander::BuiltIn(builtin_fn_like_expander)
+                    }
+                    DeclMacroExpander::BuiltInAttr(builtin_attr_expander) => {
+                        MacroExpander::BuiltInAttr(builtin_attr_expander)
+                    }
+                    DeclMacroExpander::BuiltInDerive(builtin_derive_expander) => {
+                        MacroExpander::BuiltInDerive(builtin_derive_expander)
+                    }
+                    DeclMacroExpander::BuiltInEager(eager_expander) => {
+                        MacroExpander::BuiltInEager(eager_expander)
+                    }
+                }
+            }
+            MacroId::ProcMacroId(proc_macro_id) => {
+                let proc_macro = proc_macro_id.lookup(db);
+                MacroExpander::ProcMacro(proc_macro.expander, proc_macro.kind)
+            }
+        }
+    }
+
+    fn krate(&self, db: &dyn DefDatabase) -> Crate {
+        match self {
+            MacroId::Macro2Id(it) => it.lookup(db).container.krate,
+            MacroId::MacroRulesId(it) => it.lookup(db).container.krate,
+            MacroId::ProcMacroId(it) => it.lookup(db).container.krate,
+        }
+    }
+
+    fn local_inner(&self, db: &dyn DefDatabase) -> bool {
+        match self {
+            MacroId::Macro2Id(it) => it.lookup(db).flags.contains(MacroRulesLocFlags::LOCAL_INNER),
+            MacroId::MacroRulesId(it) => {
+                it.lookup(db).flags.contains(MacroRulesLocFlags::LOCAL_INNER)
+            }
+            MacroId::ProcMacroId(_) => false, // proc macros are never local inner
+        }
     }
 }
 
@@ -1296,13 +1479,13 @@ impl<T: AstIdNode> AstIdWithPath<T> {
 }
 
 pub fn macro_call_as_call_id(
-    db: &dyn ExpandDatabase,
+    db: &dyn DefDatabase,
     ast_id: AstId<ast::MacroCall>,
     path: &ModPath,
     call_site: SyntaxContext,
     expand_to: ExpandTo,
-    krate: Crate,
-    resolver: impl Fn(&ModPath) -> Option<MacroDefId> + Copy,
+    container: ModuleId,
+    resolver: impl Fn(&ModPath) -> Option<MacroId> + Copy,
     eager_callback: &mut dyn FnMut(
         InFile<(syntax::AstPtr<ast::MacroCall>, span::FileAstId<ast::MacroCall>)>,
         MacroCallId,
@@ -1310,24 +1493,33 @@ pub fn macro_call_as_call_id(
 ) -> Result<ExpandResult<Option<MacroCallId>>, UnresolvedMacro> {
     let def = resolver(path).ok_or_else(|| UnresolvedMacro { path: path.clone() })?;
 
-    let res = match def.kind {
-        MacroDefKind::BuiltInEager(..) => expand_eager_macro_input(
+    let res = match def.expander(db) {
+        MacroExpander::BuiltInEager(..) => expand_eager_macro_input(
             db,
-            krate,
+            container.krate,
             &ast_id.to_node(db),
             ast_id,
             def,
             call_site,
-            &|path| resolver(path).filter(MacroDefId::is_fn_like),
+            &|path| {
+                resolver(path).and_then(|it| match it.expander(db) {
+                    MacroExpander::BuiltInEager(..) => Some((it, true)),
+                    def => def.is_fn_like().then_some((it, false)),
+                })
+            },
             eager_callback,
+            &mut |def, kind, ctxt| MacroCallLoc { kind, def, ctxt, container }.intern(db),
         ),
-        _ if def.is_fn_like() => ExpandResult {
-            value: Some(def.make_call(
-                db,
-                krate,
-                MacroCallKind::FnLike { ast_id, expand_to, eager: None },
-                call_site,
-            )),
+        kind if kind.is_fn_like() => ExpandResult {
+            value: Some(
+                MacroCallLoc {
+                    kind: MacroCallKind::FnLike { ast_id, expand_to, eager: None },
+                    def,
+                    ctxt: call_site,
+                    container,
+                }
+                .intern(db),
+            ),
             err: None,
         },
         _ => return Err(UnresolvedMacro { path: path.clone() }),

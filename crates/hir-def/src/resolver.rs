@@ -3,7 +3,6 @@ use std::{fmt, mem};
 
 use base_db::Crate;
 use hir_expand::{
-    MacroDefId,
     mod_path::{ModPath, PathKind},
     name::{AsName, Name},
 };
@@ -90,7 +89,7 @@ enum Scope<'db> {
     /// Local bindings
     ExprScope(ExprScope),
     /// Macro definition inside bodies that affects all paths after it in the same block.
-    MacroDefScope(MacroDefId),
+    MacroDefScope(MacroId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -518,8 +517,8 @@ impl<'db> Resolver<'db> {
         db: &dyn DefDatabase,
         path: &ModPath,
         expected_macro_kind: Option<MacroSubNs>,
-    ) -> Option<MacroDefId> {
-        self.resolve_path_as_macro(db, path, expected_macro_kind).map(|(it, _)| db.macro_def(it))
+    ) -> Option<MacroId> {
+        self.resolve_path_as_macro(db, path, expected_macro_kind).map(|(it, _)| it)
     }
 
     pub fn resolve_lifetime(&self, lifetime: &LifetimeRef) -> Option<LifetimeNs> {
@@ -860,7 +859,7 @@ impl<'db> Resolver<'db> {
             scope_id: ScopeId,
         ) {
             if let Some(macro_id) = expr_scopes.macro_def(scope_id) {
-                resolver.scopes.push(Scope::MacroDefScope(**macro_id));
+                resolver.scopes.push(Scope::MacroDefScope(macro_id));
             }
             resolver.scopes.push(Scope::ExprScope(ExprScope {
                 owner,
@@ -915,8 +914,8 @@ impl<'db> Resolver<'db> {
 fn handle_macro_def_scope(
     db: &dyn DefDatabase,
     hygiene_id: &mut HygieneId,
-    hygiene_info: &mut Option<(SyntaxContext, MacroDefId)>,
-    macro_id: &MacroDefId,
+    hygiene_info: &mut Option<(SyntaxContext, MacroId)>,
+    macro_id: &MacroId,
 ) {
     if let Some((parent_ctx, label_macro_id)) = hygiene_info {
         if label_macro_id == macro_id {
@@ -925,7 +924,7 @@ fn handle_macro_def_scope(
             // and use its parent expansion.
             *hygiene_id = HygieneId::new(parent_ctx.opaque_and_semitransparent(db));
             *hygiene_info = parent_ctx.outer_expn(db).map(|expansion| {
-                let expansion = db.lookup_intern_macro_call(expansion.into());
+                let expansion = expansion.lookup(db);
                 (parent_ctx.parent(db), expansion.def)
             });
         }
@@ -933,14 +932,11 @@ fn handle_macro_def_scope(
 }
 
 #[inline]
-fn hygiene_info(
-    db: &dyn DefDatabase,
-    hygiene_id: HygieneId,
-) -> Option<(SyntaxContext, MacroDefId)> {
+fn hygiene_info(db: &dyn DefDatabase, hygiene_id: HygieneId) -> Option<(SyntaxContext, MacroId)> {
     if !hygiene_id.is_root() {
         let ctx = hygiene_id.lookup();
         ctx.outer_expn(db).map(|expansion| {
-            let expansion = db.lookup_intern_macro_call(expansion.into());
+            let expansion = expansion.lookup(db);
             (ctx.parent(db), expansion.def)
         })
     } else {
@@ -1093,7 +1089,7 @@ fn resolver_for_scope_<'db>(
             // innermost module scope instead?
         }
         if let Some(macro_id) = scopes.macro_def(scope) {
-            r = r.push_scope(Scope::MacroDefScope(**macro_id));
+            r = r.push_scope(Scope::MacroDefScope(macro_id));
         }
 
         r = r.push_expr_scope(owner, Arc::clone(&scopes), scope);

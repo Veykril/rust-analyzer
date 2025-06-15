@@ -1,8 +1,7 @@
 //! Post-nameres attribute resolution.
 
-use base_db::Crate;
 use hir_expand::{
-    MacroCallId, MacroCallKind, MacroDefId,
+    MacroCallId, MacroCallKind,
     attrs::{Attr, AttrId, AttrInput},
     inert_attr_macro::find_builtin_attr_idx,
     mod_path::{ModPath, PathKind},
@@ -12,7 +11,7 @@ use syntax::ast;
 use triomphe::Arc;
 
 use crate::{
-    AstIdWithPath, LocalModuleId, MacroId, UnresolvedMacro,
+    AstIdWithPath, Intern, LocalModuleId, MacroCallLoc, MacroId, ModuleId, UnresolvedMacro,
     db::DefDatabase,
     item_scope::BuiltinShadowMode,
     nameres::{LocalDefMap, path_resolution::ResolveMode},
@@ -68,8 +67,8 @@ impl DefMap {
             db,
             &ast_id,
             attr,
-            self.krate,
-            db.macro_def(def),
+            self.module_id(original_module),
+            def,
         )))
     }
 
@@ -107,8 +106,8 @@ pub(super) fn attr_macro_as_call_id(
     db: &dyn DefDatabase,
     item_attr: &AstIdWithPath<ast::Item>,
     macro_attr: &Attr,
-    krate: Crate,
-    def: MacroDefId,
+    container: ModuleId,
+    def: MacroId,
 ) -> MacroCallId {
     let arg = match macro_attr.input.as_deref() {
         Some(AttrInput::TokenTree(tt)) => {
@@ -120,16 +119,17 @@ pub(super) fn attr_macro_as_call_id(
         _ => None,
     };
 
-    def.make_call(
-        db,
-        krate,
-        MacroCallKind::Attr {
+    MacroCallLoc {
+        container,
+        def,
+        kind: MacroCallKind::Attr {
             ast_id: item_attr.ast_id,
             attr_args: arg.map(Arc::new),
             invoc_attr_index: macro_attr.id,
         },
-        macro_attr.ctxt,
-    )
+        ctxt: macro_attr.ctxt,
+    }
+    .intern(db)
 }
 
 pub(super) fn derive_macro_as_call_id(
@@ -138,23 +138,24 @@ pub(super) fn derive_macro_as_call_id(
     derive_attr_index: AttrId,
     derive_pos: u32,
     call_site: SyntaxContext,
-    krate: Crate,
-    resolver: impl Fn(&ModPath) -> Option<(MacroId, MacroDefId)>,
+    container: ModuleId,
+    resolver: impl Fn(&ModPath) -> Option<MacroId>,
     derive_macro_id: MacroCallId,
-) -> Result<(MacroId, MacroDefId, MacroCallId), UnresolvedMacro> {
-    let (macro_id, def_id) = resolver(&item_attr.path)
-        .filter(|(_, def_id)| def_id.is_derive())
+) -> Result<(MacroId, MacroCallId), UnresolvedMacro> {
+    let macro_id = resolver(&item_attr.path)
+        .filter(|macro_id| macro_id.is_derive(db))
         .ok_or_else(|| UnresolvedMacro { path: item_attr.path.as_ref().clone() })?;
-    let call_id = def_id.make_call(
-        db,
-        krate,
-        MacroCallKind::Derive {
+    let call_id = MacroCallLoc {
+        container,
+        def: macro_id,
+        kind: MacroCallKind::Derive {
             ast_id: item_attr.ast_id,
             derive_index: derive_pos,
             derive_attr_index,
             derive_macro_id,
         },
-        call_site,
-    );
-    Ok((macro_id, def_id, call_id))
+        ctxt: call_site,
+    }
+    .intern(db);
+    Ok((macro_id, call_id))
 }

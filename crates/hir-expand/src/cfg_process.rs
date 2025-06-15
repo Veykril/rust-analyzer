@@ -11,7 +11,7 @@ use syntax::{
 };
 use tracing::{debug, warn};
 
-use crate::{MacroCallLoc, MacroDefKind, db::ExpandDatabase, proc_macro::ProcMacroKind};
+use crate::{MacroExpander, db::ExpandDatabase, proc_macro::ProcMacroKind};
 
 fn check_cfg(db: &dyn ExpandDatabase, attr: &Attr, krate: Crate) -> Option<bool> {
     if !attr.simple_name().as_deref().map(|v| v == "cfg")? {
@@ -192,20 +192,21 @@ fn process_enum(
 pub(crate) fn process_cfg_attrs(
     db: &dyn ExpandDatabase,
     node: &SyntaxNode,
-    loc: &MacroCallLoc,
+    def: &MacroExpander,
+    call_crate: Crate,
 ) -> Option<FxHashSet<SyntaxElement>> {
     // FIXME: #[cfg_eval] is not implemented. But it is not stable yet
-    let is_derive = match loc.def.kind {
-        MacroDefKind::BuiltInDerive(..)
-        | MacroDefKind::ProcMacro(_, _, ProcMacroKind::CustomDerive) => true,
-        MacroDefKind::BuiltInAttr(_, expander) => expander.is_derive(),
+    let is_derive = match def {
+        MacroExpander::BuiltInDerive(..)
+        | MacroExpander::ProcMacro(_, ProcMacroKind::CustomDerive) => true,
+        MacroExpander::BuiltInAttr(expander) => expander.is_derive(),
         _ => false,
     };
     let mut remove = FxHashSet::default();
 
     let item = ast::Item::cast(node.clone())?;
     for attr in item.attrs() {
-        if let Some(enabled) = check_cfg_attr(db, &attr, loc.krate) {
+        if let Some(enabled) = check_cfg_attr(db, &attr, call_crate) {
             if enabled {
                 debug!("Removing cfg_attr tokens {:?}", attr);
                 let meta = attr.meta()?;
@@ -227,7 +228,7 @@ pub(crate) fn process_cfg_attrs(
                     process_has_attrs_with_possible_comma(
                         db,
                         fields.fields(),
-                        loc.krate,
+                        call_crate,
                         &mut remove,
                     )?;
                 }
@@ -235,19 +236,19 @@ pub(crate) fn process_cfg_attrs(
                     process_has_attrs_with_possible_comma(
                         db,
                         fields.fields(),
-                        loc.krate,
+                        call_crate,
                         &mut remove,
                     )?;
                 }
             },
             ast::Item::Enum(it) => {
-                process_enum(db, it.variant_list()?, loc.krate, &mut remove)?;
+                process_enum(db, it.variant_list()?, call_crate, &mut remove)?;
             }
             ast::Item::Union(it) => {
                 process_has_attrs_with_possible_comma(
                     db,
                     it.record_field_list()?.fields(),
-                    loc.krate,
+                    call_crate,
                     &mut remove,
                 )?;
             }

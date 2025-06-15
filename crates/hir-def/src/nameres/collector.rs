@@ -10,7 +10,7 @@ use cfg::{CfgAtom, CfgExpr, CfgOptions};
 use either::Either;
 use hir_expand::{
     EditionedFileId, ErasedAstId, ExpandTo, HirFileId, InFile, MacroCallId, MacroCallKind,
-    MacroDefId, MacroDefKind,
+    MacroExpander,
     attrs::{Attr, AttrId},
     builtin::{find_builtin_attr, find_builtin_derive, find_builtin_macro},
     mod_path::{ModPath, PathKind},
@@ -26,11 +26,12 @@ use syntax::ast;
 use triomphe::Arc;
 
 use crate::{
-    AdtId, AssocItemId, AstId, AstIdWithPath, ConstLoc, CrateRootModuleId, EnumLoc, ExternBlockLoc,
-    ExternCrateId, ExternCrateLoc, FunctionId, FunctionLoc, ImplLoc, Intern, ItemContainerId,
-    LocalModuleId, Lookup, Macro2Id, Macro2Loc, DeclMacroExpander, MacroId, MacroRulesId,
-    MacroRulesLoc, MacroRulesLocFlags, ModuleDefId, ModuleId, ProcMacroId, ProcMacroLoc, StaticLoc,
-    StructLoc, TraitAliasLoc, TraitLoc, TypeAliasLoc, UnionLoc, UnresolvedMacro, UseId, UseLoc,
+    AdtId, AssocItemId, AstId, AstIdWithPath, ConstLoc, CrateRootModuleId, DeclMacroExpander,
+    EnumLoc, ExternBlockLoc, ExternCrateId, ExternCrateLoc, FunctionId, FunctionLoc, HasModule,
+    ImplLoc, Intern, ItemContainerId, LocalModuleId, Lookup, Macro2Id, Macro2Loc, MacroId,
+    MacroRulesId, MacroRulesLoc, MacroRulesLocFlags, ModuleDefId, ModuleId, ProcMacroId,
+    ProcMacroLoc, StaticLoc, StructLoc, TraitAliasLoc, TraitLoc, TypeAliasLoc, UnionLoc,
+    UnresolvedMacro, UseId, UseLoc,
     attr::Attrs,
     db::DefDatabase,
     item_scope::{GlobId, ImportId, ImportOrExternCrate, PerNsGlobImports},
@@ -1279,9 +1280,8 @@ impl<'db> DefCollector<'db> {
                     BuiltinShadowMode::Module,
                     Some(subns),
                 );
-                resolved_res.resolved_def.take_macros().map(|it| (it, self.db.macro_def(it)))
+                resolved_res.resolved_def.take_macros()
             };
-            let resolver_def_id = |path: &_| resolver(path).map(|(_, it)| it);
 
             match &directive.kind {
                 MacroDirectiveKind::FnLike { ast_id, expand_to, ctxt: call_site } => {
@@ -1291,8 +1291,8 @@ impl<'db> DefCollector<'db> {
                         &ast_id.path,
                         *call_site,
                         *expand_to,
-                        self.def_map.krate,
-                        resolver_def_id,
+                        self.def_map.module_id(directive.module_id),
+                        resolver,
                         &mut |ptr, call_id| {
                             eager_callback_buffer.push((directive.module_id, ptr, call_id));
                         },
@@ -1324,12 +1324,12 @@ impl<'db> DefCollector<'db> {
                         *derive_attr,
                         *derive_pos as u32,
                         *call_site,
-                        self.def_map.krate,
+                        self.def_map.module_id(directive.module_id),
                         resolver,
                         *derive_macro_id,
                     );
 
-                    if let Ok((macro_id, def_id, call_id)) = id {
+                    if let Ok((macro_id, call_id)) = id {
                         self.def_map.modules[directive.module_id].scope.set_derive_macro_invoc(
                             ast_id.ast_id,
                             call_id,
@@ -1337,8 +1337,9 @@ impl<'db> DefCollector<'db> {
                             *derive_pos,
                         );
                         // Record its helper attributes.
-                        if def_id.krate != self.def_map.krate {
-                            let def_map = crate_def_map(self.db, def_id.krate);
+                        let krate = macro_id.krate(self.db);
+                        if krate != self.def_map.krate {
+                            let def_map = crate_def_map(self.db, krate);
                             if let Some(helpers) = def_map.data.exported_derives.get(&macro_id) {
                                 self.def_map
                                     .derive_helpers_in_scope
@@ -1398,8 +1399,8 @@ impl<'db> DefCollector<'db> {
                         }
                     }
 
-                    let def = match resolver_def_id(path) {
-                        Some(def) if def.is_attribute() => def,
+                    let def = match resolver(path) {
+                        Some(def) if def.is_attribute(self.db) => def,
                         _ => return Resolved::No,
                     };
 
@@ -1411,8 +1412,8 @@ impl<'db> DefCollector<'db> {
                     // not expanding them, so we have no way to do that.
                     // If you add an ignored attribute here, also add it to `Semantics::might_be_inside_macro_call()`.
                     if matches!(
-                        def.kind,
-                        MacroDefKind::BuiltInAttr(_, expander)
+                        def.expander(self.db),
+                        MacroExpander::BuiltInAttr( expander)
                         if expander.is_test() || expander.is_bench() || expander.is_test_case()
                     ) {
                         let test_is_active = self.cfg_options.check_atom(&CfgAtom::Flag(sym::test));
@@ -1422,10 +1423,17 @@ impl<'db> DefCollector<'db> {
                     }
 
                     let call_id = || {
-                        attr_macro_as_call_id(self.db, file_ast_id, attr, self.def_map.krate, def)
+                        attr_macro_as_call_id(
+                            self.db,
+                            file_ast_id,
+                            attr,
+                            self.def_map.module_id(directive.module_id),
+                            def,
+                        )
                     };
-                    if matches!(def,
-                        MacroDefId { kind: MacroDefKind::BuiltInAttr(_, exp), .. }
+                    if matches!(
+                        def.expander(self.db),
+                        MacroExpander::BuiltInAttr(exp)
                         if exp.is_derive()
                     ) {
                         // Resolved to `#[derive]`, we don't actually expand this attribute like
@@ -1495,12 +1503,12 @@ impl<'db> DefCollector<'db> {
                         return recollect_without(self);
                     }
 
-                    if let MacroDefKind::ProcMacro(_, exp, _) = def.kind {
+                    if let MacroExpander::ProcMacro(exp, _) = def.expander(self.db) {
                         // If there's no expander for the proc macro (e.g.
                         // because proc macros are disabled, or building the
                         // proc macro crate failed), report this and skip
                         // expansion like we would if it was disabled
-                        if let Some(err) = exp.as_expand_error(def.krate) {
+                        if let Some(err) = exp.as_expand_error(def.krate(self.db)) {
                             self.def_map.diagnostics.push(DefDiagnostic::macro_error(
                                 directive.module_id,
                                 ast_id,
@@ -1556,7 +1564,7 @@ impl<'db> DefCollector<'db> {
 
         let item_tree = self.db.file_item_tree(file_id);
 
-        let mod_dir = if macro_call_id.is_include_macro(self.db) {
+        let mod_dir = if macro_call_id.lookup(self.db).def.expander(self.db).is_include() {
             ModDir::root()
         } else {
             self.mod_dirs[&module_id].clone()
@@ -1587,7 +1595,7 @@ impl<'db> DefCollector<'db> {
                         &ast_id.path,
                         *call_site,
                         *expand_to,
-                        self.def_map.krate,
+                        self.def_map.module_id(directive.module_id),
                         |path| {
                             let resolved_res = self.def_map.resolve_path_fp_with_macro(
                                 self.crate_local_def_map.unwrap_or(&self.local_def_map),
@@ -1598,7 +1606,7 @@ impl<'db> DefCollector<'db> {
                                 BuiltinShadowMode::Module,
                                 Some(MacroSubNs::Bang),
                             );
-                            resolved_res.resolved_def.take_macros().map(|it| self.db.macro_def(it))
+                            resolved_res.resolved_def.take_macros()
                         },
                         &mut |_, _| (),
                     );
@@ -2326,7 +2334,11 @@ impl ModCollector<'_, '_> {
             }
         } else {
             // Case 2: normal `macro_rules!` macro
-            DeclMacroExpander::Declarative
+            DeclMacroExpander::Declarative(
+                self.def_collector
+                    .db
+                    .decl_macro_expander(self.def_collector.def_map.krate, f_ast_id),
+            )
         };
         let allow_internal_unsafe = attrs.by_key(sym::allow_internal_unsafe).exists();
 
@@ -2394,15 +2406,22 @@ impl ModCollector<'_, '_> {
             }
         } else {
             // Case 2: normal `macro`
-            DeclMacroExpander::Declarative
+            DeclMacroExpander::Declarative(
+                self.def_collector
+                    .db
+                    .decl_macro_expander(self.def_collector.def_map.krate, f_ast_id),
+            )
         };
         let allow_internal_unsafe = attrs.by_key(sym::allow_internal_unsafe).exists();
+
+        let mut flags = MacroRulesLocFlags::empty();
+        flags.set(MacroRulesLocFlags::ALLOW_INTERNAL_UNSAFE, allow_internal_unsafe);
 
         let macro_id = Macro2Loc {
             container: module,
             id: InFile::new(self.file_id(), ast_id),
             expander,
-            allow_internal_unsafe,
+            flags,
         }
         .intern(self.def_collector.db);
         self.def_collector.def_map.macro_def_to_macro_id.insert(f_ast_id.erase(), macro_id.into());
@@ -2443,7 +2462,7 @@ impl ModCollector<'_, '_> {
             &ast_id.path,
             ctxt,
             expand_to,
-            self.def_collector.def_map.krate,
+            container.module(db),
             |path| {
                 path.as_ident().and_then(|name| {
                     let def_map = &self.def_collector.def_map;
@@ -2459,7 +2478,6 @@ impl ModCollector<'_, '_> {
                                 Some(MacroSubNs::Bang),
                             )
                         })
-                        .map(|it| self.def_collector.db.macro_def(it))
                 })
             },
             &mut |ptr, call_id| eager_callback_buffer.push((ptr, call_id)),

@@ -6,13 +6,13 @@ use std::{
     mem,
 };
 
-use hir_expand::{Lookup, mod_path::PathKind};
+use hir_expand::mod_path::PathKind;
 use itertools::Itertools;
 use span::Edition;
 use syntax::ast::HasName;
 
 use crate::{
-    AdtId, DefWithBodyId, GenericDefId, TypeParamId, VariantId,
+    AdtId, DefWithBodyId, GenericDefId, Lookup, TypeParamId, VariantId,
     expr_store::path::{GenericArg, GenericArgs},
     hir::{
         Array, BindingAnnotation, CaptureBy, ClosureKind, Literal, Movability, Statement,

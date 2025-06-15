@@ -11,7 +11,7 @@ use base_db::FxIndexSet;
 use cfg::CfgOptions;
 use either::Either;
 use hir_expand::{
-    HirFileId, InFile, Intern, MacroDefId,
+    HirFileId, InFile,
     mod_path::tool_path,
     name::{AsName, Name},
     span_map::SpanMapRef,
@@ -32,8 +32,8 @@ use triomphe::Arc;
 use tt::TextRange;
 
 use crate::{
-    AdtId, BlockId, BlockLoc, DefWithBodyId, FunctionId, GenericDefId, ImplId, MacroId,
-    ModuleDefId, ModuleId, TraitAliasId, TraitId, TypeAliasId, UnresolvedMacro,
+    AdtId, BlockId, BlockLoc, DefWithBodyId, FunctionId, GenericDefId, ImplId, Intern, Lookup,
+    MacroId, ModuleDefId, ModuleId, TraitAliasId, TraitId, TypeAliasId, UnresolvedMacro,
     builtin_type::BuiltinUint,
     db::DefDatabase,
     expr_store::{
@@ -476,7 +476,7 @@ enum RibKind {
     Normal(Name, LabelId, HygieneId),
     Closure,
     Constant,
-    MacroDef(Box<MacroDefId>),
+    MacroDef(MacroId),
 }
 
 impl RibKind {
@@ -1965,7 +1965,7 @@ impl ExprCollector<'_> {
                 self.expander.enter_expand(
                     self.db,
                     mcall,
-                    self.module.krate(),
+                    self.module,
                     resolver,
                     &mut |ptr, call| {
                         _ = self.source_map.expansions.insert(ptr.map(|(it, _)| it), call);
@@ -2127,9 +2127,8 @@ impl ExprCollector<'_> {
             statements.push(Statement::Item(Item::Other));
             return;
         };
-        let macro_id = self.db.macro_def(macro_id);
-        statements.push(Statement::Item(Item::MacroDef(Box::new(macro_id))));
-        self.label_ribs.push(LabelRib::new(RibKind::MacroDef(Box::new(macro_id))));
+        statements.push(Statement::Item(Item::MacroDef(macro_id)));
+        self.label_ribs.push(LabelRib::new(RibKind::MacroDef(macro_id)));
     }
 
     fn collect_block(&mut self, block: ast::BlockExpr) -> ExprId {
@@ -2574,7 +2573,7 @@ impl ExprCollector<'_> {
             None
         } else {
             hygiene_id.lookup().outer_expn(self.db).map(|expansion| {
-                let expansion = self.db.lookup_intern_macro_call(expansion.into());
+                let expansion = expansion.lookup(self.db);
                 (hygiene_id.lookup().parent(self.db), expansion.def)
             })
         };
@@ -2596,7 +2595,7 @@ impl ExprCollector<'_> {
                 }
                 RibKind::MacroDef(macro_id) => {
                     if let Some((parent_ctx, label_macro_id)) = hygiene_info {
-                        if label_macro_id == **macro_id {
+                        if label_macro_id == *macro_id {
                             // A macro is allowed to refer to labels from before its declaration.
                             // Therefore, if we got to the rib of its declaration, give up its hygiene
                             // and use its parent expansion.
@@ -2604,7 +2603,7 @@ impl ExprCollector<'_> {
                             hygiene_id =
                                 HygieneId::new(parent_ctx.opaque_and_semitransparent(self.db));
                             hygiene_info = parent_ctx.outer_expn(self.db).map(|expansion| {
-                                let expansion = self.db.lookup_intern_macro_call(expansion.into());
+                                let expansion = expansion.lookup(self.db);
                                 (parent_ctx.parent(self.db), expansion.def)
                             });
                         }

@@ -485,7 +485,7 @@ impl<'db> SemanticsImpl<'db> {
 
         let skip = matches!(
             macro_call.def.kind,
-            hir_expand::MacroDefKind::BuiltIn(
+            hir_expand::MacroExpander::BuiltIn(
                 _,
                 BuiltinFnLikeExpander::Column
                     | BuiltinFnLikeExpander::File
@@ -498,7 +498,7 @@ impl<'db> SemanticsImpl<'db> {
                     | BuiltinFnLikeExpander::FormatArgs
                     | BuiltinFnLikeExpander::FormatArgsNl
                     | BuiltinFnLikeExpander::ConstFormatArgs,
-            ) | hir_expand::MacroDefKind::BuiltInEager(_, EagerExpander::CompileError)
+            ) | hir_expand::MacroExpander::BuiltInEager(_, EagerExpander::CompileError)
         );
         if skip {
             // these macros expand to custom builtin syntax and/or dummy things, no point in

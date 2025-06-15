@@ -2,13 +2,13 @@
 //! consts.
 use std::ops;
 
-use hir_expand::{InFile, Lookup};
+use hir_expand::InFile;
 use span::Edition;
 use syntax::ast;
 use triomphe::Arc;
 
 use crate::{
-    DefWithBodyId, HasModule,
+    DefWithBodyId, HasModule, Lookup,
     db::DefDatabase,
     expr_store::{
         ExpressionStore, ExpressionStoreSourceMap, SelfParamPtr, lower::lower_body, pretty,

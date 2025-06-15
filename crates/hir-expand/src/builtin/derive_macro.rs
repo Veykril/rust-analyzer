@@ -60,7 +60,7 @@ impl BuiltinDeriveExpander {
         tt: &tt::TopSubtree,
         span: Span,
     ) -> ExpandResult<tt::TopSubtree> {
-        let span = span_with_def_site_ctxt(db, span, id.into(), Edition::CURRENT);
+        let span = span_with_def_site_ctxt(db, span, id, Edition::CURRENT);
         self.expander()(db, span, tt)
     }
 }

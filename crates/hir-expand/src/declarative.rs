@@ -9,7 +9,7 @@ use syntax_bridge::DocCommentDesugarMode;
 use triomphe::Arc;
 
 use crate::{
-    AstId, ExpandError, ExpandErrorKind, ExpandResult, HirFileId, Lookup, MacroCallId,
+    AstId, ExpandError, ExpandErrorKind, ExpandResult, HirFileId, MacroCallId,
     attrs::RawAttrs,
     db::ExpandDatabase,
     hygiene::{Transparency, apply_mark},
@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Old-style `macro_rules` or the new macros 2.0
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct DeclarativeMacroExpander {
     pub mac: mbe::DeclarativeMacro,
     pub transparency: Transparency,
@@ -32,7 +32,6 @@ impl DeclarativeMacroExpander {
         call_id: MacroCallId,
         span: Span,
     ) -> ExpandResult<(tt::TopSubtree, Option<u32>)> {
-        let loc = db.lookup_intern_macro_call(call_id);
         match self.mac.err() {
             Some(_) => ExpandResult::new(
                 (tt::TopSubtree::empty(tt::DelimSpan { open: span, close: span }), None),
@@ -42,12 +41,9 @@ impl DeclarativeMacroExpander {
                 .mac
                 .expand(
                     &tt,
-                    |s| {
-                        s.ctx =
-                            apply_mark(db, s.ctx, call_id.into(), self.transparency, self.edition)
-                    },
+                    |s| s.ctx = apply_mark(db, s.ctx, call_id, self.transparency, self.edition),
                     span,
-                    loc.def.krate.data(db).edition,
+                    db.macro_call_def_crate(call_id).data(db).edition,
                 )
                 .map_err(Into::into),
         }
@@ -109,8 +105,7 @@ impl DeclarativeMacroExpander {
                 def_crate.data(db).edition
             } else {
                 // UNWRAP-SAFETY: Only the root context has no outer expansion
-                let krate =
-                    db.lookup_intern_macro_call(ctx.outer_expn(db).unwrap().into()).def.krate;
+                let krate = db.macro_call_def_crate(ctx.outer_expn(db).unwrap());
                 krate.data(db).edition
             }
         };
@@ -165,7 +160,7 @@ impl DeclarativeMacroExpander {
             ),
         };
         let edition = ctx_edition(match id.file_id {
-            HirFileId::MacroFile(macro_file) => macro_file.lookup(db).ctxt,
+            HirFileId::MacroFile(macro_file) => db.macro_call_ctx(macro_file),
             HirFileId::FileId(file) => SyntaxContext::root(file.edition(db)),
         });
         Arc::new(DeclarativeMacroExpander { mac, transparency, edition })

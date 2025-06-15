@@ -29,8 +29,7 @@ pub fn prettify_macro_expansion(
                     let macro_call_id = ctx
                         .outer_expn(db)
                         .expect("`$crate` cannot come from `SyntaxContextId::ROOT`");
-                    let macro_call = db.lookup_intern_macro_call(macro_call_id.into());
-                    let macro_def_crate = macro_call.def.krate;
+                    let macro_def_crate = db.macro_call_def_crate(macro_call_id);
                     // First, if this is the same crate as the macro, nothing will work but `crate`.
                     // If not, if the target trait has the macro's crate as a dependency, using the dependency name
                     // will work in inserted code and match the user's expectation.

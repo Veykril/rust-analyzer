@@ -18,7 +18,7 @@ pub mod type_ref;
 
 use std::fmt;
 
-use hir_expand::{MacroDefId, name::Name};
+use hir_expand::name::Name;
 use intern::Symbol;
 use la_arena::Idx;
 use rustc_apfloat::ieee::{Half as f16, Quad as f128};
@@ -26,7 +26,7 @@ use syntax::ast;
 use type_ref::TypeRefId;
 
 use crate::{
-    BlockId,
+    BlockId, MacroId,
     builtin_type::{BuiltinFloat, BuiltinInt, BuiltinUint},
     expr_store::{
         HygieneId,
@@ -503,7 +503,7 @@ pub enum Statement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
-    MacroDef(Box<MacroDefId>),
+    MacroDef(MacroId),
     Other,
 }
 

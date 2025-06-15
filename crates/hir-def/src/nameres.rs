@@ -76,8 +76,8 @@ use triomphe::Arc;
 use tt::TextRange;
 
 use crate::{
-    AstId, BlockId, BlockLoc, CrateRootModuleId, ExternCrateId, FunctionId, FxIndexMap,
-    LocalModuleId, Lookup, DeclMacroExpander, MacroId, ModuleId, ProcMacroId, UseId,
+    AstId, BlockId, BlockLoc, CrateRootModuleId, DeclMacroExpander, ExternCrateId, FunctionId,
+    FxIndexMap, LocalModuleId, Lookup, MacroId, ModuleId, ProcMacroId, UseId,
     db::DefDatabase,
     item_scope::{BuiltinShadowMode, ItemScope},
     item_tree::TreeId,
@@ -838,7 +838,7 @@ impl MacroSubNs {
 
         // Eager macros aren't *guaranteed* to be bang macros, but they *are* all bang macros currently.
         match expander {
-            DeclMacroExpander::Declarative
+            DeclMacroExpander::Declarative(_)
             | DeclMacroExpander::BuiltIn(_)
             | DeclMacroExpander::BuiltInEager(_) => Self::Bang,
             DeclMacroExpander::BuiltInAttr(_) | DeclMacroExpander::BuiltInDerive(_) => Self::Attr,

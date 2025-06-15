@@ -11,8 +11,8 @@ use triomphe::Arc;
 
 use crate::{
     AstId, BuiltinAttrExpander, BuiltinDeriveExpander, BuiltinFnLikeExpander, EagerCallInfo,
-    EagerExpander, EditionedFileId, ExpandError, ExpandResult, ExpandTo, HirFileId, MacroCallId,
-    MacroCallKind, MacroCallLoc, MacroDefId, MacroDefKind,
+    EagerExpander, EditionedFileId, ExpandError, ExpandResult, ExpandTo, HirFileId, InFile,
+    MacroCallId, MacroCallKind, MacroExpander,
     attrs::{AttrId, AttrInput, RawAttrs, collect_attrs},
     builtin::pseudo_derive_attr_expansion,
     cfg_process,
@@ -50,11 +50,22 @@ pub enum TokenExpander {
 }
 
 pub trait DepInjectDatabase {
+    fn macro_call_call_crate(&self, macro_call: MacroCallId) -> Crate;
     fn macro_call_def_crate(&self, macro_call: MacroCallId) -> Crate;
+    fn macro_call_def_file_id(&self, macro_call: MacroCallId) -> AstId<ast::Item>;
+    fn macro_call_kind(&self, macro_call: MacroCallId) -> MacroCallKind;
+    fn macro_call_expander(&self, macro_call: MacroCallId) -> MacroExpander;
+    fn proc_macro_call_expander(
+        &self,
+        macro_call: MacroCallId,
+    ) -> Option<(CustomProcMacroExpander, AstId<ast::Fn>)>;
+    fn macro_call_ctx(&self, macro_call: MacroCallId) -> SyntaxContext;
+    fn macro_call_local_inner(&self, macro_call: MacroCallId) -> bool;
+    fn to_node(&self, macro_call: MacroCallId) -> InFile<SyntaxNode>;
 }
 
 #[query_group::query_group]
-pub trait ExpandDatabase: RootQueryDb /*+ DepInjectDatabase */ {
+pub trait ExpandDatabase: RootQueryDb + DepInjectDatabase {
     /// The proc macros. Do not use this! Use `proc_macros_for_crate()` instead.
     #[salsa::input]
     fn proc_macros(&self) -> Arc<ProcMacros>;
@@ -87,9 +98,6 @@ pub trait ExpandDatabase: RootQueryDb /*+ DepInjectDatabase */ {
     #[salsa::invoke(crate::span_map::real_span_map)]
     fn real_span_map(&self, file_id: EditionedFileId) -> Arc<RealSpanMap>;
 
-    #[salsa::transparent]
-    fn lookup_intern_macro_call(&self, macro_call: MacroCallId) -> MacroCallLoc;
-
     /// Lowers syntactic macro call to a token tree representation. That's a firewall
     /// query, only typing in the macro call itself changes the returned
     /// subtree.
@@ -104,10 +112,10 @@ pub trait ExpandDatabase: RootQueryDb /*+ DepInjectDatabase */ {
         kind: &MacroCallKind,
     ) -> MacroArgResult;
 
-    /// Fetches the expander for this macro.
-    #[salsa::transparent]
-    #[salsa::invoke(TokenExpander::macro_expander)]
-    fn macro_expander(&self, id: MacroDefId) -> TokenExpander;
+    // /// Fetches the expander for this macro.
+    // #[salsa::transparent]
+    // #[salsa::invoke(TokenExpander::macro_expander)]
+    // fn macro_expander(&self, id: MacroDefId) -> TokenExpander;
 
     /// Fetches (and compiles) the expander of this decl macro.
     #[salsa::invoke(DeclarativeMacroExpander::expander)]
@@ -151,7 +159,7 @@ fn syntax_context(db: &dyn ExpandDatabase, file: HirFileId, edition: Edition) ->
     match file {
         HirFileId::FileId(_) => SyntaxContext::root(edition),
         HirFileId::MacroFile(m) => {
-            let kind = db.lookup_intern_macro_call(m).kind;
+            let kind = db.macro_call_kind(m);
             db.macro_arg_considering_derives(m, &kind).2.ctx
         }
     }
@@ -167,20 +175,24 @@ pub fn expand_speculative(
     speculative_args: &SyntaxNode,
     token_to_map: SyntaxToken,
 ) -> Option<(SyntaxNode, Vec<(SyntaxToken, u8)>)> {
-    let loc = db.lookup_intern_macro_call(actual_macro_call);
-    let (_, _, span) = db.macro_arg_considering_derives(actual_macro_call, &loc.kind);
+    let kind = db.macro_call_kind(actual_macro_call);
+    let def_kind = db.macro_call_expander(actual_macro_call);
+    let def = db.macro_call_expander(actual_macro_call);
+    let def_crate = db.macro_call_def_crate(actual_macro_call);
+    let call_crate = db.macro_call_call_crate(actual_macro_call);
+    let (_, _, span) = db.macro_arg_considering_derives(actual_macro_call, &kind);
 
     let span_map = RealSpanMap::absolute(span.anchor.file_id);
     let span_map = SpanMapRef::RealSpanMap(&span_map);
 
     // Build the subtree and token mapping for the speculative args
-    let (mut tt, undo_info) = match loc.kind {
+    let (mut tt, undo_info) = match kind {
         MacroCallKind::FnLike { .. } => (
             syntax_bridge::syntax_node_to_token_tree(
                 speculative_args,
                 span_map,
                 span,
-                if loc.def.is_proc_macro() {
+                if def.is_proc_macro() {
                     DocCommentDesugarMode::ProcMacro
                 } else {
                     DocCommentDesugarMode::Mbe
@@ -188,7 +200,7 @@ pub fn expand_speculative(
             ),
             SyntaxFixupUndoInfo::NONE,
         ),
-        MacroCallKind::Attr { .. } if loc.def.is_attribute_derive() => (
+        MacroCallKind::Attr { .. } if def.is_attribute_derive() => (
             syntax_bridge::syntax_node_to_token_tree(
                 speculative_args,
                 span_map,
@@ -199,7 +211,7 @@ pub fn expand_speculative(
         ),
         MacroCallKind::Derive { derive_attr_index: index, .. }
         | MacroCallKind::Attr { invoc_attr_index: index, .. } => {
-            let censor = if let MacroCallKind::Derive { .. } = loc.kind {
+            let censor = if let MacroCallKind::Derive { .. } = kind {
                 censor_derive_input(index, &ast::Adt::cast(speculative_args.clone())?)
             } else {
                 attr_source(index, &ast::Item::cast(speculative_args.clone())?)
@@ -208,8 +220,13 @@ pub fn expand_speculative(
                     .collect()
             };
 
-            let censor_cfg =
-                cfg_process::process_cfg_attrs(db, speculative_args, &loc).unwrap_or_default();
+            let censor_cfg = cfg_process::process_cfg_attrs(
+                db,
+                speculative_args,
+                &def,
+                db.macro_call_call_crate(actual_macro_call),
+            )
+            .unwrap_or_default();
             let mut fixups = fixup::fixup_syntax(
                 span_map,
                 speculative_args,
@@ -237,9 +254,9 @@ pub fn expand_speculative(
         }
     };
 
-    let attr_arg = match loc.kind {
+    let attr_arg = match kind {
         MacroCallKind::Attr { invoc_attr_index, .. } => {
-            if loc.def.is_attribute_derive() {
+            if def.is_attribute_derive() {
                 // for pseudo-derive expansion we actually pass the attribute itself only
                 ast::Attr::cast(speculative_args.clone()).and_then(|attr| attr.token_tree()).map(
                     |token_tree| {
@@ -257,7 +274,7 @@ pub fn expand_speculative(
                 // Attributes may have an input token tree, build the subtree and map for this as well
                 // then try finding a token id for our token if it is inside this input subtree.
                 let item = ast::Item::cast(speculative_args.clone())?;
-                let attrs = RawAttrs::new_expanded(db, &item, span_map, loc.krate.cfg_options(db));
+                let attrs = RawAttrs::new_expanded(db, &item, span_map, call_crate.cfg_options(db));
                 attrs.iter().find(|attr| attr.id == invoc_attr_index).and_then(|attr| {
                     match attr.input.as_deref()? {
                         AttrInput::TokenTree(tt) => {
@@ -276,63 +293,48 @@ pub fn expand_speculative(
 
     // Do the actual expansion, we need to directly expand the proc macro due to the attribute args
     // Otherwise the expand query will fetch the non speculative attribute args and pass those instead.
-    let mut speculative_expansion =
-        match loc.def.kind {
-            MacroDefKind::ProcMacro(ast, expander, _) => {
-                let span = db.proc_macro_span(ast);
-                *tt.top_subtree_delimiter_mut() = tt::Delimiter::invisible_spanned(span);
-                expander.expand(
-                    db,
-                    loc.def.krate,
-                    loc.krate,
-                    &tt,
-                    attr_arg.as_ref(),
-                    span_with_def_site_ctxt(
-                        db,
-                        span,
-                        actual_macro_call.into(),
-                        loc.def.krate.data(db).edition,
-                    ),
-                    span_with_call_site_ctxt(
-                        db,
-                        span,
-                        actual_macro_call.into(),
-                        loc.def.krate.data(db).edition,
-                    ),
-                    span_with_mixed_site_ctxt(
-                        db,
-                        span,
-                        actual_macro_call.into(),
-                        loc.def.krate.data(db).edition,
-                    ),
-                )
-            }
-            MacroDefKind::BuiltInAttr(_, it) if it.is_derive() => {
-                pseudo_derive_attr_expansion(&tt, attr_arg.as_ref()?, span)
-            }
-            MacroDefKind::Declarative(it) => db
-                .decl_macro_expander(loc.krate, it)
-                .expand_unhygienic(tt, span, loc.def.krate.data(db).edition),
-            MacroDefKind::BuiltIn(_, it) => {
-                it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
-            }
-            MacroDefKind::BuiltInDerive(_, it) => {
-                it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
-            }
-            MacroDefKind::BuiltInEager(_, it) => {
-                it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
-            }
-            MacroDefKind::BuiltInAttr(_, it) => it.expand(db, actual_macro_call, &tt, span),
-        };
+    let mut speculative_expansion = match def_kind {
+        MacroExpander::ProcMacro(expander, _) => {
+            let span =
+                db.proc_macro_span(db.proc_macro_call_expander(actual_macro_call).unwrap().1);
+            *tt.top_subtree_delimiter_mut() = tt::Delimiter::invisible_spanned(span);
+            expander.expand(
+                db,
+                def_crate,
+                call_crate,
+                &tt,
+                attr_arg.as_ref(),
+                span_with_def_site_ctxt(db, span, actual_macro_call, def_crate.data(db).edition),
+                span_with_call_site_ctxt(db, span, actual_macro_call, call_crate.data(db).edition),
+                span_with_mixed_site_ctxt(db, span, actual_macro_call, def_crate.data(db).edition),
+            )
+        }
+        MacroExpander::BuiltInAttr(it) if it.is_derive() => {
+            pseudo_derive_attr_expansion(&tt, attr_arg.as_ref()?, span)
+        }
+        MacroExpander::Declarative(it) => {
+            it.expand_unhygienic(tt, span, def_crate.data(db).edition)
+        }
+        MacroExpander::BuiltIn(it) => {
+            it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
+        }
+        MacroExpander::BuiltInDerive(it) => {
+            it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
+        }
+        MacroExpander::BuiltInEager(it) => {
+            it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
+        }
+        MacroExpander::BuiltInAttr(it) => it.expand(db, actual_macro_call, &tt, span),
+    };
 
-    let expand_to = loc.expand_to();
+    let expand_to = kind.expand_to();
 
     fixup::reverse_fixups(&mut speculative_expansion.value, &undo_info);
     let (node, rev_tmap) = token_tree_to_syntax_node(
         db,
         &speculative_expansion.value,
         expand_to,
-        loc.def.krate.data(db).edition,
+        def_crate.data(db).edition,
     );
 
     let syntax_node = node.syntax_node();
@@ -374,10 +376,13 @@ fn parse_macro_expansion(
     macro_file: MacroCallId,
 ) -> ExpandResult<(Parse<SyntaxNode>, Arc<ExpansionSpanMap>)> {
     let _p = tracing::info_span!("parse_macro_expansion").entered();
-    let loc = db.lookup_intern_macro_call(macro_file);
-    let def_edition = loc.def.krate.data(db).edition;
-    let expand_to = loc.expand_to();
-    let mbe::ValueResult { value: (tt, matched_arm), err } = macro_expand(db, macro_file, loc);
+    let def_crate = db.macro_call_def_crate(macro_file);
+    let def_edition = def_crate.data(db).edition;
+    let call_kind = db.macro_call_kind(macro_file);
+    let expand_to = call_kind.expand_to();
+    let def_kind = db.macro_call_expander(macro_file);
+    let mbe::ValueResult { value: (tt, matched_arm), err } =
+        macro_expand(db, macro_file, &def_kind, &call_kind);
 
     let (parse, mut rev_token_map) = token_tree_to_syntax_node(
         db,
@@ -436,21 +441,19 @@ fn macro_arg_considering_derives(
 }
 
 fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
-    let loc = db.lookup_intern_macro_call(id);
+    let def_kind = db.macro_call_expander(id);
+    let call_kind = db.macro_call_kind(id);
 
-    if let MacroCallLoc {
-        def: MacroDefId { kind: MacroDefKind::BuiltInEager(..), .. },
-        kind: MacroCallKind::FnLike { eager: Some(eager), .. },
-        ..
-    } = &loc
+    if let (MacroExpander::BuiltInEager(..), MacroCallKind::FnLike { eager: Some(eager), .. }) =
+        (&def_kind, &call_kind)
     {
         return (eager.arg.clone(), SyntaxFixupUndoInfo::NONE, eager.span);
     }
 
-    let (parse, map) = parse_with_map(db, loc.kind.file_id());
+    let (parse, map) = parse_with_map(db, call_kind.file_id());
     let root = parse.syntax_node();
 
-    let (censor, item_node, span) = match loc.kind {
+    let (censor, item_node, span) = match call_kind {
         MacroCallKind::FnLike { ast_id, .. } => {
             let node = &ast_id.to_ptr(db).to_node(&root);
             let path_range = node
@@ -489,7 +492,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
                 cov_mark::hit!(issue9358_bad_macro_stack_overflow);
 
                 let kind = match first {
-                    _ if loc.def.is_proc_macro() => tt::DelimiterKind::Invisible,
+                    _ if def_kind.is_proc_macro() => tt::DelimiterKind::Invisible,
                     T!['('] => tt::DelimiterKind::Parenthesis,
                     T!['['] => tt::DelimiterKind::Bracket,
                     T!['{'] => tt::DelimiterKind::Brace,
@@ -502,13 +505,13 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
                 tt.syntax(),
                 map.as_ref(),
                 span,
-                if loc.def.is_proc_macro() {
+                if def_kind.is_proc_macro() {
                     DocCommentDesugarMode::ProcMacro
                 } else {
                     DocCommentDesugarMode::Mbe
                 },
             );
-            if loc.def.is_proc_macro() {
+            if def_kind.is_proc_macro() {
                 // proc macros expect their inputs without parentheses, MBEs expect it with them included
                 tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Invisible;
             }
@@ -529,7 +532,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
                     .map_or_else(|| node.syntax().text_range(), |it| it.syntax().text_range()),
             );
             // If derive attribute we need to censor the derive input
-            if matches!(loc.def.kind, MacroDefKind::BuiltInAttr(_, expander) if expander.is_derive())
+            if matches!(def_kind, MacroExpander::BuiltInAttr(expander) if expander.is_derive())
                 && ast::Adt::can_cast(node.syntax().kind())
             {
                 let adt = ast::Adt::cast(node.syntax().clone()).unwrap();
@@ -543,7 +546,9 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
 
     let (mut tt, undo_info) = {
         let syntax = item_node.syntax();
-        let censor_cfg = cfg_process::process_cfg_attrs(db, syntax, &loc).unwrap_or_default();
+        let censor_cfg =
+            cfg_process::process_cfg_attrs(db, syntax, &def_kind, db.macro_call_call_crate(id))
+                .unwrap_or_default();
         let mut fixups =
             fixup::fixup_syntax(map.as_ref(), syntax, span, DocCommentDesugarMode::ProcMacro);
         fixups.append.retain(|it, _| match it {
@@ -566,7 +571,7 @@ fn macro_arg(db: &dyn ExpandDatabase, id: MacroCallId) -> MacroArgResult {
         )
     };
 
-    if loc.def.is_proc_macro() {
+    if def_kind.is_proc_macro() {
         // proc macros expect their inputs without parentheses, MBEs expect it with them included
         tt.top_subtree_delimiter_mut().kind = tt::DelimiterKind::Invisible;
     }
@@ -599,20 +604,20 @@ fn attr_source(invoc_attr_index: AttrId, node: &ast::Item) -> Option<ast::Attr> 
     collect_attrs(node).nth(invoc_attr_index.ast_index()).and_then(|(_, attr)| Either::left(attr))
 }
 
-impl TokenExpander {
-    fn macro_expander(db: &dyn ExpandDatabase, id: MacroDefId) -> TokenExpander {
-        match id.kind {
-            MacroDefKind::Declarative(ast_id) => {
-                TokenExpander::DeclarativeMacro(db.decl_macro_expander(id.krate, ast_id))
-            }
-            MacroDefKind::BuiltIn(_, expander) => TokenExpander::BuiltIn(expander),
-            MacroDefKind::BuiltInAttr(_, expander) => TokenExpander::BuiltInAttr(expander),
-            MacroDefKind::BuiltInDerive(_, expander) => TokenExpander::BuiltInDerive(expander),
-            MacroDefKind::BuiltInEager(_, expander) => TokenExpander::BuiltInEager(expander),
-            MacroDefKind::ProcMacro(_, expander, _) => TokenExpander::ProcMacro(expander),
-        }
-    }
-}
+// impl TokenExpander {
+//     fn macro_expander(db: &dyn ExpandDatabase, id: MacroDefId) -> TokenExpander {
+//         match id.kind {
+//             MacroDefKind::Declarative(ast_id) => {
+//                 TokenExpander::DeclarativeMacro(db.decl_macro_expander(id.krate, ast_id))
+//             }
+//             MacroDefKind::BuiltIn(_, expander) => TokenExpander::BuiltIn(expander),
+//             MacroDefKind::BuiltInAttr(_, expander) => TokenExpander::BuiltInAttr(expander),
+//             MacroDefKind::BuiltInDerive(_, expander) => TokenExpander::BuiltInDerive(expander),
+//             MacroDefKind::BuiltInEager(_, expander) => TokenExpander::BuiltInEager(expander),
+//             MacroDefKind::ProcMacro(_, expander, _) => TokenExpander::ProcMacro(expander),
+//         }
+//     }
+// }
 
 enum CowArc<T> {
     Arc(Arc<T>),
@@ -622,67 +627,64 @@ enum CowArc<T> {
 fn macro_expand(
     db: &dyn ExpandDatabase,
     macro_call_id: MacroCallId,
-    loc: MacroCallLoc,
+    def_kind: &MacroExpander,
+    kind: &MacroCallKind,
 ) -> ExpandResult<(CowArc<tt::TopSubtree>, MatchedArmIndex)> {
     let _p = tracing::info_span!("macro_expand").entered();
 
-    let (ExpandResult { value: (tt, matched_arm), err }, span) = match loc.def.kind {
-        MacroDefKind::ProcMacro(..) => {
+    let (ExpandResult { value: (tt, matched_arm), err }, span) = match def_kind {
+        MacroExpander::ProcMacro(..) => {
             return db.expand_proc_macro(macro_call_id).map(CowArc::Arc).zip_val(None);
         }
         _ => {
             let (macro_arg, undo_info, span) =
-                db.macro_arg_considering_derives(macro_call_id, &loc.kind);
+                db.macro_arg_considering_derives(macro_call_id, kind);
 
             let arg = &*macro_arg;
-            let res =
-                match loc.def.kind {
-                    MacroDefKind::Declarative(id) => db
-                        .decl_macro_expander(loc.def.krate, id)
-                        .expand(db, arg.clone(), macro_call_id, span),
-                    MacroDefKind::BuiltIn(_, it) => {
-                        it.expand(db, macro_call_id, arg, span).map_err(Into::into).zip_val(None)
-                    }
-                    MacroDefKind::BuiltInDerive(_, it) => {
-                        it.expand(db, macro_call_id, arg, span).map_err(Into::into).zip_val(None)
-                    }
-                    MacroDefKind::BuiltInEager(_, it) => {
-                        // This might look a bit odd, but we do not expand the inputs to eager macros here.
-                        // Eager macros inputs are expanded, well, eagerly when we collect the macro calls.
-                        // That kind of expansion uses the ast id map of an eager macros input though which goes through
-                        // the HirFileId machinery. As eager macro inputs are assigned a macro file id that query
-                        // will end up going through here again, whereas we want to just want to inspect the raw input.
-                        // As such we just return the input subtree here.
-                        let eager = match &loc.kind {
-                            MacroCallKind::FnLike { eager: None, .. } => {
-                                return ExpandResult::ok(CowArc::Arc(macro_arg.clone()))
-                                    .zip_val(None);
-                            }
-                            MacroCallKind::FnLike { eager: Some(eager), .. } => Some(&**eager),
-                            _ => None,
-                        };
-
-                        let mut res = it.expand(db, macro_call_id, arg, span).map_err(Into::into);
-
-                        if let Some(EagerCallInfo { error, .. }) = eager {
-                            // FIXME: We should report both errors!
-                            res.err = error.clone().or(res.err);
+            let res = match def_kind {
+                MacroExpander::Declarative(id) => id.expand(db, arg.clone(), macro_call_id, span),
+                MacroExpander::BuiltIn(it) => {
+                    it.expand(db, macro_call_id, arg, span).map_err(Into::into).zip_val(None)
+                }
+                MacroExpander::BuiltInDerive(it) => {
+                    it.expand(db, macro_call_id, arg, span).map_err(Into::into).zip_val(None)
+                }
+                MacroExpander::BuiltInEager(it) => {
+                    // This might look a bit odd, but we do not expand the inputs to eager macros here.
+                    // Eager macros inputs are expanded, well, eagerly when we collect the macro calls.
+                    // That kind of expansion uses the ast id map of an eager macros input though which goes through
+                    // the HirFileId machinery. As eager macro inputs are assigned a macro file id that query
+                    // will end up going through here again, whereas we want to just want to inspect the raw input.
+                    // As such we just return the input subtree here.
+                    let eager = match &kind {
+                        MacroCallKind::FnLike { eager: None, .. } => {
+                            return ExpandResult::ok(CowArc::Arc(macro_arg.clone())).zip_val(None);
                         }
-                        res.zip_val(None)
+                        MacroCallKind::FnLike { eager: Some(eager), .. } => Some(&**eager),
+                        _ => None,
+                    };
+
+                    let mut res = it.expand(db, macro_call_id, arg, span).map_err(Into::into);
+
+                    if let Some(EagerCallInfo { error, .. }) = eager {
+                        // FIXME: We should report both errors!
+                        res.err = error.clone().or(res.err);
                     }
-                    MacroDefKind::BuiltInAttr(_, it) => {
-                        let mut res = it.expand(db, macro_call_id, arg, span);
-                        fixup::reverse_fixups(&mut res.value, &undo_info);
-                        res.zip_val(None)
-                    }
-                    MacroDefKind::ProcMacro(_, _, _) => unreachable!(),
-                };
+                    res.zip_val(None)
+                }
+                MacroExpander::BuiltInAttr(it) => {
+                    let mut res = it.expand(db, macro_call_id, arg, span);
+                    fixup::reverse_fixups(&mut res.value, &undo_info);
+                    res.zip_val(None)
+                }
+                MacroExpander::ProcMacro(_, _) => unreachable!(),
+            };
             (ExpandResult { value: res.value, err: res.err }, span)
         }
     };
 
     // Skip checking token tree limit for include! macro call
-    if !loc.def.is_include() {
+    if !def_kind.is_include() {
         // Set a hard limit for the expanded tt
         if let Err(value) = check_tt_count(&tt) {
             return value
@@ -709,30 +711,28 @@ fn expand_proc_macro(
     db: &dyn ExpandDatabase,
     id: MacroCallId,
 ) -> ExpandResult<Arc<tt::TopSubtree>> {
-    let loc = db.lookup_intern_macro_call(id);
-    let (macro_arg, undo_info, span) = db.macro_arg_considering_derives(id, &loc.kind);
+    let kind = db.macro_call_kind(id);
+    let (expander, ast_id) = db.proc_macro_call_expander(id).unwrap();
+    let def_crate = db.macro_call_def_crate(id);
+    let call_crate = db.macro_call_call_crate(id);
+    let (macro_arg, undo_info, span) = db.macro_arg_considering_derives(id, &kind);
 
-    let (ast, expander) = match loc.def.kind {
-        MacroDefKind::ProcMacro(ast, expander, _) => (ast, expander),
-        _ => unreachable!(),
-    };
-
-    let attr_arg = match &loc.kind {
+    let attr_arg = match &kind {
         MacroCallKind::Attr { attr_args: Some(attr_args), .. } => Some(&**attr_args),
         _ => None,
     };
 
     let ExpandResult { value: mut tt, err } = {
-        let span = db.proc_macro_span(ast);
+        let span = db.proc_macro_span(ast_id);
         expander.expand(
             db,
-            loc.def.krate,
-            loc.krate,
+            def_crate,
+            call_crate,
             &macro_arg,
             attr_arg,
-            span_with_def_site_ctxt(db, span, id.into(), loc.def.krate.data(db).edition),
-            span_with_call_site_ctxt(db, span, id.into(), loc.def.krate.data(db).edition),
-            span_with_mixed_site_ctxt(db, span, id.into(), loc.def.krate.data(db).edition),
+            span_with_def_site_ctxt(db, span, id, def_crate.data(db).edition),
+            span_with_call_site_ctxt(db, span, id, def_crate.data(db).edition),
+            span_with_mixed_site_ctxt(db, span, id, def_crate.data(db).edition),
         )
     };
 
@@ -778,8 +778,4 @@ fn check_tt_count(tt: &tt::TopSubtree) -> Result<(), ExpandResult<()>> {
             )),
         })
     }
-}
-
-fn lookup_intern_macro_call(db: &dyn ExpandDatabase, macro_call: MacroCallId) -> MacroCallLoc {
-    macro_call.loc(db)
 }

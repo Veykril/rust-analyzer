@@ -17,7 +17,7 @@ use syntax::{
 use syntax_bridge::syntax_node_to_token_tree;
 
 use crate::{
-    EditionedFileId, ExpandError, ExpandResult, Lookup as _, MacroCallId,
+    EditionedFileId, ExpandError, ExpandResult, MacroCallId,
     builtin::quote::{WithDelimiter, dollar_crate, quote},
     db::ExpandDatabase,
     hygiene::{span_with_call_site_ctxt, span_with_def_site_ctxt},
@@ -72,7 +72,7 @@ impl BuiltinFnLikeExpander {
         tt: &tt::TopSubtree,
         span: Span,
     ) -> ExpandResult<tt::TopSubtree> {
-        let span = span_with_def_site_ctxt(db, span, id.into(), Edition::CURRENT);
+        let span = span_with_def_site_ctxt(db, span, id, Edition::CURRENT);
         self.expander()(db, id, tt, span)
     }
 
@@ -89,7 +89,7 @@ impl EagerExpander {
         tt: &tt::TopSubtree,
         span: Span,
     ) -> ExpandResult<tt::TopSubtree> {
-        let span = span_with_def_site_ctxt(db, span, id.into(), Edition::CURRENT);
+        let span = span_with_def_site_ctxt(db, span, id, Edition::CURRENT);
         self.expander()(db, id, tt, span)
     }
 
@@ -223,14 +223,14 @@ fn assert_expand(
     tt: &tt::TopSubtree,
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
-    let call_site_span = span_with_call_site_ctxt(db, span, id.into(), Edition::CURRENT);
+    let call_site_span = span_with_call_site_ctxt(db, span, id, Edition::CURRENT);
 
     let mut iter = tt.iter();
 
     let cond = expect_fragment(
         &mut iter,
         parser::PrefixEntryPoint::Expr,
-        id.lookup(db).krate.data(db).edition,
+        db.macro_call_def_crate(id).data(db).edition,
         tt.top_subtree().delimiter.delim_span(),
     );
     _ = iter.expect_char(',');
@@ -330,9 +330,8 @@ fn cfg_expand(
     tt: &tt::TopSubtree,
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
-    let loc = db.lookup_intern_macro_call(id);
     let expr = CfgExpr::parse(tt);
-    let enabled = loc.krate.cfg_options(db).check(&expr) != Some(false);
+    let enabled = db.macro_call_def_crate(id).cfg_options(db).check(&expr) != Some(false);
     let expanded = if enabled { quote!(span=>true) } else { quote!(span=>false) };
     ExpandResult::ok(expanded)
 }
@@ -344,7 +343,7 @@ fn panic_expand(
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
     let dollar_crate = dollar_crate(span);
-    let call_site_span = span_with_call_site_ctxt(db, span, id.into(), Edition::CURRENT);
+    let call_site_span = span_with_call_site_ctxt(db, span, id, Edition::CURRENT);
 
     let mac = if use_panic_2021(db, call_site_span) { sym::panic_2021 } else { sym::panic_2015 };
 
@@ -371,7 +370,7 @@ fn unreachable_expand(
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
     let dollar_crate = dollar_crate(span);
-    let call_site_span = span_with_call_site_ctxt(db, span, id.into(), Edition::CURRENT);
+    let call_site_span = span_with_call_site_ctxt(db, span, id, Edition::CURRENT);
 
     let mac = if use_panic_2021(db, call_site_span) {
         sym::unreachable_2021
@@ -402,7 +401,6 @@ fn use_panic_2021(db: &dyn ExpandDatabase, span: Span) -> bool {
         let Some(expn) = span.ctx.outer_expn(db) else {
             break false;
         };
-        let expn = db.lookup_intern_macro_call(expn.into());
         // FIXME: Record allow_internal_unstable in the macro def (not been done yet because it
         // would consume quite a bit extra memory for all call locs...)
         // if let Some(features) = expn.def.allow_internal_unstable {
@@ -411,7 +409,7 @@ fn use_panic_2021(db: &dyn ExpandDatabase, span: Span) -> bool {
         //         continue;
         //     }
         // }
-        break expn.def.krate.data(db).edition >= Edition::Edition2021;
+        break db.macro_call_def_crate(expn).data(db).edition >= Edition::Edition2021;
     }
 }
 
@@ -666,8 +664,8 @@ fn relative_file(
     allow_recursion: bool,
     err_span: Span,
 ) -> Result<EditionedFileId, ExpandError> {
-    let lookup = db.lookup_intern_macro_call(call_id);
-    let call_site = lookup.kind.file_id().original_file_respecting_includes(db).file_id(db);
+    let call_site =
+        db.macro_call_kind(call_id).file_id().original_file_respecting_includes(db).file_id(db);
     let path = AnchoredPath { anchor: call_site, path: path_str };
     let res: FileId = db
         .resolve_path(path)
@@ -676,7 +674,7 @@ fn relative_file(
     if res == call_site && !allow_recursion {
         Err(ExpandError::other(err_span, format!("recursive inclusion of `{path_str}`")))
     } else {
-        Ok(EditionedFileId::new(db, res, lookup.krate.data(db).edition))
+        Ok(EditionedFileId::new(db, res, db.macro_call_def_crate(call_id).data(db).edition))
     }
 }
 
@@ -816,7 +814,7 @@ fn include_str_expand(
 }
 
 fn get_env_inner(db: &dyn ExpandDatabase, arg_id: MacroCallId, key: &Symbol) -> Option<String> {
-    let krate = db.lookup_intern_macro_call(arg_id).krate;
+    let krate = db.macro_call_def_crate(arg_id);
     krate.env(db).get(key.as_str())
 }
 

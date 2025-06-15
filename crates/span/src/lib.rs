@@ -202,7 +202,45 @@ pub struct HirFileId(pub salsa::Id);
 /// `MacroCallId` identifies a particular macro invocation, like
 /// `println!("Hello, {}", world)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[doc(alias = "MacroFileId")]
 pub struct MacroCallId(pub salsa::Id);
+
+#[cfg(feature = "salsa")]
+impl salsa::plumbing::AsId for MacroCallId {
+    fn as_id(&self) -> salsa::Id {
+        self.0
+    }
+}
+
+#[cfg(feature = "salsa")]
+impl salsa::plumbing::FromId for MacroCallId {
+    fn from_id(id: salsa::Id) -> Self {
+        Self(id)
+    }
+}
+
+#[cfg(feature = "salsa")]
+impl salsa::plumbing::SalsaStructInDb for MacroCallId {
+    type MemoIngredientMap = salsa::plumbing::MemoIngredientSingletonIndex;
+
+    fn lookup_or_create_ingredient_index(
+        zalsa: &salsa::plumbing::Zalsa,
+    ) -> salsa::plumbing::IngredientIndices {
+        unsafe extern "Rust" {
+            safe fn inject_macro_call_loc(zalsa: &salsa::plumbing::Zalsa)
+            -> salsa::IngredientIndex;
+        }
+        inject_macro_call_loc(zalsa).into()
+    }
+
+    fn cast(id: salsa::Id, type_id: std::any::TypeId) -> Option<Self> {
+        if type_id == std::any::TypeId::of::<MacroCallId>() {
+            Some(<MacroCallId as salsa::plumbing::FromId>::from_id(id))
+        } else {
+            None
+        }
+    }
+}
 
 /// Legacy span type, only defined here as it is still used by the proc-macro server.
 /// While rust-analyzer doesn't use this anymore at all, RustRover relies on the legacy type for

@@ -3,14 +3,14 @@
 use std::iter;
 
 use base_db::Crate;
-use hir_expand::{InFile, Lookup};
+use hir_expand::InFile;
 use la_arena::ArenaMap;
 use syntax::ast::{self, HasVisibility};
 use triomphe::Arc;
 
 use crate::{
-    AssocItemId, HasModule, ItemContainerId, LocalFieldId, LocalModuleId, ModuleId, TraitId,
-    VariantId, db::DefDatabase, nameres::DefMap, resolver::HasResolver, src::HasSource,
+    AssocItemId, HasModule, ItemContainerId, LocalFieldId, LocalModuleId, Lookup, ModuleId,
+    TraitId, VariantId, db::DefDatabase, nameres::DefMap, resolver::HasResolver, src::HasSource,
 };
 
 pub use crate::item_tree::{RawVisibility, VisibilityExplicitness};

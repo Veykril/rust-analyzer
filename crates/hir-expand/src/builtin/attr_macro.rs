@@ -121,9 +121,10 @@ fn derive_expand(
     tt: &tt::TopSubtree,
     span: Span,
 ) -> ExpandResult<tt::TopSubtree> {
-    let loc = db.lookup_intern_macro_call(id);
-    let derives = match &loc.kind {
-        MacroCallKind::Attr { attr_args: Some(attr_args), .. } if loc.def.is_attribute_derive() => {
+    let derives = match db.macro_call_kind(id) {
+        MacroCallKind::Attr { attr_args: Some(attr_args), .. }
+            if db.macro_call_expander(id).is_attribute_derive() =>
+        {
             attr_args
         }
         _ => {
@@ -133,7 +134,7 @@ fn derive_expand(
             }));
         }
     };
-    pseudo_derive_attr_expansion(tt, derives, span)
+    pseudo_derive_attr_expansion(tt, &derives, span)
 }
 
 pub fn pseudo_derive_attr_expansion(

@@ -5,7 +5,7 @@ use std::ops::Not as _;
 use bitflags::bitflags;
 use cfg::{CfgExpr, CfgOptions};
 use hir_expand::{
-    InFile, Intern, Lookup,
+    InFile,
     name::{AsName, Name},
 };
 use intern::{Symbol, sym};
@@ -20,8 +20,8 @@ use triomphe::Arc;
 
 use crate::{
     ConstId, EnumId, EnumVariantId, EnumVariantLoc, ExternBlockId, FunctionId, HasModule, ImplId,
-    ItemContainerId, ModuleId, StaticId, StructId, TraitAliasId, TraitId, TypeAliasId, UnionId,
-    VariantId,
+    Intern, ItemContainerId, Lookup, ModuleId, StaticId, StructId, TraitAliasId, TraitId,
+    TypeAliasId, UnionId, VariantId,
     attr::Attrs,
     db::DefDatabase,
     expr_store::{

@@ -33,7 +33,7 @@ use crate::parser::{MetaTemplate, MetaVarKind, Op};
 
 pub use tt::{Delimiter, DelimiterKind, Punct};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ParseError {
     UnexpectedToken(Box<str>),
     Expected(Box<str>),
@@ -129,13 +129,13 @@ pub type MatchedArmIndex = Option<u32>;
 /// be very confusing is that AST has almost exactly the same shape as
 /// `tt::TokenTree`, but there's a crucial difference: in macro rules, `$ident`
 /// and `$()*` have special meaning (see `Var` and `Repeat` data structures)
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeclarativeMacro {
     rules: Box<[Rule]>,
     err: Option<Box<ParseError>>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct Rule {
     lhs: MetaTemplate,
     rhs: MetaTemplate,

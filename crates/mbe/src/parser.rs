@@ -26,7 +26,7 @@ use crate::ParseError;
 ///
 /// Stuff to the right is a [`MetaTemplate`] template which is used to produce
 /// output.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MetaTemplate(pub(crate) Box<[Op]>);
 
 impl MetaTemplate {
@@ -63,7 +63,7 @@ impl MetaTemplate {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum Op {
     Var {
         name: Symbol,
@@ -103,7 +103,7 @@ pub(crate) enum Op {
     Ident(tt::Ident<Span>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ConcatMetaVarExprElem {
     /// There is NO preceding dollar sign, which means that this identifier should be interpreted
     /// as a literal.
@@ -115,14 +115,14 @@ pub(crate) enum ConcatMetaVarExprElem {
     Literal(tt::Literal<Span>),
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum RepeatKind {
     ZeroOrMore,
     OneOrMore,
     ZeroOrOne,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ExprKind {
     // Matches expressions using the post-edition 2024. Was written using
     // `expr` in edition 2024 or later.
@@ -132,7 +132,7 @@ pub(crate) enum ExprKind {
     Expr2021,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MetaVarKind {
     Path,
     Ty,
@@ -155,6 +155,22 @@ pub(crate) enum Separator {
     Literal(tt::Literal<Span>),
     Ident(tt::Ident<Span>),
     Puncts(ArrayVec<tt::Punct<Span>, MAX_GLUED_PUNCT_LEN>),
+}
+
+impl std::hash::Hash for Separator {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        use Separator::*;
+
+        match self {
+            Ident(ident) => ident.sym.hash(state),
+            Literal(lit) => lit.symbol.hash(state),
+            Puncts(puncts) => {
+                for punct in puncts.iter() {
+                    punct.char.hash(state);
+                }
+            }
+        }
+    }
 }
 
 // Note that when we compare a Separator, we just care about its textual value.

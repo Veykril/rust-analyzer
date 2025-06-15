@@ -4,7 +4,6 @@ use std::{cell::Cell, cmp::Ordering, iter};
 
 use base_db::{Crate, CrateOrigin, LangCrateOrigin};
 use hir_expand::{
-    Lookup,
     mod_path::{ModPath, PathKind},
     name::{AsName, Name},
 };
@@ -12,7 +11,7 @@ use intern::sym;
 use rustc_hash::FxHashSet;
 
 use crate::{
-    ImportPathConfig, ModuleDefId, ModuleId,
+    ImportPathConfig, Lookup, ModuleDefId, ModuleId,
     db::DefDatabase,
     item_scope::ItemInNs,
     nameres::DefMap,
