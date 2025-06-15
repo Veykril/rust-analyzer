@@ -332,9 +332,8 @@ impl_loc!(EnumVariantLoc, id: Variant, parent: EnumId);
 pub struct Macro2Loc {
     pub container: ModuleId,
     pub id: AstId<ast::MacroDef>,
-    pub expander: MacroExpander,
+    pub expander: DeclMacroExpander,
     pub allow_internal_unsafe: bool,
-    pub edition: Edition,
 }
 impl_intern!(Macro2Id, Macro2Loc, intern_macro2, lookup_intern_macro2);
 impl_loc!(Macro2Loc, id: MacroDef, container: ModuleId);
@@ -343,9 +342,8 @@ impl_loc!(Macro2Loc, id: MacroDef, container: ModuleId);
 pub struct MacroRulesLoc {
     pub container: ModuleId,
     pub id: AstId<ast::MacroRules>,
-    pub expander: MacroExpander,
+    pub expander: DeclMacroExpander,
     pub flags: MacroRulesLocFlags,
-    pub edition: Edition,
 }
 impl_intern!(MacroRulesId, MacroRulesLoc, intern_macro_rules, lookup_intern_macro_rules);
 impl_loc!(MacroRulesLoc, id: MacroRules, container: ModuleId);
@@ -359,7 +357,7 @@ bitflags::bitflags! {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum MacroExpander {
+pub enum DeclMacroExpander {
     Declarative,
     BuiltIn(BuiltinFnLikeExpander),
     BuiltInAttr(BuiltinAttrExpander),
@@ -373,7 +371,6 @@ pub struct ProcMacroLoc {
     pub id: AstId<ast::Fn>,
     pub expander: CustomProcMacroExpander,
     pub kind: ProcMacroKind,
-    pub edition: Edition,
 }
 impl_intern!(ProcMacroId, ProcMacroLoc, intern_proc_macro, lookup_intern_proc_macro);
 impl_loc!(ProcMacroLoc, id: Fn, container: CrateRootModuleId);

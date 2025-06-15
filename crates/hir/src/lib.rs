@@ -43,9 +43,9 @@ use base_db::{CrateDisplayName, CrateOrigin, LangCrateOrigin};
 use either::Either;
 use hir_def::{
     AdtId, AssocItemId, AssocItemLoc, AttrDefId, CallableDefId, ConstId, ConstParamId,
-    CrateRootModuleId, DefWithBodyId, EnumId, EnumVariantId, ExternBlockId, ExternCrateId,
-    FunctionId, GenericDefId, GenericParamId, HasModule, ImplId, ItemContainerId, LifetimeParamId,
-    LocalFieldId, Lookup, MacroExpander, MacroId, ModuleId, StaticId, StructId, SyntheticSyntax,
+    CrateRootModuleId, DeclMacroExpander, DefWithBodyId, EnumId, EnumVariantId, ExternBlockId,
+    ExternCrateId, FunctionId, GenericDefId, GenericParamId, HasModule, ImplId, ItemContainerId,
+    LifetimeParamId, LocalFieldId, Lookup, MacroId, ModuleId, StaticId, StructId, SyntheticSyntax,
     TraitAliasId, TupleId, TypeAliasId, TypeOrConstParamId, TypeParamId, UnionId,
     expr_store::{ExpressionStoreDiagnostics, ExpressionStoreSourceMap},
     hir::{
@@ -3119,20 +3119,20 @@ impl Macro {
     pub fn kind(&self, db: &dyn HirDatabase) -> MacroKind {
         match self.id {
             MacroId::Macro2Id(it) => match it.lookup(db).expander {
-                MacroExpander::Declarative => MacroKind::Declarative,
-                MacroExpander::BuiltIn(_) | MacroExpander::BuiltInEager(_) => {
+                DeclMacroExpander::Declarative => MacroKind::Declarative,
+                DeclMacroExpander::BuiltIn(_) | DeclMacroExpander::BuiltInEager(_) => {
                     MacroKind::DeclarativeBuiltIn
                 }
-                MacroExpander::BuiltInAttr(_) => MacroKind::AttrBuiltIn,
-                MacroExpander::BuiltInDerive(_) => MacroKind::DeriveBuiltIn,
+                DeclMacroExpander::BuiltInAttr(_) => MacroKind::AttrBuiltIn,
+                DeclMacroExpander::BuiltInDerive(_) => MacroKind::DeriveBuiltIn,
             },
             MacroId::MacroRulesId(it) => match it.lookup(db).expander {
-                MacroExpander::Declarative => MacroKind::Declarative,
-                MacroExpander::BuiltIn(_) | MacroExpander::BuiltInEager(_) => {
+                DeclMacroExpander::Declarative => MacroKind::Declarative,
+                DeclMacroExpander::BuiltIn(_) | DeclMacroExpander::BuiltInEager(_) => {
                     MacroKind::DeclarativeBuiltIn
                 }
-                MacroExpander::BuiltInAttr(_) => MacroKind::AttrBuiltIn,
-                MacroExpander::BuiltInDerive(_) => MacroKind::DeriveBuiltIn,
+                DeclMacroExpander::BuiltInAttr(_) => MacroKind::AttrBuiltIn,
+                DeclMacroExpander::BuiltInDerive(_) => MacroKind::DeriveBuiltIn,
             },
             MacroId::ProcMacroId(it) => match it.lookup(db).kind {
                 ProcMacroKind::CustomDerive => MacroKind::Derive,
@@ -3152,10 +3152,10 @@ impl Macro {
     pub fn is_builtin_derive(&self, db: &dyn HirDatabase) -> bool {
         match self.id {
             MacroId::Macro2Id(it) => {
-                matches!(it.lookup(db).expander, MacroExpander::BuiltInDerive(_))
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltInDerive(_))
             }
             MacroId::MacroRulesId(it) => {
-                matches!(it.lookup(db).expander, MacroExpander::BuiltInDerive(_))
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltInDerive(_))
             }
             MacroId::ProcMacroId(_) => false,
         }
@@ -3164,10 +3164,10 @@ impl Macro {
     pub fn is_env_or_option_env(&self, db: &dyn HirDatabase) -> bool {
         match self.id {
             MacroId::Macro2Id(it) => {
-                matches!(it.lookup(db).expander, MacroExpander::BuiltInEager(eager) if eager.is_env_or_option_env())
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltInEager(eager) if eager.is_env_or_option_env())
             }
             MacroId::MacroRulesId(it) => {
-                matches!(it.lookup(db).expander, MacroExpander::BuiltInEager(eager) if eager.is_env_or_option_env())
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltInEager(eager) if eager.is_env_or_option_env())
             }
             MacroId::ProcMacroId(_) => false,
         }
@@ -3176,10 +3176,10 @@ impl Macro {
     pub fn is_asm_or_global_asm(&self, db: &dyn HirDatabase) -> bool {
         match self.id {
             MacroId::Macro2Id(it) => {
-                matches!(it.lookup(db).expander, MacroExpander::BuiltIn(m) if m.is_asm())
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltIn(m) if m.is_asm())
             }
             MacroId::MacroRulesId(it) => {
-                matches!(it.lookup(db).expander, MacroExpander::BuiltIn(m) if m.is_asm())
+                matches!(it.lookup(db).expander, DeclMacroExpander::BuiltIn(m) if m.is_asm())
             }
             MacroId::ProcMacroId(_) => false,
         }

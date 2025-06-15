@@ -28,7 +28,7 @@ use triomphe::Arc;
 use crate::{
     AdtId, AssocItemId, AstId, AstIdWithPath, ConstLoc, CrateRootModuleId, EnumLoc, ExternBlockLoc,
     ExternCrateId, ExternCrateLoc, FunctionId, FunctionLoc, ImplLoc, Intern, ItemContainerId,
-    LocalModuleId, Lookup, Macro2Id, Macro2Loc, MacroExpander, MacroId, MacroRulesId,
+    LocalModuleId, Lookup, Macro2Id, Macro2Loc, DeclMacroExpander, MacroId, MacroRulesId,
     MacroRulesLoc, MacroRulesLocFlags, ModuleDefId, ModuleId, ProcMacroId, ProcMacroLoc, StaticLoc,
     StructLoc, TraitAliasLoc, TraitLoc, TypeAliasLoc, UnionLoc, UnresolvedMacro, UseId, UseLoc,
     attr::Attrs,
@@ -595,14 +595,9 @@ impl<'db> DefCollector<'db> {
             None => (CustomProcMacroExpander::missing_expander(), kind),
         };
 
-        let proc_macro_id = ProcMacroLoc {
-            container: self.def_map.crate_root(),
-            id: ast_id,
-            expander,
-            kind,
-            edition: self.def_map.data.edition,
-        }
-        .intern(self.db);
+        let proc_macro_id =
+            ProcMacroLoc { container: self.def_map.crate_root(), id: ast_id, expander, kind }
+                .intern(self.db);
 
         self.def_map.macro_def_to_macro_id.insert(ast_id.erase(), proc_macro_id.into());
         self.define_proc_macro(def.name.clone(), proc_macro_id);
@@ -2319,8 +2314,8 @@ impl ModCollector<'_, '_> {
                 }
             };
             match find_builtin_macro(name) {
-                Some(Either::Left(it)) => MacroExpander::BuiltIn(it),
-                Some(Either::Right(it)) => MacroExpander::BuiltInEager(it),
+                Some(Either::Left(it)) => DeclMacroExpander::BuiltIn(it),
+                Some(Either::Right(it)) => DeclMacroExpander::BuiltInEager(it),
                 None => {
                     self.def_collector
                         .def_map
@@ -2331,7 +2326,7 @@ impl ModCollector<'_, '_> {
             }
         } else {
             // Case 2: normal `macro_rules!` macro
-            MacroExpander::Declarative
+            DeclMacroExpander::Declarative
         };
         let allow_internal_unsafe = attrs.by_key(sym::allow_internal_unsafe).exists();
 
@@ -2344,7 +2339,6 @@ impl ModCollector<'_, '_> {
             id: InFile::new(self.file_id(), ast_id),
             flags,
             expander,
-            edition: self.def_collector.def_map.data.edition,
         }
         .intern(self.def_collector.db);
         self.def_collector.def_map.macro_def_to_macro_id.insert(f_ast_id.erase(), macro_id.into());
@@ -2367,8 +2361,8 @@ impl ModCollector<'_, '_> {
         let expander = if attrs.by_key(sym::rustc_builtin_macro).exists() {
             if let Some(expander) = find_builtin_macro(&mac.name) {
                 match expander {
-                    Either::Left(it) => MacroExpander::BuiltIn(it),
-                    Either::Right(it) => MacroExpander::BuiltInEager(it),
+                    Either::Left(it) => DeclMacroExpander::BuiltIn(it),
+                    Either::Right(it) => DeclMacroExpander::BuiltInEager(it),
                 }
             } else if let Some(expander) = find_builtin_derive(&mac.name) {
                 if let Some(attr) = attrs.by_key(sym::rustc_builtin_macro).tt_values().next() {
@@ -2388,9 +2382,9 @@ impl ModCollector<'_, '_> {
                         helpers_opt = Some(helpers);
                     }
                 }
-                MacroExpander::BuiltInDerive(expander)
+                DeclMacroExpander::BuiltInDerive(expander)
             } else if let Some(expander) = find_builtin_attr(&mac.name) {
-                MacroExpander::BuiltInAttr(expander)
+                DeclMacroExpander::BuiltInAttr(expander)
             } else {
                 self.def_collector
                     .def_map
@@ -2400,7 +2394,7 @@ impl ModCollector<'_, '_> {
             }
         } else {
             // Case 2: normal `macro`
-            MacroExpander::Declarative
+            DeclMacroExpander::Declarative
         };
         let allow_internal_unsafe = attrs.by_key(sym::allow_internal_unsafe).exists();
 
@@ -2409,7 +2403,6 @@ impl ModCollector<'_, '_> {
             id: InFile::new(self.file_id(), ast_id),
             expander,
             allow_internal_unsafe,
-            edition: self.def_collector.def_map.data.edition,
         }
         .intern(self.def_collector.db);
         self.def_collector.def_map.macro_def_to_macro_id.insert(f_ast_id.erase(), macro_id.into());

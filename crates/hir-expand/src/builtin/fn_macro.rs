@@ -411,7 +411,7 @@ fn use_panic_2021(db: &dyn ExpandDatabase, span: Span) -> bool {
         //         continue;
         //     }
         // }
-        break expn.def.edition >= Edition::Edition2021;
+        break expn.def.krate.data(db).edition >= Edition::Edition2021;
     }
 }
 

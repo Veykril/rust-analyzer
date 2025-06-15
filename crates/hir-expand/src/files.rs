@@ -443,7 +443,10 @@ impl InFile<TextRange> {
                     Some(it) => it,
                     None => {
                         let loc = db.lookup_intern_macro_call(mac_file);
-                        (loc.kind.original_call_range(db), SyntaxContext::root(loc.def.edition))
+                        (
+                            loc.kind.original_call_range(db),
+                            SyntaxContext::root(loc.def.krate.data(db).edition),
+                        )
                     }
                 }
             }

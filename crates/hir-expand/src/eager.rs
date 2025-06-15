@@ -26,7 +26,7 @@ use triomphe::Arc;
 
 use crate::{
     AstId, EagerCallInfo, ExpandError, ExpandResult, ExpandTo, ExpansionSpanMap, InFile,
-    MacroCallId, MacroCallKind, MacroCallLoc, MacroDefId, MacroDefKind,
+    MacroCallId, MacroCallKind, MacroDefId, MacroDefKind,
     ast::{self, AstNode},
     db::ExpandDatabase,
     mod_path::ModPath,
@@ -53,13 +53,12 @@ pub fn expand_eager_macro_input(
     // When `lazy_expand` is called, its *parent* file must already exist.
     // Here we store an eager macro id for the argument expanded subtree
     // for that purpose.
-    let loc = MacroCallLoc {
-        def,
+    let arg_id = def.make_call(
+        db,
         krate,
-        kind: MacroCallKind::FnLike { ast_id, expand_to: ExpandTo::Expr, eager: None },
-        ctxt: call_site,
-    };
-    let arg_id = db.intern_macro_call(loc);
+        MacroCallKind::FnLike { ast_id, expand_to: ExpandTo::Expr, eager: None },
+        call_site,
+    );
     #[allow(deprecated)] // builtin eager macros are never derives
     let (_, _, span) = db.macro_arg(arg_id);
     let ExpandResult { value: (arg_exp, arg_exp_map), err: parse_err } =
@@ -98,10 +97,10 @@ pub fn expand_eager_macro_input(
 
     subtree.top_subtree_delimiter_mut().kind = crate::tt::DelimiterKind::Invisible;
 
-    let loc = MacroCallLoc {
-        def,
+    let call = def.make_call(
+        db,
         krate,
-        kind: MacroCallKind::FnLike {
+        MacroCallKind::FnLike {
             ast_id,
             expand_to,
             eager: Some(Arc::new(EagerCallInfo {
@@ -111,10 +110,10 @@ pub fn expand_eager_macro_input(
                 span,
             })),
         },
-        ctxt: call_site,
-    };
+        call_site,
+    );
 
-    ExpandResult { value: Some(db.intern_macro_call(loc)), err }
+    ExpandResult { value: Some(call), err }
 }
 
 fn lazy_expand(

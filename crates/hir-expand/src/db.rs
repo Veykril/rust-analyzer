@@ -49,8 +49,12 @@ pub enum TokenExpander {
     ProcMacro(CustomProcMacroExpander),
 }
 
+pub trait DepInjectDatabase {
+    fn macro_call_def_crate(&self, macro_call: MacroCallId) -> Crate;
+}
+
 #[query_group::query_group]
-pub trait ExpandDatabase: RootQueryDb {
+pub trait ExpandDatabase: RootQueryDb /*+ DepInjectDatabase */ {
     /// The proc macros. Do not use this! Use `proc_macros_for_crate()` instead.
     #[salsa::input]
     fn proc_macros(&self) -> Arc<ProcMacros>;
@@ -83,13 +87,6 @@ pub trait ExpandDatabase: RootQueryDb {
     #[salsa::invoke(crate::span_map::real_span_map)]
     fn real_span_map(&self, file_id: EditionedFileId) -> Arc<RealSpanMap>;
 
-    /// Macro ids. That's probably the tricksiest bit in rust-analyzer, and the
-    /// reason why we use salsa at all.
-    ///
-    /// We encode macro definitions into ids of macro calls, this what allows us
-    /// to be incremental.
-    #[salsa::transparent]
-    fn intern_macro_call(&self, macro_call: MacroCallLoc) -> MacroCallId;
     #[salsa::transparent]
     fn lookup_intern_macro_call(&self, macro_call: MacroCallId) -> MacroCallLoc;
 
@@ -279,44 +276,64 @@ pub fn expand_speculative(
 
     // Do the actual expansion, we need to directly expand the proc macro due to the attribute args
     // Otherwise the expand query will fetch the non speculative attribute args and pass those instead.
-    let mut speculative_expansion = match loc.def.kind {
-        MacroDefKind::ProcMacro(ast, expander, _) => {
-            let span = db.proc_macro_span(ast);
-            *tt.top_subtree_delimiter_mut() = tt::Delimiter::invisible_spanned(span);
-            expander.expand(
-                db,
-                loc.def.krate,
-                loc.krate,
-                &tt,
-                attr_arg.as_ref(),
-                span_with_def_site_ctxt(db, span, actual_macro_call.into(), loc.def.edition),
-                span_with_call_site_ctxt(db, span, actual_macro_call.into(), loc.def.edition),
-                span_with_mixed_site_ctxt(db, span, actual_macro_call.into(), loc.def.edition),
-            )
-        }
-        MacroDefKind::BuiltInAttr(_, it) if it.is_derive() => {
-            pseudo_derive_attr_expansion(&tt, attr_arg.as_ref()?, span)
-        }
-        MacroDefKind::Declarative(it) => {
-            db.decl_macro_expander(loc.krate, it).expand_unhygienic(tt, span, loc.def.edition)
-        }
-        MacroDefKind::BuiltIn(_, it) => {
-            it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
-        }
-        MacroDefKind::BuiltInDerive(_, it) => {
-            it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
-        }
-        MacroDefKind::BuiltInEager(_, it) => {
-            it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
-        }
-        MacroDefKind::BuiltInAttr(_, it) => it.expand(db, actual_macro_call, &tt, span),
-    };
+    let mut speculative_expansion =
+        match loc.def.kind {
+            MacroDefKind::ProcMacro(ast, expander, _) => {
+                let span = db.proc_macro_span(ast);
+                *tt.top_subtree_delimiter_mut() = tt::Delimiter::invisible_spanned(span);
+                expander.expand(
+                    db,
+                    loc.def.krate,
+                    loc.krate,
+                    &tt,
+                    attr_arg.as_ref(),
+                    span_with_def_site_ctxt(
+                        db,
+                        span,
+                        actual_macro_call.into(),
+                        loc.def.krate.data(db).edition,
+                    ),
+                    span_with_call_site_ctxt(
+                        db,
+                        span,
+                        actual_macro_call.into(),
+                        loc.def.krate.data(db).edition,
+                    ),
+                    span_with_mixed_site_ctxt(
+                        db,
+                        span,
+                        actual_macro_call.into(),
+                        loc.def.krate.data(db).edition,
+                    ),
+                )
+            }
+            MacroDefKind::BuiltInAttr(_, it) if it.is_derive() => {
+                pseudo_derive_attr_expansion(&tt, attr_arg.as_ref()?, span)
+            }
+            MacroDefKind::Declarative(it) => db
+                .decl_macro_expander(loc.krate, it)
+                .expand_unhygienic(tt, span, loc.def.krate.data(db).edition),
+            MacroDefKind::BuiltIn(_, it) => {
+                it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
+            }
+            MacroDefKind::BuiltInDerive(_, it) => {
+                it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
+            }
+            MacroDefKind::BuiltInEager(_, it) => {
+                it.expand(db, actual_macro_call, &tt, span).map_err(Into::into)
+            }
+            MacroDefKind::BuiltInAttr(_, it) => it.expand(db, actual_macro_call, &tt, span),
+        };
 
     let expand_to = loc.expand_to();
 
     fixup::reverse_fixups(&mut speculative_expansion.value, &undo_info);
-    let (node, rev_tmap) =
-        token_tree_to_syntax_node(db, &speculative_expansion.value, expand_to, loc.def.edition);
+    let (node, rev_tmap) = token_tree_to_syntax_node(
+        db,
+        &speculative_expansion.value,
+        expand_to,
+        loc.def.krate.data(db).edition,
+    );
 
     let syntax_node = node.syntax_node();
     let token = rev_tmap
@@ -358,7 +375,7 @@ fn parse_macro_expansion(
 ) -> ExpandResult<(Parse<SyntaxNode>, Arc<ExpansionSpanMap>)> {
     let _p = tracing::info_span!("parse_macro_expansion").entered();
     let loc = db.lookup_intern_macro_call(macro_file);
-    let def_edition = loc.def.edition;
+    let def_edition = loc.def.krate.data(db).edition;
     let expand_to = loc.expand_to();
     let mbe::ValueResult { value: (tt, matched_arm), err } = macro_expand(db, macro_file, loc);
 
@@ -713,9 +730,9 @@ fn expand_proc_macro(
             loc.krate,
             &macro_arg,
             attr_arg,
-            span_with_def_site_ctxt(db, span, id.into(), loc.def.edition),
-            span_with_call_site_ctxt(db, span, id.into(), loc.def.edition),
-            span_with_mixed_site_ctxt(db, span, id.into(), loc.def.edition),
+            span_with_def_site_ctxt(db, span, id.into(), loc.def.krate.data(db).edition),
+            span_with_call_site_ctxt(db, span, id.into(), loc.def.krate.data(db).edition),
+            span_with_mixed_site_ctxt(db, span, id.into(), loc.def.krate.data(db).edition),
         )
     };
 
@@ -761,10 +778,6 @@ fn check_tt_count(tt: &tt::TopSubtree) -> Result<(), ExpandResult<()>> {
             )),
         })
     }
-}
-
-fn intern_macro_call(db: &dyn ExpandDatabase, macro_call: MacroCallLoc) -> MacroCallId {
-    MacroCallId::new(db, macro_call)
 }
 
 fn lookup_intern_macro_call(db: &dyn ExpandDatabase, macro_call: MacroCallId) -> MacroCallLoc {

@@ -77,7 +77,7 @@ use tt::TextRange;
 
 use crate::{
     AstId, BlockId, BlockLoc, CrateRootModuleId, ExternCrateId, FunctionId, FxIndexMap,
-    LocalModuleId, Lookup, MacroExpander, MacroId, ModuleId, ProcMacroId, UseId,
+    LocalModuleId, Lookup, DeclMacroExpander, MacroId, ModuleId, ProcMacroId, UseId,
     db::DefDatabase,
     item_scope::{BuiltinShadowMode, ItemScope},
     item_tree::TreeId,
@@ -838,10 +838,10 @@ impl MacroSubNs {
 
         // Eager macros aren't *guaranteed* to be bang macros, but they *are* all bang macros currently.
         match expander {
-            MacroExpander::Declarative
-            | MacroExpander::BuiltIn(_)
-            | MacroExpander::BuiltInEager(_) => Self::Bang,
-            MacroExpander::BuiltInAttr(_) | MacroExpander::BuiltInDerive(_) => Self::Attr,
+            DeclMacroExpander::Declarative
+            | DeclMacroExpander::BuiltIn(_)
+            | DeclMacroExpander::BuiltInEager(_) => Self::Bang,
+            DeclMacroExpander::BuiltInAttr(_) | DeclMacroExpander::BuiltInDerive(_) => Self::Attr,
         }
     }
 }

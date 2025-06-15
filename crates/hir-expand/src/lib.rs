@@ -117,13 +117,20 @@ pub trait Lookup {
     fn lookup(&self, db: &Self::Database) -> Self::Data;
 }
 
-impl_intern_lookup!(
-    ExpandDatabase,
-    MacroCallId,
-    MacroCallLoc,
-    intern_macro_call,
-    lookup_intern_macro_call
-);
+impl crate::Intern for MacroCallLoc {
+    type Database = dyn ExpandDatabase;
+    type ID = MacroCallId;
+    fn intern(self, db: &Self::Database) -> Self::ID {
+        MacroCallId::new(db, self)
+    }
+}
+impl crate::Lookup for MacroCallId {
+    type Database = dyn ExpandDatabase;
+    type Data = MacroCallLoc;
+    fn lookup(&self, db: &Self::Database) -> Self::Data {
+        db.lookup_intern_macro_call(*self)
+    }
+}
 
 pub type ExpandResult<T> = ValueResult<T, ExpandError>;
 
@@ -247,6 +254,12 @@ impl From<mbe::ExpandError> for ExpandError {
         ExpandError { inner: Arc::new((ExpandErrorKind::Mbe(mbe.inner.1.clone()), mbe.inner.0)) }
     }
 }
+
+/// Macro ids. That's probably the tricksiest bit in rust-analyzer, and the
+/// reason why we use salsa at all.
+///
+/// We encode macro definitions into ids of macro calls, this what allows us
+/// to be incremental.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MacroCallLoc {
     pub def: MacroDefId,
@@ -258,10 +271,8 @@ pub struct MacroCallLoc {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacroDefId {
     pub krate: Crate,
-    pub edition: Edition,
     pub kind: MacroDefKind,
     pub local_inner: bool,
-    pub allow_internal_unsafe: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -344,7 +355,7 @@ impl HirFileId {
     pub fn edition(self, db: &dyn ExpandDatabase) -> Edition {
         match self {
             HirFileId::FileId(file_id) => file_id.editioned_file_id(db).edition(),
-            HirFileId::MacroFile(m) => db.lookup_intern_macro_call(m).def.edition,
+            HirFileId::MacroFile(m) => db.lookup_intern_macro_call(m).def.krate.data(db).edition,
         }
     }
     pub fn original_file(self, db: &dyn ExpandDatabase) -> EditionedFileId {
@@ -507,7 +518,7 @@ impl MacroDefId {
         kind: MacroCallKind,
         ctxt: SyntaxContext,
     ) -> MacroCallId {
-        db.intern_macro_call(MacroCallLoc { def: self, krate, kind, ctxt })
+        MacroCallId::new(db, MacroCallLoc { def: self, krate, kind, ctxt })
     }
 
     pub fn definition_range(&self, db: &dyn ExpandDatabase) -> InFile<TextRange> {

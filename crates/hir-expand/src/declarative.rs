@@ -47,7 +47,7 @@ impl DeclarativeMacroExpander {
                             apply_mark(db, s.ctx, call_id.into(), self.transparency, self.edition)
                     },
                     span,
-                    loc.def.edition,
+                    loc.def.krate.data(db).edition,
                 )
                 .map_err(Into::into),
         }

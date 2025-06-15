@@ -11,9 +11,9 @@ use syntax::{AstPtr, ast};
 use triomphe::Arc;
 
 use crate::{
-    AssocItemId, AttrDefId, ConstId, ConstLoc, DefWithBodyId, EnumId, EnumLoc, EnumVariantId,
-    EnumVariantLoc, ExternBlockId, ExternBlockLoc, ExternCrateId, ExternCrateLoc, FunctionId,
-    FunctionLoc, GenericDefId, ImplId, ImplLoc, LocalFieldId, Macro2Id, Macro2Loc, MacroExpander,
+    AssocItemId, AttrDefId, ConstId, ConstLoc, DeclMacroExpander, DefWithBodyId, EnumId, EnumLoc,
+    EnumVariantId, EnumVariantLoc, ExternBlockId, ExternBlockLoc, ExternCrateId, ExternCrateLoc,
+    FunctionId, FunctionLoc, GenericDefId, ImplId, ImplLoc, LocalFieldId, Macro2Id, Macro2Loc,
     MacroId, MacroRulesId, MacroRulesLoc, MacroRulesLocFlags, ProcMacroId, ProcMacroLoc, StaticId,
     StaticLoc, StructId, StructLoc, TraitAliasId, TraitAliasLoc, TraitId, TraitLoc, TypeAliasId,
     TypeAliasLoc, UnionId, UnionLoc, UseId, UseLoc, VariantId,
@@ -369,11 +369,11 @@ fn macro_def(db: &dyn DefDatabase, id: MacroId) -> MacroDefId {
     let kind = |expander, file_id, m| {
         let in_file = InFile::new(file_id, m);
         match expander {
-            MacroExpander::Declarative => MacroDefKind::Declarative(in_file),
-            MacroExpander::BuiltIn(it) => MacroDefKind::BuiltIn(in_file, it),
-            MacroExpander::BuiltInAttr(it) => MacroDefKind::BuiltInAttr(in_file, it),
-            MacroExpander::BuiltInDerive(it) => MacroDefKind::BuiltInDerive(in_file, it),
-            MacroExpander::BuiltInEager(it) => MacroDefKind::BuiltInEager(in_file, it),
+            DeclMacroExpander::Declarative => MacroDefKind::Declarative(in_file),
+            DeclMacroExpander::BuiltIn(it) => MacroDefKind::BuiltIn(in_file, it),
+            DeclMacroExpander::BuiltInAttr(it) => MacroDefKind::BuiltInAttr(in_file, it),
+            DeclMacroExpander::BuiltInDerive(it) => MacroDefKind::BuiltInDerive(in_file, it),
+            DeclMacroExpander::BuiltInEager(it) => MacroDefKind::BuiltInEager(in_file, it),
         }
     };
 
@@ -385,8 +385,6 @@ fn macro_def(db: &dyn DefDatabase, id: MacroId) -> MacroDefId {
                 krate: loc.container.krate,
                 kind: kind(loc.expander, loc.id.file_id, loc.id.value.upcast()),
                 local_inner: false,
-                allow_internal_unsafe: loc.allow_internal_unsafe,
-                edition: loc.edition,
             }
         }
         MacroId::MacroRulesId(it) => {
@@ -396,10 +394,6 @@ fn macro_def(db: &dyn DefDatabase, id: MacroId) -> MacroDefId {
                 krate: loc.container.krate,
                 kind: kind(loc.expander, loc.id.file_id, loc.id.value.upcast()),
                 local_inner: loc.flags.contains(MacroRulesLocFlags::LOCAL_INNER),
-                allow_internal_unsafe: loc
-                    .flags
-                    .contains(MacroRulesLocFlags::ALLOW_INTERNAL_UNSAFE),
-                edition: loc.edition,
             }
         }
         MacroId::ProcMacroId(it) => {
@@ -409,8 +403,6 @@ fn macro_def(db: &dyn DefDatabase, id: MacroId) -> MacroDefId {
                 krate: loc.container.krate,
                 kind: MacroDefKind::ProcMacro(loc.id, loc.expander, loc.kind),
                 local_inner: false,
-                allow_internal_unsafe: false,
-                edition: loc.edition,
             }
         }
     }
