@@ -45,9 +45,9 @@ pub(crate) fn expand_macro(db: &RootDatabase, position: FilePosition) -> Option<
 
     let derive = sema.descend_into_macros_exact(tok.clone()).into_iter().find_map(|descended| {
         let macro_file = sema.hir_file_for(&descended.parent()?).macro_file()?;
-        if !macro_file.is_derive_attr_pseudo_expansion(db) {
-            return None;
-        }
+        // if !macro_file.is_derive_attr_pseudo_expansion(db) {
+        //     return None;
+        // }
 
         let name = descended.parent_ancestors().filter_map(ast::Path::cast).last()?.to_string();
         // up map out of the #[derive] expansion

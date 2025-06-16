@@ -118,6 +118,7 @@ pub use {
     hir_def::{
         Complete,
         ImportPathConfig,
+        aa,
         attr::{AttrSourceMap, Attrs, AttrsWithOwner},
         find_path::PrefixKind,
         import_map,
@@ -748,7 +749,10 @@ impl Module {
             expr_store_diagnostics(db, acc, &source_map);
 
             let file_id = loc.id.file_id;
-            if file_id.macro_file().is_some_and(|it| it.kind(db) == MacroKind::DeriveBuiltIn) {
+            if file_id
+                .macro_file()
+                .is_some_and(|it| it.lookup(db).def.kind(db) == MacroKind::DeriveBuiltIn)
+            {
                 // these expansion come from us, diagnosing them is a waste of resources
                 // FIXME: Once we diagnose the inputs to builtin derives, we should at least extract those diagnostics somehow
                 continue;
@@ -975,57 +979,54 @@ fn macro_call_diagnostics(
     macro_call_id: MacroCallId,
     acc: &mut Vec<AnyDiagnostic>,
 ) {
-    let Some(e) = db.parse_macro_expansion_error(macro_call_id) else {
-        return;
-    };
-    let ValueResult { value: parse_errors, err } = &*e;
-    if let Some(err) = err {
-        let loc = db.lookup_intern_macro_call(macro_call_id);
-        let file_id = loc.kind.file_id();
-        let node =
-            InFile::new(file_id, db.ast_id_map(file_id).get_erased(loc.kind.erased_ast_id()));
-        let RenderedExpandError { message, error, kind } = err.render_to_string(db);
-        let editioned_file_id = EditionedFileId::from_span(db, err.span().anchor.file_id);
-        let precise_location = if editioned_file_id == file_id {
-            Some(
-                err.span().range
-                    + db.ast_id_map(editioned_file_id.into())
-                        .get_erased(err.span().anchor.ast_id)
-                        .text_range()
-                        .start(),
-            )
-        } else {
-            None
-        };
-        acc.push(MacroError { node, precise_location, message, error, kind }.into());
-    }
+    // let Some(e) = db.parse_macro_expansion_error(macro_call_id) else {
+    //     return;
+    // };
+    // let ValueResult { value: parse_errors, err } = &*e;
+    // if let Some(err) = err {
+    //     let loc = db.lookup_intern_macro_call(macro_call_id);
+    //     let file_id = loc.kind.file_id();
+    //     let node =
+    //         InFile::new(file_id, db.ast_id_map(file_id).get_erased(loc.kind.erased_ast_id()));
+    //     let RenderedExpandError { message, error, kind } = err.render_to_string(db);
+    //     let editioned_file_id = EditionedFileId::from_span(db, err.span().anchor.file_id);
+    //     let precise_location = if editioned_file_id == file_id {
+    //         Some(
+    //             err.span().range
+    //                 + db.ast_id_map(editioned_file_id.into())
+    //                     .get_erased(err.span().anchor.ast_id)
+    //                     .text_range()
+    //                     .start(),
+    //         )
+    //     } else {
+    //         None
+    //     };
+    //     acc.push(MacroError { node, precise_location, message, error, kind }.into());
+    // }
 
-    if !parse_errors.is_empty() {
-        let loc = db.lookup_intern_macro_call(macro_call_id);
-        let (node, precise_location) = precise_macro_call_location(&loc.kind, db);
-        acc.push(
-            MacroExpansionParseError { node, precise_location, errors: parse_errors.clone() }
-                .into(),
-        )
-    }
+    // if !parse_errors.is_empty() {
+    //     let loc = db.lookup_intern_macro_call(macro_call_id);
+    //     let (node, precise_location) = precise_macro_call_location(&loc.kind, db);
+    //     acc.push(
+    //         MacroExpansionParseError { node, precise_location, errors: parse_errors.clone() }
+    //             .into(),
+    //     )
+    // }
 }
 
 fn emit_macro_def_diagnostics(db: &dyn HirDatabase, acc: &mut Vec<AnyDiagnostic>, m: Macro) {
-    let id = db.macro_def(m.id);
-    if let hir_expand::db::TokenExpander::DeclarativeMacro(expander) = db.macro_expander(id) {
+    if let hir_expand::MacroExpander::Declarative(expander) = m.id.expander(db) {
         if let Some(e) = expander.mac.err() {
-            let Some(ast) = id.ast_id().left() else {
-                never!("declarative expander for non decl-macro: {:?}", e);
-                return;
-            };
+            let ast = m.id.ast_id(db);
             let krate = HasModule::krate(&m.id, db);
             let edition = krate.data(db).edition;
-            emit_def_diagnostic_(
-                db,
-                acc,
-                &DefDiagnosticKind::MacroDefError { ast, message: e.to_string() },
-                edition,
-            );
+            // emit_def_diagnostic_(
+            //     db,
+            //     acc,
+            //     &DefDiagnosticKind::MacroDefError { ast, message: e.to_string() },
+            //     edition,
+            // );
+            todo!()
         }
     }
 }
@@ -3119,7 +3120,7 @@ impl Macro {
     pub fn kind(&self, db: &dyn HirDatabase) -> MacroKind {
         match self.id {
             MacroId::Macro2Id(it) => match it.lookup(db).expander {
-                DeclMacroExpander::Declarative => MacroKind::Declarative,
+                DeclMacroExpander::Declarative(_) => MacroKind::Declarative,
                 DeclMacroExpander::BuiltIn(_) | DeclMacroExpander::BuiltInEager(_) => {
                     MacroKind::DeclarativeBuiltIn
                 }
@@ -3127,7 +3128,7 @@ impl Macro {
                 DeclMacroExpander::BuiltInDerive(_) => MacroKind::DeriveBuiltIn,
             },
             MacroId::MacroRulesId(it) => match it.lookup(db).expander {
-                DeclMacroExpander::Declarative => MacroKind::Declarative,
+                DeclMacroExpander::Declarative(_) => MacroKind::Declarative,
                 DeclMacroExpander::BuiltIn(_) | DeclMacroExpander::BuiltInEager(_) => {
                     MacroKind::DeclarativeBuiltIn
                 }

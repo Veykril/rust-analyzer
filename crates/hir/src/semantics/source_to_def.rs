@@ -158,7 +158,7 @@ impl SourceToDefCache {
         macro_file: MacroCallId,
     ) -> &ExpansionInfo {
         self.expansion_info_cache.entry(macro_file).or_insert_with(|| {
-            let exp_info = macro_file.expansion_info(db);
+            let exp_info = ExpansionInfo::new(db, macro_file);
 
             let InMacroFile { file_id, value } = exp_info.expanded();
             Self::cache(&mut self.root_to_file_cache, value, file_id.into());

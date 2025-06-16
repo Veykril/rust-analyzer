@@ -49,6 +49,8 @@ pub mod find_path;
 pub mod import_map;
 pub mod visibility;
 
+pub use hir_expand;
+pub use hir_expand::attrs::collect_attrs;
 use intern::{Interned, Symbol, sym};
 pub use rustc_abi as layout;
 use thin_vec::ThinVec;
@@ -63,8 +65,8 @@ mod test_db;
 
 use std::hash::{Hash, Hasher};
 
-use base_db::{Crate, impl_intern_key};
-use hir_expand::{
+pub use base_db::{Crate, impl_intern_key};
+pub use hir_expand::{
     AstId, ExpandResult, ExpandTo, HirFileId, InFile, MacroCallId, MacroCallKind, MacroExpander,
     MacroKind,
     eager::expand_eager_macro_input,
@@ -72,13 +74,13 @@ use hir_expand::{
     name::Name,
     proc_macro::{CustomProcMacroExpander, ProcMacroKind},
 };
-use la_arena::Idx;
-use nameres::DefMap;
-use span::{AstIdNode, Edition, FileAstId, SyntaxContext};
-use stdx::impl_from;
-use syntax::{AstNode, ast};
+pub use la_arena::Idx;
+pub use nameres::DefMap;
+pub use span::{AstIdNode, Edition, FileAstId, SyntaxContext};
+pub use stdx::impl_from;
+pub use syntax::{AstNode, ast};
 
-pub use hir_expand::{DeclMacroExpander, tt};
+pub use hir_expand::{DeclMacroExpander, DepInjectDatabase, tt};
 
 use crate::{
     attr::Attrs,
@@ -383,6 +385,110 @@ bitflags::bitflags! {
         const ALLOW_INTERNAL_UNSAFE = 1 << 0;
         const LOCAL_INNER = 1 << 1;
     }
+}
+
+#[macro_export]
+macro_rules! aa {
+    ($name:ident) => {
+        impl $crate::DepInjectDatabase for $name {
+            fn macro_call_call_crate(&self, macro_call: span::MacroCallId) -> base_db::Crate {
+                $crate::Lookup::lookup(&macro_call, self).container.krate()
+            }
+
+            fn macro_call_def_crate(&self, macro_call: span::MacroCallId) -> base_db::Crate {
+                $crate::Lookup::lookup(&macro_call, self).def.krate(self)
+            }
+
+            fn macro_call_def_file_id(
+                &self,
+                macro_call: span::MacroCallId,
+            ) -> $crate::AstId<syntax::ast::Item> {
+                match $crate::Lookup::lookup(&macro_call, self).def {
+                    $crate::MacroId::Macro2Id(macro2_id) => {
+                        $crate::Lookup::lookup(&macro2_id, self).id.upcast()
+                    }
+                    $crate::MacroId::MacroRulesId(macro_rules_id) => {
+                        $crate::Lookup::lookup(&macro_rules_id, self).id.upcast()
+                    }
+                    $crate::MacroId::ProcMacroId(proc_macro_id) => {
+                        $crate::Lookup::lookup(&proc_macro_id, self).id.upcast()
+                    }
+                }
+            }
+
+            fn macro_call_kind(
+                &self,
+                macro_call: span::MacroCallId,
+            ) -> $crate::hir_expand::MacroCallKind {
+                $crate::Lookup::lookup(&macro_call, self).kind
+            }
+
+            fn macro_call_expander(
+                &self,
+                macro_call: span::MacroCallId,
+            ) -> $crate::hir_expand::MacroExpander {
+                $crate::Lookup::lookup(&macro_call, self).def.expander(self)
+            }
+
+            fn macro_call_ctx(&self, macro_call: span::MacroCallId) -> span::SyntaxContext {
+                $crate::Lookup::lookup(&macro_call, self).ctxt
+            }
+
+            fn macro_call_local_inner(&self, macro_call: span::MacroCallId) -> bool {
+                $crate::Lookup::lookup(&macro_call, self).def.local_inner(self)
+            }
+
+            fn proc_macro_call_expander(
+                &self,
+                macro_call: span::MacroCallId,
+            ) -> Option<($crate::CustomProcMacroExpander, $crate::AstId<syntax::ast::Fn>)> {
+                match $crate::Lookup::lookup(&macro_call, self).def {
+                    $crate::MacroId::ProcMacroId(it) => Some({
+                        let lookup = $crate::Lookup::lookup(&it, self);
+                        (lookup.expander, lookup.id)
+                    }),
+                    $crate::MacroId::Macro2Id(_) | $crate::MacroId::MacroRulesId(_) => None,
+                }
+            }
+            fn to_node(&self, macro_call: span::MacroCallId) -> $crate::InFile<syntax::SyntaxNode> {
+                use syntax::AstNode;
+                let lookup = $crate::Lookup::lookup(&macro_call, self);
+                match lookup.kind {
+                    $crate::MacroCallKind::FnLike { ast_id, .. } => {
+                        ast_id.with_value(ast_id.to_node(self).syntax().clone())
+                    }
+                    $crate::MacroCallKind::Derive { ast_id, derive_attr_index, .. } => {
+                        // FIXME: handle `cfg_attr`
+                        ast_id.with_value(ast_id.to_node(self)).map(|it| {
+                            $crate::collect_attrs(&it)
+                                .nth(derive_attr_index.ast_index())
+                                .and_then(|it| match it.1 {
+                                    either::Either::Left(attr) => Some(attr.syntax().clone()),
+                                    either::Either::Right(_) => None,
+                                })
+                                .unwrap_or_else(|| it.syntax().clone())
+                        })
+                    }
+                    $crate::MacroCallKind::Attr { ast_id, invoc_attr_index, .. } => {
+                        if lookup.def.expander(self).is_attribute_derive() {
+                            // FIXME: handle `cfg_attr`
+                            ast_id.with_value(ast_id.to_node(self)).map(|it| {
+                                $crate::collect_attrs(&it)
+                                    .nth(invoc_attr_index.ast_index())
+                                    .and_then(|it| match it.1 {
+                                        either::Either::Left(attr) => Some(attr.syntax().clone()),
+                                        either::Either::Right(_) => None,
+                                    })
+                                    .unwrap_or_else(|| it.syntax().clone())
+                            })
+                        } else {
+                            ast_id.with_value(ast_id.to_node(self).syntax().clone())
+                        }
+                    }
+                }
+            }
+        }
+    };
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -852,7 +958,7 @@ impl MacroId {
         }
     }
 
-    fn krate(&self, db: &dyn DefDatabase) -> Crate {
+    pub fn krate(&self, db: &dyn DefDatabase) -> Crate {
         match self {
             MacroId::Macro2Id(it) => it.lookup(db).container.krate,
             MacroId::MacroRulesId(it) => it.lookup(db).container.krate,
@@ -860,13 +966,20 @@ impl MacroId {
         }
     }
 
-    fn local_inner(&self, db: &dyn DefDatabase) -> bool {
+    pub fn local_inner(&self, db: &dyn DefDatabase) -> bool {
         match self {
             MacroId::Macro2Id(it) => it.lookup(db).flags.contains(MacroRulesLocFlags::LOCAL_INNER),
             MacroId::MacroRulesId(it) => {
                 it.lookup(db).flags.contains(MacroRulesLocFlags::LOCAL_INNER)
             }
             MacroId::ProcMacroId(_) => false, // proc macros are never local inner
+        }
+    }
+    pub fn ast_id(&self, db: &dyn DefDatabase) -> AstId<ast::Item> {
+        match self {
+            MacroId::Macro2Id(it) => it.lookup(db).ast_id().upcast(),
+            MacroId::MacroRulesId(it) => it.lookup(db).ast_id().upcast(),
+            MacroId::ProcMacroId(it) => it.lookup(db).ast_id().upcast(),
         }
     }
 }

@@ -12,7 +12,7 @@ use std::{
 
 use either::Either;
 use hir_def::{
-    DefWithBodyId, FunctionId, MacroId, StructId, TraitId, VariantId,
+    DefWithBodyId, FunctionId, Lookup, MacroId, StructId, TraitId, VariantId,
     expr_store::{Body, ExprOrPatSource, path::Path},
     hir::{BindingId, Expr, ExprId, ExprOrPatId, Pat},
     nameres::{ModuleOrigin, crate_def_map},
@@ -23,7 +23,6 @@ use hir_expand::{
     EditionedFileId, ExpandResult, FileRange, HirFileId, InMacroFile, MacroCallId,
     attrs::collect_attrs,
     builtin::{BuiltinFnLikeExpander, EagerExpander},
-    db::ExpandDatabase,
     files::{FileRangeWrapper, HirFileRange, InRealFile},
     mod_path::{ModPath, PathKind},
     name::AsName,
@@ -426,7 +425,7 @@ impl<'db> SemanticsImpl<'db> {
                 }
             }
             HirFileId::MacroFile(macro_file) => {
-                let node = self.db.lookup_intern_macro_call(macro_file).to_node(self.db);
+                let node = self.db.to_node(macro_file);
                 let root = find_root(&node.value);
                 self.cache(root, node.file_id);
                 Some(node)
@@ -469,7 +468,7 @@ impl<'db> SemanticsImpl<'db> {
             HirFileId::FileId(file_id) => {
                 self.file_to_module_defs(file_id.file_id(self.db)).next()?.krate().id
             }
-            HirFileId::MacroFile(macro_file) => self.db.lookup_intern_macro_call(macro_file).krate,
+            HirFileId::MacroFile(macro_file) => macro_file.lookup(self.db).container.krate(),
         };
         hir_expand::check_cfg_attr_value(self.db, attr, krate)
     }
@@ -481,12 +480,12 @@ impl<'db> SemanticsImpl<'db> {
         macro_call: &ast::MacroCall,
     ) -> Option<ExpandResult<SyntaxNode>> {
         let file_id = self.to_def(macro_call)?;
-        let macro_call = self.db.lookup_intern_macro_call(file_id);
+        let macro_call = file_id.lookup(self.db);
+        let def = macro_call.def.expander(self.db);
 
         let skip = matches!(
-            macro_call.def.kind,
+            def,
             hir_expand::MacroExpander::BuiltIn(
-                _,
                 BuiltinFnLikeExpander::Column
                     | BuiltinFnLikeExpander::File
                     | BuiltinFnLikeExpander::ModulePath
@@ -498,7 +497,7 @@ impl<'db> SemanticsImpl<'db> {
                     | BuiltinFnLikeExpander::FormatArgs
                     | BuiltinFnLikeExpander::FormatArgsNl
                     | BuiltinFnLikeExpander::ConstFormatArgs,
-            ) | hir_expand::MacroExpander::BuiltInEager(_, EagerExpander::CompileError)
+            ) | hir_expand::MacroExpander::BuiltInEager(EagerExpander::CompileError)
         );
         if skip {
             // these macros expand to custom builtin syntax and/or dummy things, no point in
@@ -532,7 +531,7 @@ impl<'db> SemanticsImpl<'db> {
             Some(
                 calls
                     .into_iter()
-                    .map(|call| macro_call_to_macro_id(ctx, call?).map(|id| Macro { id }))
+                    .map(|call| call.map(|call| Macro { id: macro_call_to_macro_id(ctx, call) }))
                     .collect(),
             )
         })
@@ -1194,7 +1193,7 @@ impl<'db> SemanticsImpl<'db> {
                                     .zip(Some(item))
                             })
                             .map(|(call_id, item)| {
-                                let attr_id = match db.lookup_intern_macro_call(call_id).kind {
+                                let attr_id = match db.macro_call_kind(call_id) {
                                     hir_expand::MacroCallKind::Attr {
                                         invoc_attr_index, ..
                                     } => invoc_attr_index.ast_index(),
@@ -1298,12 +1297,16 @@ impl<'db> SemanticsImpl<'db> {
                             filter_duplicates(tokens, text_range);
 
                             self.with_ctx(|ctx| {
-                                process_expansion_for_token(ctx, &mut stack, file_id).or(file_id
-                                    .eager_arg(db)
+                                process_expansion_for_token(ctx, &mut stack, file_id).or(
+                                    match file_id.lookup(db).kind {
+                                        hir_expand::MacroCallKind::FnLike { eager, .. } => eager,
+                                        _ => None,
+                                    }
                                     .and_then(|arg| {
                                         // also descend into eager expansions
-                                        process_expansion_for_token(ctx, &mut stack, arg)
-                                    }))
+                                        process_expansion_for_token(ctx, &mut stack, arg.arg_id)
+                                    }),
+                                )
                             })
                         }
                         Either::Right(_) if always_descend_into_derives => None,
@@ -1740,7 +1743,7 @@ impl<'db> SemanticsImpl<'db> {
 
     pub fn resolve_macro_call2(&self, macro_call: InFile<&ast::MacroCall>) -> Option<Macro> {
         self.to_def2(macro_call)
-            .and_then(|call| self.with_ctx(|ctx| macro_call_to_macro_id(ctx, call)))
+            .map(|call| self.with_ctx(|ctx| macro_call_to_macro_id(ctx, call)))
             .map(Into::into)
     }
 
@@ -1785,7 +1788,7 @@ impl<'db> SemanticsImpl<'db> {
         let item_in_file = self.wrap_node_infile(item.clone());
         let id = self.with_ctx(|ctx| {
             let macro_call_id = ctx.item_to_macro_call(item_in_file.as_ref())?;
-            macro_call_to_macro_id(ctx, macro_call_id)
+            Some(macro_call_to_macro_id(ctx, macro_call_id))
         })?;
         Some(Macro { id })
     }
@@ -2072,40 +2075,8 @@ impl<'db> SemanticsImpl<'db> {
     }
 }
 
-// FIXME This can't be the best way to do this
-fn macro_call_to_macro_id(
-    ctx: &mut SourceToDefCtx<'_, '_>,
-    macro_call_id: MacroCallId,
-) -> Option<MacroId> {
-    let db: &dyn ExpandDatabase = ctx.db;
-    let loc = db.lookup_intern_macro_call(macro_call_id);
-
-    match loc.def.ast_id() {
-        Either::Left(it) => {
-            let node = match it.file_id {
-                HirFileId::FileId(file_id) => {
-                    it.to_ptr(db).to_node(&db.parse(file_id).syntax_node())
-                }
-                HirFileId::MacroFile(macro_file) => {
-                    let expansion_info = ctx.cache.get_or_insert_expansion(ctx.db, macro_file);
-                    it.to_ptr(db).to_node(&expansion_info.expanded().value)
-                }
-            };
-            ctx.macro_to_def(InFile::new(it.file_id, &node))
-        }
-        Either::Right(it) => {
-            let node = match it.file_id {
-                HirFileId::FileId(file_id) => {
-                    it.to_ptr(db).to_node(&db.parse(file_id).syntax_node())
-                }
-                HirFileId::MacroFile(macro_file) => {
-                    let expansion_info = ctx.cache.get_or_insert_expansion(ctx.db, macro_file);
-                    it.to_ptr(db).to_node(&expansion_info.expanded().value)
-                }
-            };
-            ctx.proc_macro_to_def(InFile::new(it.file_id, &node))
-        }
-    }
+fn macro_call_to_macro_id(ctx: &mut SourceToDefCtx<'_, '_>, macro_call_id: MacroCallId) -> MacroId {
+    macro_call_id.lookup(ctx.db).def
 }
 
 pub trait ToDef: AstNode + Clone {

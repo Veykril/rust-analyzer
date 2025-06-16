@@ -3,13 +3,12 @@
 use base_db::Crate;
 use chalk_ir::{BoundVar, DebruijnIndex, cast::Cast};
 use hir_def::{
-    EnumVariantId, GeneralConstId, HasModule as _, StaticId,
+    EnumVariantId, GeneralConstId, HasModule as _, Lookup, StaticId,
     expr_store::{Body, HygieneId, path::Path},
     hir::{Expr, ExprId},
     resolver::{Resolver, ValueNs},
     type_ref::LiteralConstRef,
 };
-use hir_expand::Lookup;
 use stdx::never;
 use triomphe::Arc;
 

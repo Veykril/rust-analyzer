@@ -1461,8 +1461,8 @@ fn scope_for_offset(
             }
 
             // FIXME handle attribute expansion
-            let source = iter::successors(file_id.macro_file().map(|it| it.call_node(db)), |it| {
-                Some(it.file_id.macro_file()?.call_node(db))
+            let source = iter::successors(file_id.macro_file().map(|it| db.to_node(it)), |it| {
+                Some(db.to_node(it.file_id.macro_file()?))
             })
             .find(|it| it.file_id == from_file)
             .filter(|it| it.kind() == SyntaxKind::MACRO_CALL)?;

@@ -51,27 +51,27 @@ pub(crate) fn complete_cargo_env_vars(
     original: &ast::String,
     expanded: &ast::String,
 ) -> Option<()> {
-    let is_in_env_expansion = ctx
-        .sema
-        .hir_file_for(&expanded.syntax().parent()?)
-        .macro_file()
-        .is_some_and(|it| it.is_env_or_option_env(ctx.sema.db));
-    if !is_in_env_expansion {
-        let call = macro_call_for_string_token(expanded)?;
-        let makro = ctx.sema.resolve_macro_call(&call)?;
-        // We won't map into `option_env` as that generates `None` for non-existent env vars
-        // so fall back to this lookup
-        if !makro.is_env_or_option_env(ctx.sema.db) {
-            return None;
-        }
-    }
-    let range = original.text_range_between_quotes()?;
+    // let is_in_env_expansion = ctx
+    //     .sema
+    //     .hir_file_for(&expanded.syntax().parent()?)
+    //     .macro_file()
+    //     .is_some_and(|it| it.is_env_or_option_env(ctx.sema.db));
+    // if !is_in_env_expansion {
+    //     let call = macro_call_for_string_token(expanded)?;
+    //     let makro = ctx.sema.resolve_macro_call(&call)?;
+    //     // We won't map into `option_env` as that generates `None` for non-existent env vars
+    //     // so fall back to this lookup
+    //     if !makro.is_env_or_option_env(ctx.sema.db) {
+    //         return None;
+    //     }
+    // }
+    // let range = original.text_range_between_quotes()?;
 
-    CARGO_DEFINED_VARS.iter().for_each(|&(var, detail)| {
-        let mut item = CompletionItem::new(CompletionItemKind::Keyword, range, var, ctx.edition);
-        item.detail(detail);
-        item.add_to(acc, ctx.db);
-    });
+    // CARGO_DEFINED_VARS.iter().for_each(|&(var, detail)| {
+    //     let mut item = CompletionItem::new(CompletionItemKind::Keyword, range, var, ctx.edition);
+    //     item.detail(detail);
+    //     item.add_to(acc, ctx.db);
+    // });
 
     Some(())
 }

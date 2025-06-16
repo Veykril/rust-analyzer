@@ -549,31 +549,31 @@ fn handle_diag_from_macros(
     diag: &mut Diagnostic,
     node: &InFile<SyntaxNode>,
 ) -> bool {
-    let Some(macro_file) = node.file_id.macro_file() else { return true };
-    let span_map = sema.db.expansion_span_map(macro_file);
-    let mut spans = span_map.spans_for_range(node.text_range());
-    if spans.any(|span| {
-        span.ctx.outer_expn(sema.db).is_some_and(|expansion| {
-            let macro_call = sema.db.lookup_intern_macro_call(expansion.into());
-            // We don't want to show diagnostics for non-local macros at all, but proc macros authors
-            // seem to rely on being able to emit non-warning-free code, so we don't want to show warnings
-            // for them even when the proc macro comes from the same workspace (in rustc that's not a
-            // problem because it doesn't have the concept of workspaces, and proc macros always reside
-            // in a different crate).
-            !Crate::from(macro_call.def.krate).origin(sema.db).is_local()
-                || !macro_call.def.kind.is_declarative()
-        })
-    }) {
-        // Disable suggestions for external macros, they'll change library code and it's just bad.
-        diag.fixes = None;
+    // let Some(macro_file) = node.file_id.macro_file() else { return true };
+    // let span_map = sema.db.expansion_span_map(macro_file);
+    // let mut spans = span_map.spans_for_range(node.text_range());
+    // if spans.any(|span| {
+    //     span.ctx.outer_expn(sema.db).is_some_and(|expansion| {
+    //         let macro_call = sema.db.lookup_intern_macro_call(expansion.into());
+    //         // We don't want to show diagnostics for non-local macros at all, but proc macros authors
+    //         // seem to rely on being able to emit non-warning-free code, so we don't want to show warnings
+    //         // for them even when the proc macro comes from the same workspace (in rustc that's not a
+    //         // problem because it doesn't have the concept of workspaces, and proc macros always reside
+    //         // in a different crate).
+    //         !Crate::from(macro_call.def.krate).origin(sema.db).is_local()
+    //             || !macro_call.def.kind.is_declarative()
+    //     })
+    // }) {
+    //     // Disable suggestions for external macros, they'll change library code and it's just bad.
+    //     diag.fixes = None;
 
-        // All Clippy lints report in macros, see https://github.com/rust-lang/rust-clippy/blob/903293b199364/declare_clippy_lint/src/lib.rs#L172.
-        if let DiagnosticCode::RustcLint(lint) = diag.code {
-            if !LINTS_TO_REPORT_IN_EXTERNAL_MACROS.contains(lint) {
-                return false;
-            }
-        };
-    }
+    //     // All Clippy lints report in macros, see https://github.com/rust-lang/rust-clippy/blob/903293b199364/declare_clippy_lint/src/lib.rs#L172.
+    //     if let DiagnosticCode::RustcLint(lint) = diag.code {
+    //         if !LINTS_TO_REPORT_IN_EXTERNAL_MACROS.contains(lint) {
+    //             return false;
+    //         }
+    //     };
+    // }
     true
 }
 

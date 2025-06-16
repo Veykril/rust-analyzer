@@ -3,16 +3,17 @@
 use std::{fmt, panic, sync::Mutex};
 
 use base_db::{
-    CrateGraphBuilder, CratesMap, FileSourceRootInput, FileText, RootQueryDb, SourceDatabase,
-    SourceRoot, SourceRootId, SourceRootInput,
+    Crate, CrateGraphBuilder, CratesMap, FileSourceRootInput, FileText, RootQueryDb,
+    SourceDatabase, SourceRoot, SourceRootId, SourceRootInput,
 };
 
-use hir_def::{ModuleId, db::DefDatabase, nameres::crate_def_map};
-use hir_expand::EditionedFileId;
+use either::Either;
+use hir_def::{Lookup, MacroId, ModuleId, db::DefDatabase, nameres::crate_def_map};
+use hir_expand::{DepInjectDatabase, EditionedFileId, InFile, MacroCallKind, attrs::collect_attrs};
 use rustc_hash::FxHashMap;
 use salsa::{AsDynDatabase, Durability};
 use span::FileId;
-use syntax::TextRange;
+use syntax::{AstNode, SyntaxNode, TextRange, ast};
 use test_utils::extract_annotations;
 use triomphe::Arc;
 
@@ -53,6 +54,92 @@ impl Default for TestDB {
 impl fmt::Debug for TestDB {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TestDB").finish()
+    }
+}
+
+impl DepInjectDatabase for TestDB {
+    fn macro_call_call_crate(&self, macro_call: span::MacroCallId) -> Crate {
+        macro_call.lookup(self).container.krate()
+    }
+
+    fn macro_call_def_crate(&self, macro_call: span::MacroCallId) -> Crate {
+        macro_call.lookup(self).def.krate(self)
+    }
+
+    fn macro_call_def_file_id(
+        &self,
+        macro_call: span::MacroCallId,
+    ) -> hir_expand::AstId<ast::Item> {
+        match macro_call.lookup(self).def {
+            MacroId::Macro2Id(macro2_id) => macro2_id.lookup(self).id.upcast(),
+            MacroId::MacroRulesId(macro_rules_id) => macro_rules_id.lookup(self).id.upcast(),
+            MacroId::ProcMacroId(proc_macro_id) => proc_macro_id.lookup(self).id.upcast(),
+        }
+    }
+
+    fn macro_call_kind(&self, macro_call: span::MacroCallId) -> hir_expand::MacroCallKind {
+        macro_call.lookup(self).kind
+    }
+
+    fn macro_call_expander(&self, macro_call: span::MacroCallId) -> hir_expand::MacroExpander {
+        macro_call.lookup(self).def.expander(self)
+    }
+
+    fn macro_call_ctx(&self, macro_call: span::MacroCallId) -> span::SyntaxContext {
+        macro_call.lookup(self).ctxt
+    }
+
+    fn macro_call_local_inner(&self, macro_call: span::MacroCallId) -> bool {
+        macro_call.lookup(self).def.local_inner(self)
+    }
+
+    fn proc_macro_call_expander(
+        &self,
+        macro_call: span::MacroCallId,
+    ) -> Option<(hir_expand::proc_macro::CustomProcMacroExpander, hir_expand::AstId<ast::Fn>)> {
+        match macro_call.lookup(self).def {
+            MacroId::ProcMacroId(it) => Some({
+                let lookup = it.lookup(self);
+                (lookup.expander, lookup.id)
+            }),
+            MacroId::Macro2Id(_) | MacroId::MacroRulesId(_) => None,
+        }
+    }
+    fn to_node(&self, macro_call: span::MacroCallId) -> InFile<SyntaxNode> {
+        let lookup = macro_call.lookup(self);
+        match lookup.kind {
+            MacroCallKind::FnLike { ast_id, .. } => {
+                ast_id.with_value(ast_id.to_node(self).syntax().clone())
+            }
+            MacroCallKind::Derive { ast_id, derive_attr_index, .. } => {
+                // FIXME: handle `cfg_attr`
+                ast_id.with_value(ast_id.to_node(self)).map(|it| {
+                    collect_attrs(&it)
+                        .nth(derive_attr_index.ast_index())
+                        .and_then(|it| match it.1 {
+                            Either::Left(attr) => Some(attr.syntax().clone()),
+                            Either::Right(_) => None,
+                        })
+                        .unwrap_or_else(|| it.syntax().clone())
+                })
+            }
+            MacroCallKind::Attr { ast_id, invoc_attr_index, .. } => {
+                if lookup.def.expander(self).is_attribute_derive() {
+                    // FIXME: handle `cfg_attr`
+                    ast_id.with_value(ast_id.to_node(self)).map(|it| {
+                        collect_attrs(&it)
+                            .nth(invoc_attr_index.ast_index())
+                            .and_then(|it| match it.1 {
+                                Either::Left(attr) => Some(attr.syntax().clone()),
+                                Either::Right(_) => None,
+                            })
+                            .unwrap_or_else(|| it.syntax().clone())
+                    })
+                } else {
+                    ast_id.with_value(ast_id.to_node(self).syntax().clone())
+                }
+            }
+        }
     }
 }
 

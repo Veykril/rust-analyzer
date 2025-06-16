@@ -6,8 +6,8 @@ use std::{
 };
 
 use either::Either;
-use hir_def::{expr_store::Body, hir::BindingId};
-use hir_expand::{Lookup, name::Name};
+use hir_def::{Lookup, expr_store::Body, hir::BindingId};
+use hir_expand::name::Name;
 use la_arena::ArenaMap;
 
 use crate::{

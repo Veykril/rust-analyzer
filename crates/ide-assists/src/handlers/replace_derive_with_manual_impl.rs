@@ -43,70 +43,70 @@ pub(crate) fn replace_derive_with_manual_impl(
     acc: &mut Assists,
     ctx: &AssistContext<'_>,
 ) -> Option<()> {
-    let attr = ctx.find_node_at_offset_with_descend::<ast::Attr>()?;
-    let path = attr.path()?;
-    let macro_file = ctx.sema.hir_file_for(attr.syntax()).macro_file()?;
-    if !macro_file.is_derive_attr_pseudo_expansion(ctx.db()) {
-        return None;
-    }
+    // let attr = ctx.find_node_at_offset_with_descend::<ast::Attr>()?;
+    // let path = attr.path()?;
+    // let macro_file = ctx.sema.hir_file_for(attr.syntax()).macro_file()?;
+    // if !macro_file.is_derive_attr_pseudo_expansion(ctx.db()) {
+    //     return None;
+    // }
 
-    let InFile { file_id, value } = macro_file.call_node(ctx.db());
-    if file_id.is_macro() {
-        // FIXME: make this work in macro files
-        return None;
-    }
-    // collect the derive paths from the #[derive] expansion
-    let current_derives = ctx
-        .sema
-        .parse_or_expand(macro_file.into())
-        .descendants()
-        .filter_map(ast::Attr::cast)
-        .filter_map(|attr| attr.path())
-        .collect::<Vec<_>>();
+    // let InFile { file_id, value } = macro_file.call_node(ctx.db());
+    // if file_id.is_macro() {
+    //     // FIXME: make this work in macro files
+    //     return None;
+    // }
+    // // collect the derive paths from the #[derive] expansion
+    // let current_derives = ctx
+    //     .sema
+    //     .parse_or_expand(macro_file.into())
+    //     .descendants()
+    //     .filter_map(ast::Attr::cast)
+    //     .filter_map(|attr| attr.path())
+    //     .collect::<Vec<_>>();
 
-    let adt = value.parent().and_then(ast::Adt::cast)?;
-    let attr = ast::Attr::cast(value)?;
-    let args = attr.token_tree()?;
+    // let adt = value.parent().and_then(ast::Adt::cast)?;
+    // let attr = ast::Attr::cast(value)?;
+    // let args = attr.token_tree()?;
 
-    let current_module = ctx.sema.scope(adt.syntax())?.module();
-    let current_crate = current_module.krate();
-    let current_edition = current_crate.edition(ctx.db());
+    // let current_module = ctx.sema.scope(adt.syntax())?.module();
+    // let current_crate = current_module.krate();
+    // let current_edition = current_crate.edition(ctx.db());
 
-    let found_traits = items_locator::items_with_name(
-        ctx.db(),
-        current_crate,
-        NameToImport::exact_case_sensitive(path.segments().last()?.to_string()),
-        items_locator::AssocSearchMode::Exclude,
-    )
-    .filter_map(|(item, _)| match item.into_module_def() {
-        ModuleDef::Trait(trait_) => Some(trait_),
-        _ => None,
-    })
-    .flat_map(|trait_| {
-        current_module
-            .find_path(ctx.sema.db, hir::ModuleDef::Trait(trait_), ctx.config.import_path_config())
-            .as_ref()
-            .map(|path| mod_path_to_ast(path, current_edition))
-            .zip(Some(trait_))
-    });
+    // let found_traits = items_locator::items_with_name(
+    //     ctx.db(),
+    //     current_crate,
+    //     NameToImport::exact_case_sensitive(path.segments().last()?.to_string()),
+    //     items_locator::AssocSearchMode::Exclude,
+    // )
+    // .filter_map(|(item, _)| match item.into_module_def() {
+    //     ModuleDef::Trait(trait_) => Some(trait_),
+    //     _ => None,
+    // })
+    // .flat_map(|trait_| {
+    //     current_module
+    //         .find_path(ctx.sema.db, hir::ModuleDef::Trait(trait_), ctx.config.import_path_config())
+    //         .as_ref()
+    //         .map(|path| mod_path_to_ast(path, current_edition))
+    //         .zip(Some(trait_))
+    // });
 
-    let mut no_traits_found = true;
-    for (replace_trait_path, trait_) in found_traits.inspect(|_| no_traits_found = false) {
-        add_assist(
-            acc,
-            ctx,
-            &attr,
-            &current_derives,
-            &args,
-            &path,
-            &replace_trait_path,
-            Some(trait_),
-            &adt,
-        )?;
-    }
-    if no_traits_found {
-        add_assist(acc, ctx, &attr, &current_derives, &args, &path, &path, None, &adt)?;
-    }
+    // let mut no_traits_found = true;
+    // for (replace_trait_path, trait_) in found_traits.inspect(|_| no_traits_found = false) {
+    //     add_assist(
+    //         acc,
+    //         ctx,
+    //         &attr,
+    //         &current_derives,
+    //         &args,
+    //         &path,
+    //         &replace_trait_path,
+    //         Some(trait_),
+    //         &adt,
+    //     )?;
+    // }
+    // if no_traits_found {
+    //     add_assist(acc, ctx, &attr, &current_derives, &args, &path, &path, None, &adt)?;
+    // }
     Some(())
 }
 

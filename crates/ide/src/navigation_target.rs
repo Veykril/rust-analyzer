@@ -816,112 +816,112 @@ pub(crate) fn orig_range_with_focus_r(
     focus_range: Option<TextRange>,
 ) -> UpmappingResult<(FileRange, Option<TextRange>)> {
     let Some(name) = focus_range else { return orig_range_r(db, hir_file, value) };
+    orig_range_r(db, hir_file, value)
+    // let call_kind = || db.lookup_intern_macro_call(hir_file.macro_file().unwrap()).kind;
 
-    let call_kind = || db.lookup_intern_macro_call(hir_file.macro_file().unwrap()).kind;
+    // let def_range =
+    //     || db.lookup_intern_macro_call(hir_file.macro_file().unwrap()).def.definition_range(db);
 
-    let def_range =
-        || db.lookup_intern_macro_call(hir_file.macro_file().unwrap()).def.definition_range(db);
+    // // FIXME: Also make use of the syntax context to determine which site we are at?
+    // let value_range = InFile::new(hir_file, value).original_node_file_range_opt(db);
+    // let ((call_site_range, call_site_focus), def_site) =
+    //     match InFile::new(hir_file, name).original_node_file_range_opt(db) {
+    //         // call site name
+    //         Some((focus_range, ctxt)) if ctxt.is_root() => {
+    //             // Try to upmap the node as well, if it ends up in the def site, go back to the call site
+    //             (
+    //                 (
+    //                     match value_range {
+    //                         // name is in the node in the macro input so we can return it
+    //                         Some((range, ctxt))
+    //                             if ctxt.is_root()
+    //                                 && range.file_id == focus_range.file_id
+    //                                 && range.range.contains_range(focus_range.range) =>
+    //                         {
+    //                             range
+    //                         }
+    //                         // name lies outside the node, so instead point to the macro call which
+    //                         // *should* contain the name
+    //                         _ => {
+    //                             let kind = call_kind();
+    //                             let range = kind.clone().original_call_range_with_body(db);
+    //                             //If the focus range is in the attribute/derive body, we
+    //                             // need to point the call site to the entire body, if not, fall back
+    //                             // to the name range of the attribute/derive call
+    //                             // FIXME: Do this differently, this is very inflexible the caller
+    //                             // should choose this behavior
+    //                             if range.file_id == focus_range.file_id
+    //                                 && range.range.contains_range(focus_range.range)
+    //                             {
+    //                                 range
+    //                             } else {
+    //                                 kind.original_call_range(db)
+    //                             }
+    //                         }
+    //                     },
+    //                     Some(focus_range),
+    //                 ),
+    //                 // no def site relevant
+    //                 None,
+    //             )
+    //         }
 
-    // FIXME: Also make use of the syntax context to determine which site we are at?
-    let value_range = InFile::new(hir_file, value).original_node_file_range_opt(db);
-    let ((call_site_range, call_site_focus), def_site) =
-        match InFile::new(hir_file, name).original_node_file_range_opt(db) {
-            // call site name
-            Some((focus_range, ctxt)) if ctxt.is_root() => {
-                // Try to upmap the node as well, if it ends up in the def site, go back to the call site
-                (
-                    (
-                        match value_range {
-                            // name is in the node in the macro input so we can return it
-                            Some((range, ctxt))
-                                if ctxt.is_root()
-                                    && range.file_id == focus_range.file_id
-                                    && range.range.contains_range(focus_range.range) =>
-                            {
-                                range
-                            }
-                            // name lies outside the node, so instead point to the macro call which
-                            // *should* contain the name
-                            _ => {
-                                let kind = call_kind();
-                                let range = kind.clone().original_call_range_with_body(db);
-                                //If the focus range is in the attribute/derive body, we
-                                // need to point the call site to the entire body, if not, fall back
-                                // to the name range of the attribute/derive call
-                                // FIXME: Do this differently, this is very inflexible the caller
-                                // should choose this behavior
-                                if range.file_id == focus_range.file_id
-                                    && range.range.contains_range(focus_range.range)
-                                {
-                                    range
-                                } else {
-                                    kind.original_call_range(db)
-                                }
-                            }
-                        },
-                        Some(focus_range),
-                    ),
-                    // no def site relevant
-                    None,
-                )
-            }
+    //         // def site name
+    //         // FIXME: This can be improved
+    //         Some((focus_range, _ctxt)) => {
+    //             match value_range {
+    //                 // but overall node is in macro input
+    //                 Some((range, ctxt)) if ctxt.is_root() => (
+    //                     // node mapped up in call site, show the node
+    //                     (range, None),
+    //                     // def site, if the name is in the (possibly) upmapped def site range, show the
+    //                     // def site
+    //                     {
+    //                         let (def_site, _) = def_range().original_node_file_range(db);
+    //                         (def_site.file_id == focus_range.file_id
+    //                             && def_site.range.contains_range(focus_range.range))
+    //                         .then_some((def_site, Some(focus_range)))
+    //                     },
+    //                 ),
+    //                 // node is in macro def, just show the focus
+    //                 _ => (
+    //                     // show the macro call
+    //                     (call_kind().original_call_range(db), None),
+    //                     Some((focus_range, Some(focus_range))),
+    //                 ),
+    //             }
+    //         }
+    //         // lost name? can't happen for single tokens
+    //         None => return orig_range_r(db, hir_file, value),
+    //     };
 
-            // def site name
-            // FIXME: This can be improved
-            Some((focus_range, _ctxt)) => {
-                match value_range {
-                    // but overall node is in macro input
-                    Some((range, ctxt)) if ctxt.is_root() => (
-                        // node mapped up in call site, show the node
-                        (range, None),
-                        // def site, if the name is in the (possibly) upmapped def site range, show the
-                        // def site
-                        {
-                            let (def_site, _) = def_range().original_node_file_range(db);
-                            (def_site.file_id == focus_range.file_id
-                                && def_site.range.contains_range(focus_range.range))
-                            .then_some((def_site, Some(focus_range)))
-                        },
-                    ),
-                    // node is in macro def, just show the focus
-                    _ => (
-                        // show the macro call
-                        (call_kind().original_call_range(db), None),
-                        Some((focus_range, Some(focus_range))),
-                    ),
-                }
-            }
-            // lost name? can't happen for single tokens
-            None => return orig_range_r(db, hir_file, value),
-        };
-
-    UpmappingResult {
-        call_site: (
-            call_site_range.into_file_id(db),
-            call_site_focus.and_then(|hir::FileRange { file_id, range }| {
-                if call_site_range.file_id == file_id && call_site_range.range.contains_range(range)
-                {
-                    Some(range)
-                } else {
-                    None
-                }
-            }),
-        ),
-        def_site: def_site.map(|(def_site_range, def_site_focus)| {
-            (
-                def_site_range.into_file_id(db),
-                def_site_focus.and_then(|hir::FileRange { file_id, range }| {
-                    if def_site_range.file_id == file_id
-                        && def_site_range.range.contains_range(range)
-                    {
-                        Some(range)
-                    } else {
-                        None
-                    }
-                }),
-            )
-        }),
-    }
+    // UpmappingResult {
+    //     call_site: (
+    //         call_site_range.into_file_id(db),
+    //         call_site_focus.and_then(|hir::FileRange { file_id, range }| {
+    //             if call_site_range.file_id == file_id && call_site_range.range.contains_range(range)
+    //             {
+    //                 Some(range)
+    //             } else {
+    //                 None
+    //             }
+    //         }),
+    //     ),
+    //     def_site: def_site.map(|(def_site_range, def_site_focus)| {
+    //         (
+    //             def_site_range.into_file_id(db),
+    //             def_site_focus.and_then(|hir::FileRange { file_id, range }| {
+    //                 if def_site_range.file_id == file_id
+    //                     && def_site_range.range.contains_range(range)
+    //                 {
+    //                     Some(range)
+    //                 } else {
+    //                     None
+    //                 }
+    //             }),
+    //         )
+    //     }),
+    // }
 }
 
 fn orig_range(

@@ -471,10 +471,10 @@ fn traverse(
                 highlight |= HlMod::Attribute
             }
             if let Some(m) = descended_element.file_id.macro_file() {
-                if let MacroKind::ProcMacro | MacroKind::Attr | MacroKind::Derive = m.kind(sema.db)
-                {
-                    highlight |= HlMod::ProcMacro
-                }
+                // if let MacroKind::ProcMacro | MacroKind::Attr | MacroKind::Derive = m.kind(sema.db)
+                // {
+                //     highlight |= HlMod::ProcMacro
+                // }
                 highlight |= HlMod::Macro
             }
 

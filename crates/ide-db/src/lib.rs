@@ -94,6 +94,8 @@ impl std::panic::RefUnwindSafe for RootDatabase {}
 #[salsa_macros::db]
 impl salsa::Database for RootDatabase {}
 
+hir::aa!(RootDatabase);
+
 impl Drop for RootDatabase {
     fn drop(&mut self) {
         unsafe { ManuallyDrop::drop(&mut self.storage) };
