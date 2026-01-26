@@ -29,7 +29,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use stdx::thread;
 use tracing::{Level, span, trace};
 use triomphe::Arc;
-use vfs::{AbsPathBuf, AnchoredPathBuf, ChangeKind, Vfs, VfsPath};
+use vfs::{AbsPath, AbsPathBuf, AnchoredPathBuf, ChangeKind, Vfs, VfsPath};
 
 use crate::{
     config::{Config, ConfigChange, ConfigErrors, RatomlFileKind},
@@ -695,15 +695,29 @@ impl GlobalState {
             {
                 return Some(format!(
                     "Workspace `{}` is using an outdated toolchain version `{}` but \
-                        rust-analyzer only supports `{}` and higher.\n\
-                        Consider using the rust-analyzer rustup component for your toolchain or
-                        upgrade your toolchain to a supported version.\n\n",
+                            rust-analyzer only supports `{}` and higher.\n\
+                            Consider using the rust-analyzer rustup component for your toolchain or
+                            upgrade your toolchain to a supported version.\n\n",
                     ws.manifest_or_root(),
                     toolchain,
                     crate::MINIMUM_SUPPORTED_TOOLCHAIN_VERSION,
                 ));
             }
             None
+        })
+    }
+
+    pub(crate) fn check_rustup_failure(&self) -> impl Iterator<Item = (String, &AbsPath)> + '_ {
+        self.workspaces.iter().filter_map(|ws| match &ws.kind {
+            ProjectWorkspaceKind::Cargo { error: Some(error), .. } => {
+                let error = error.to_string();
+                if error.contains("help: run `rustup toolchain install` to install it") {
+                    Some((error, ws.workspace_root()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         })
     }
 

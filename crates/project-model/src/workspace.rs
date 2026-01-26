@@ -199,7 +199,7 @@ impl ProjectWorkspace {
                 ProjectWorkspace::load_detached_file(rust_file, config)?
             }
             ProjectManifest::CargoToml(cargo_toml) => {
-                ProjectWorkspace::load_cargo(cargo_toml, config, progress)?
+                ProjectWorkspace::load_cargo(cargo_toml, config, progress)
             }
         };
 
@@ -210,7 +210,7 @@ impl ProjectWorkspace {
         cargo_toml: &ManifestPath,
         config: &CargoConfig,
         progress: &(dyn Fn(String) + Sync),
-    ) -> Result<ProjectWorkspace, anyhow::Error> {
+    ) -> ProjectWorkspace {
         progress("discovering sysroot".to_owned());
         let CargoConfig {
             features,
@@ -445,7 +445,7 @@ impl ProjectWorkspace {
             _ = e.take();
         }
 
-        Ok(ProjectWorkspace {
+        ProjectWorkspace {
             kind: ProjectWorkspaceKind::Cargo {
                 cargo,
                 build_scripts: WorkspaceBuildScripts::default(),
@@ -459,7 +459,7 @@ impl ProjectWorkspace {
             target: data_layout.map_err(|it| it.to_string().into()),
             extra_includes: extra_includes.clone(),
             set_test: *set_test,
-        })
+        }
     }
 
     pub fn load_inline(
