@@ -297,7 +297,7 @@ impl ast::IndexExpr {
 }
 
 pub enum ArrayExprKind {
-    Repeat { initializer: Option<ast::Expr>, repeat: Option<ast::Expr> },
+    Repeat { initializer: Option<ast::Expr>, repeat: Option<ast::ConstArg> },
     ElementList(AstChildren<ast::Expr>),
 }
 
@@ -305,8 +305,8 @@ impl ast::ArrayExpr {
     pub fn kind(&self) -> ArrayExprKind {
         if self.is_repeat() {
             ArrayExprKind::Repeat {
-                initializer: support::children(self.syntax()).next(),
-                repeat: support::children(self.syntax()).nth(1),
+                initializer: support::child(self.syntax()),
+                repeat: support::child(self.syntax()),
             }
         } else {
             ArrayExprKind::ElementList(support::children(self.syntax()))

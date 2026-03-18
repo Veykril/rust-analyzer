@@ -1351,14 +1351,15 @@ impl<'db> InferenceContext<'_, 'db> {
                     ExprIsRead::Yes,
                 );
                 let usize = self.types.types.usize;
-                let len = match self.store[repeat] {
+                // FIXME: self.lower_const(array.len, Ty::new_usize(interner));
+                let len = match self.store[repeat.expr] {
                     Expr::Underscore => {
-                        self.write_expr_ty(repeat, usize);
+                        self.write_expr_ty(repeat.expr, usize);
                         self.table.next_const_var()
                     }
                     _ => {
-                        self.infer_expr(repeat, &Expectation::HasType(usize), ExprIsRead::Yes);
-                        consteval::eval_to_const(repeat, self)
+                        self.infer_expr(repeat.expr, &Expectation::HasType(usize), ExprIsRead::Yes);
+                        consteval::eval_to_const(repeat.expr, self)
                     }
                 };
 

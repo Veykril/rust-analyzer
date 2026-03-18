@@ -146,6 +146,20 @@ pub fn infer_query_with_inspect<'db>(
 
     ctx.infer_mut_body(body.body_expr);
 
+    for (root_expr, origin) in body.store.signature_const_expr_roots_with_origins() {
+        let expected = match origin {
+            // Array lengths are always `usize`.
+            ConstExprOrigin::ArrayLength => Expectation::has_type(ctx.types.types.usize),
+            ConstExprOrigin::ConstParam(_) => unreachable!(),
+            // Path const generic args: determining the expected type requires
+            // path resolution.
+            // FIXME
+            ConstExprOrigin::GenericArgsPath => Expectation::None,
+        };
+        ctx.infer_expr(root_expr, &expected, ExprIsRead::Yes);
+        ctx.infer_mut_expr(root_expr, Mutability::Not);
+    }
+
     ctx.handle_opaque_type_uses();
 
     ctx.type_inference_fallback();
@@ -211,10 +225,31 @@ fn infer_signature_query(db: &dyn HirDatabase, def: GenericDefId) -> InferenceRe
             ConstExprOrigin::GenericArgsPath => Expectation::None,
         };
         ctx.infer_expr(root_expr, &expected, ExprIsRead::Yes);
+        ctx.infer_mut_expr(root_expr, Mutability::Not);
     }
 
+    ctx.handle_opaque_type_uses();
+
     ctx.type_inference_fallback();
+
+    // Comment from rustc:
+    // Even though coercion casts provide type hints, we check casts after fallback for
+    // backwards compatibility. This makes fallback a stronger type hint than a cast coercion.
+    let cast_checks = std::mem::take(&mut ctx.deferred_cast_checks);
+    for mut cast in cast_checks.into_iter() {
+        if let Err(diag) = cast.check(&mut ctx) {
+            ctx.diagnostics.push(diag);
+        }
+    }
+
     ctx.table.select_obligations_where_possible();
+
+    ctx.infer_closures();
+
+    ctx.table.select_obligations_where_possible();
+
+    ctx.handle_opaque_type_uses();
+
     ctx.resolve_all()
 }
 
@@ -943,8 +978,7 @@ impl<'body, 'db> InferenceContext<'body, 'db> {
                 db.trait_environment_for_body(def_with_body_id)
             }
         };
-        let table =
-            unify::InferenceTable::new(db, trait_env, resolver.krate(), owner.as_def_with_body());
+        let table = unify::InferenceTable::new(db, trait_env, resolver.krate(), Some(owner));
         let types = crate::next_solver::default_types(db);
         InferenceContext {
             result: InferenceResult::new(types.types.error),

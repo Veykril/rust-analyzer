@@ -815,7 +815,7 @@ impl Printer<'_> {
                         Array::Repeat { initializer, repeat } => {
                             p.print_expr(*initializer);
                             w!(p, "; ");
-                            p.print_expr(*repeat);
+                            p.print_expr(repeat.expr);
                         }
                     });
                     self.newline();

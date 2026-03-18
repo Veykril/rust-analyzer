@@ -530,10 +530,17 @@ fn array_expr(p: &mut Parser<'_>) -> CompletedMarker {
     while !p.at(EOF) && !p.at(T![']']) {
         n_exprs += 1;
 
+        let m = if has_semi { Some(p.start()) } else { None };
         // test array_attrs
         // const A: &[i64] = &[1, #[cfg(test)] 2];
         if expr(p).is_none() {
+            if let Some(m) = m {
+                m.abandon(p);
+            }
             break;
+        }
+        if let Some(m) = m {
+            m.complete(p, CONST_ARG);
         }
 
         if n_exprs == 1 && p.eat(T![;]) {

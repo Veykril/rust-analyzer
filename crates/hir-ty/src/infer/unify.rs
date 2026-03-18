@@ -3,7 +3,7 @@
 use std::fmt;
 
 use base_db::Crate;
-use hir_def::{AdtId, DefWithBodyId, GenericParamId};
+use hir_def::{AdtId, ExpressionStoreOwner, GenericParamId};
 use hir_expand::name::Name;
 use intern::sym;
 use rustc_hash::FxHashSet;
@@ -147,11 +147,17 @@ impl<'db> InferenceTable<'db> {
         db: &'db dyn HirDatabase,
         trait_env: ParamEnv<'db>,
         krate: Crate,
-        owner: Option<DefWithBodyId>,
+        owner: Option<ExpressionStoreOwner>,
     ) -> Self {
         let interner = DbInterner::new_with(db, krate);
         let typing_mode = match owner {
-            Some(owner) => TypingMode::typeck_for_body(interner, owner.into()),
+            Some(owner) => TypingMode::typeck_for_body(
+                interner,
+                match owner {
+                    ExpressionStoreOwner::Signature(sig) => sig.into(),
+                    ExpressionStoreOwner::Body(body) => body.into(),
+                },
+            ),
             // IDE things wants to reveal opaque types.
             None => TypingMode::PostAnalysis,
         };

@@ -18,7 +18,7 @@ impl<'db> InferenceContext<'_, 'db> {
         self.infer_mut_expr(body_expr, Mutability::Not);
     }
 
-    fn infer_mut_expr(&mut self, tgt_expr: ExprId, mut mutability: Mutability) {
+    pub(crate) fn infer_mut_expr(&mut self, tgt_expr: ExprId, mut mutability: Mutability) {
         if let Some(adjustments) = self.result.expr_adjustments.get_mut(&tgt_expr) {
             let mut adjustments = adjustments.iter_mut().rev().peekable();
             while let Some(adj) = adjustments.next() {
@@ -180,8 +180,11 @@ impl<'db> InferenceContext<'_, 'db> {
                 });
                 self.infer_mut_expr(value, Mutability::Not);
             }
-            Expr::Array(Array::Repeat { initializer: lhs, repeat: rhs })
-            | Expr::BinaryOp { lhs, rhs, op: _ }
+            Expr::Array(Array::Repeat { initializer: lhs, repeat: rhs }) => {
+                self.infer_mut_expr(*lhs, Mutability::Not);
+                self.infer_mut_expr(rhs.expr, Mutability::Not);
+            }
+            Expr::BinaryOp { lhs, rhs, op: _ }
             | Expr::Range { lhs: Some(lhs), rhs: Some(rhs), range_type: _ } => {
                 self.infer_mut_expr(*lhs, Mutability::Not);
                 self.infer_mut_expr(*rhs, Mutability::Not);

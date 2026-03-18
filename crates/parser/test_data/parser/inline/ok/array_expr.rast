@@ -46,8 +46,9 @@ SOURCE_FILE
               INT_NUMBER "1"
             SEMICOLON ";"
             WHITESPACE " "
-            LITERAL
-              INT_NUMBER "2"
+            CONST_ARG
+              LITERAL
+                INT_NUMBER "2"
             R_BRACK "]"
           SEMICOLON ";"
         WHITESPACE "\n"

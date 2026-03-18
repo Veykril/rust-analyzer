@@ -31,6 +31,8 @@ pub struct ArrayExpr {
 impl ast::HasAttrs for ArrayExpr {}
 impl ArrayExpr {
     #[inline]
+    pub fn const_arg(&self) -> Option<ConstArg> { support::child(&self.syntax) }
+    #[inline]
     pub fn expr(&self) -> Option<Expr> { support::child(&self.syntax) }
     #[inline]
     pub fn exprs(&self) -> AstChildren<Expr> { support::children(&self.syntax) }

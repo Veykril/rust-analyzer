@@ -34,6 +34,7 @@ pub enum SolverDefId {
     InternedOpaqueTyId(InternedOpaqueTyId),
     EnumVariantId(EnumVariantId),
     // FIXME(next-solver): Do we need the separation of `Ctor`? It duplicates some variants.
+    // FIXME: Thuis is wrong, salsa::Supertype folds these into the previous variants.
     Ctor(Ctor),
 }
 

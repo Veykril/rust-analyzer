@@ -539,9 +539,7 @@ impl<'db> ExprCollector<'db> {
         module: ModuleId,
         current_file_id: HirFileId,
     ) -> ExprCollector<'_> {
-        let mut this = Self::body(db, module, current_file_id);
-        this.store.const_expr_origins = Some(Default::default());
-        this
+        Self::body(db, module, current_file_id)
     }
 
     /// Creates a collector for a bidy store.
@@ -640,9 +638,7 @@ impl<'db> ExprCollector<'db> {
             }
             ast::Type::ArrayType(inner) => {
                 let len = self.lower_const_arg_opt(inner.const_arg());
-                if let Some(const_expr_origins) = &mut self.store.const_expr_origins {
-                    const_expr_origins.push((len.expr, ConstExprOrigin::ArrayLength));
-                }
+                self.store.const_expr_origins.push((len.expr, ConstExprOrigin::ArrayLength));
                 TypeRef::Array(ArrayType {
                     ty: self.lower_type_ref_opt(inner.ty(), impl_trait_lower_fn),
                     len,
@@ -927,9 +923,9 @@ impl<'db> ExprCollector<'db> {
                 }
                 ast::GenericArg::ConstArg(arg) => {
                     let arg = self.lower_const_arg(arg);
-                    if let Some(const_expr_origins) = &mut self.store.const_expr_origins {
-                        const_expr_origins.push((arg.expr, ConstExprOrigin::GenericArgsPath));
-                    }
+                    self.store
+                        .const_expr_origins
+                        .push((arg.expr, ConstExprOrigin::GenericArgsPath));
                     args.push(GenericArg::Const(arg))
                 }
             }
@@ -1070,17 +1066,11 @@ impl<'db> ExprCollector<'db> {
     }
 
     fn lower_const_arg_opt(&mut self, arg: Option<ast::ConstArg>) -> ConstRef {
-        let const_expr_origins = self.store.const_expr_origins.take();
-        let r = ConstRef { expr: self.collect_expr_opt(arg.and_then(|it| it.expr())) };
-        self.store.const_expr_origins = const_expr_origins;
-        r
+        ConstRef { expr: self.collect_expr_opt(arg.and_then(|it| it.expr())) }
     }
 
     pub fn lower_const_arg(&mut self, arg: ast::ConstArg) -> ConstRef {
-        let const_expr_origins = self.store.const_expr_origins.take();
-        let r = ConstRef { expr: self.collect_expr_opt(arg.expr()) };
-        self.store.const_expr_origins = const_expr_origins;
-        r
+        ConstRef { expr: self.collect_expr_opt(arg.expr()) }
     }
 
     fn collect_expr(&mut self, expr: ast::Expr) -> ExprId {
@@ -1473,11 +1463,7 @@ impl<'db> ExprCollector<'db> {
                     ArrayExprKind::Repeat { initializer, repeat } => {
                         let initializer = self.collect_expr_opt(initializer);
                         let repeat = self.with_label_rib(RibKind::Constant, |this| {
-                            if let Some(repeat) = repeat {
-                                this.with_binding_owner(|this| this.collect_expr(repeat))
-                            } else {
-                                this.missing_expr()
-                            }
+                            this.lower_const_arg_opt(repeat)
                         });
                         self.alloc_expr(
                             Expr::Array(Array::Repeat { initializer, repeat }),

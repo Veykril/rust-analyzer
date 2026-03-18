@@ -501,7 +501,7 @@ ParenExpr =
 ArrayExpr =
   Attr* '[' Attr* (
     (Expr (',' Expr)* ','?)?
-  | Expr ';' Expr
+  | Expr ';' ConstArg
   ) ']'
 
 IndexExpr =

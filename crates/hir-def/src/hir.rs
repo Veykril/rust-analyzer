@@ -32,7 +32,7 @@ use crate::{
         HygieneId,
         path::{GenericArgs, Path},
     },
-    type_ref::{Mutability, Rawness},
+    type_ref::{ConstRef, Mutability, Rawness},
 };
 
 pub use syntax::ast::{ArithOp, BinaryOp, CmpOp, LogicOp, Ordering, RangeOp, UnaryOp};
@@ -554,7 +554,7 @@ pub enum Movability {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Array {
     ElementList { elements: Box<[ExprId]> },
-    Repeat { initializer: ExprId, repeat: ExprId },
+    Repeat { initializer: ExprId, repeat: ConstRef },
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]

@@ -617,7 +617,7 @@ impl<'db> NextSolverError<'db> {
 }
 
 mod wf {
-    use hir_def::{GeneralConstId, ItemContainerId};
+    use hir_def::{AdtId, GeneralConstId, ItemContainerId};
     use rustc_type_ir::inherent::{
         AdtDef, BoundExistentialPredicates, GenericArgs as _, IntoKind, SliceLike, Term as _,
         Ty as _,
@@ -631,7 +631,7 @@ mod wf {
     use crate::next_solver::infer::InferCtxt;
     use crate::next_solver::infer::traits::{Obligation, ObligationCause, PredicateObligations};
     use crate::next_solver::{
-        Binder, ClauseKind, Const, ConstKind, Ctor, DbInterner, ExistentialPredicate, GenericArgs,
+        Binder, ClauseKind, Const, ConstKind, DbInterner, ExistentialPredicate, GenericArgs,
         ParamEnv, Predicate, PredicateKind, Region, SolverDefId, Term, TraitRef, Ty, TyKind,
     };
 
@@ -893,10 +893,10 @@ mod wf {
 
                     let did = match did.0 {
                         hir_def::CallableDefId::FunctionId(id) => id.into(),
-                        hir_def::CallableDefId::StructId(id) => SolverDefId::Ctor(Ctor::Struct(id)),
-                        hir_def::CallableDefId::EnumVariantId(id) => {
-                            SolverDefId::Ctor(Ctor::Enum(id))
+                        hir_def::CallableDefId::StructId(id) => {
+                            SolverDefId::AdtId(AdtId::StructId(id))
                         }
+                        hir_def::CallableDefId::EnumVariantId(id) => SolverDefId::EnumVariantId(id),
                     };
                     let obligations = self.nominal_obligations(did, args);
                     self.out.extend(obligations);

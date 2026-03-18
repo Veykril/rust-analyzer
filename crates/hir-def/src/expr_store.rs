@@ -247,7 +247,7 @@ pub struct ExpressionStoreBuilder {
     pub types: Arena<TypeRef>,
     block_scopes: Vec<BlockId>,
     ident_hygiene: FxHashMap<ExprOrPatId, HygieneId>,
-    pub const_expr_origins: Option<ThinVec<(ExprId, ConstExprOrigin)>>,
+    pub const_expr_origins: ThinVec<(ExprId, ConstExprOrigin)>,
 
     // AST expressions can create patterns in destructuring assignments. Therefore, `ExprSource` can also map
     // to `PatId`, and `PatId` can also map to `ExprSource` (the other way around is unaffected).
@@ -387,7 +387,7 @@ impl ExpressionStoreBuilder {
                     binding_owners,
                     block_scopes: block_scopes.into_boxed_slice(),
                     ident_hygiene,
-                    const_expr_origins: const_expr_origins.unwrap_or_default(),
+                    const_expr_origins,
                 }))
             } else {
                 None
@@ -658,7 +658,7 @@ impl ExpressionStore {
                 Array::ElementList { elements, .. } => elements.iter().copied().for_each(f),
                 Array::Repeat { initializer, repeat } => {
                     f(*initializer);
-                    f(*repeat)
+                    f(repeat.expr)
                 }
             },
             &Expr::Assignment { target, value } => {
@@ -789,7 +789,7 @@ impl ExpressionStore {
                 Array::ElementList { elements, .. } => elements.iter().copied().for_each(f),
                 Array::Repeat { initializer, repeat } => {
                     f(*initializer);
-                    f(*repeat)
+                    f(repeat.expr)
                 }
             },
             &Expr::Assignment { target: _, value } => f(value),
