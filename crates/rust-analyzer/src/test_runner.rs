@@ -3,7 +3,8 @@
 
 use crossbeam_channel::Sender;
 use paths::{AbsPath, Utf8Path};
-use project_model::TargetKind;
+use project_model::{Sysroot, TargetKind, toolchain_info::version::require_cargo_unstable_options};
+use semver::Version;
 use serde::Deserialize as _;
 use serde_derive::Deserialize;
 use toolchain::Tool;
@@ -99,11 +100,12 @@ impl CargoTestHandle {
         options: CargoOptions,
         root: &AbsPath,
         ws_target_dir: Option<&Utf8Path>,
+        sysroot: &Sysroot,
+        toolchain: Option<&Version>,
         test_target: TestTarget,
         sender: Sender<CargoTestMessage>,
     ) -> anyhow::Result<Self> {
-        let mut cmd = toolchain::command(Tool::Cargo.path(), root, &options.extra_env);
-        cmd.env("RUSTC_BOOTSTRAP", "1");
+        let mut cmd = sysroot.tool(Tool::Cargo, root, &options.extra_env);
         cmd.arg("--color=always");
         cmd.arg(&options.subcommand); // test, usually
 
@@ -129,7 +131,7 @@ impl CargoTestHandle {
         if let Some(path) = path {
             cmd.arg(path);
         }
-        cmd.args(["-Z", "unstable-options"]);
+        require_cargo_unstable_options(toolchain, &mut cmd);
         cmd.arg("--format=json");
 
         for extra_arg in options.extra_test_bin_args {

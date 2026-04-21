@@ -30,6 +30,16 @@ pub(crate) fn get(
     anyhow::Ok(version)
 }
 
+pub fn require_cargo_unstable_options<'a>(
+    version: Option<&Version>,
+    cmd: &'a mut std::process::Command,
+) -> &'a mut std::process::Command {
+    if version.is_none_or(|v| v.pre.as_str() == "nightly") {
+        cmd.env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly");
+    }
+    cmd.args(["-Z", "unstable-options"])
+}
+
 #[cfg(test)]
 mod tests {
     use paths::{AbsPathBuf, Utf8PathBuf};

@@ -84,6 +84,7 @@ impl Tester {
             QueryConfig::Rustc(&sysroot, tmp_file.parent().unwrap().as_ref()),
             None,
             &cargo_config.extra_env,
+            None,
         );
 
         let workspace = ProjectWorkspace {

@@ -3,19 +3,24 @@
 use anyhow::Context;
 use cfg::CfgAtom;
 use rustc_hash::FxHashMap;
+use semver::Version;
 use toolchain::Tool;
 
-use crate::{toolchain_info::QueryConfig, utf8_stdout};
+use crate::{
+    toolchain_info::{QueryConfig, version::require_cargo_unstable_options},
+    utf8_stdout,
+};
 
 /// Uses `rustc --print cfg` to fetch the builtin cfgs.
 pub fn get(
     config: QueryConfig<'_>,
     target: Option<&str>,
     extra_env: &FxHashMap<String, Option<String>>,
+    version: Option<&Version>,
 ) -> Vec<CfgAtom> {
     let _p = tracing::info_span!("rustc_cfg::get").entered();
 
-    let rustc_cfgs = rustc_print_cfg(target, extra_env, config);
+    let rustc_cfgs = rustc_print_cfg(target, extra_env, config, version);
     let rustc_cfgs = match rustc_cfgs {
         Ok(cfgs) => cfgs,
         Err(e) => {
@@ -60,13 +65,15 @@ fn rustc_print_cfg(
     target: Option<&str>,
     extra_env: &FxHashMap<String, Option<String>>,
     config: QueryConfig<'_>,
+    version: Option<&Version>,
 ) -> anyhow::Result<String> {
     const RUSTC_ARGS: [&str; 2] = ["--print", "cfg"];
     let (sysroot, current_dir) = match config {
         QueryConfig::Cargo(sysroot, cargo_toml, _) => {
             let mut cmd = sysroot.tool(Tool::Cargo, cargo_toml.parent(), extra_env);
-            cmd.env("__CARGO_TEST_CHANNEL_OVERRIDE_DO_NOT_USE_THIS", "nightly");
-            cmd.args(["rustc", "-Z", "unstable-options"]).args(RUSTC_ARGS);
+            cmd.arg("rustc");
+            require_cargo_unstable_options(version, &mut cmd);
+            cmd.args(RUSTC_ARGS);
             if let Some(target) = target {
                 cmd.args(["--target", target]);
             }
@@ -111,13 +118,13 @@ mod tests {
         let manifest_path =
             ManifestPath::try_from(AbsPathBuf::assert(Utf8PathBuf::from(manifest_path))).unwrap();
         let cfg = QueryConfig::Cargo(&sysroot, &manifest_path, &None);
-        assert_ne!(get(cfg, None, &FxHashMap::default()), vec![]);
+        assert_ne!(get(cfg, None, &FxHashMap::default(), None), vec![]);
     }
 
     #[test]
     fn rustc() {
         let sysroot = Sysroot::empty();
         let cfg = QueryConfig::Rustc(&sysroot, env!("CARGO_MANIFEST_DIR").as_ref());
-        assert_ne!(get(cfg, None, &FxHashMap::default()), vec![]);
+        assert_ne!(get(cfg, None, &FxHashMap::default(), None), vec![]);
     }
 }

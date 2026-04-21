@@ -15,6 +15,7 @@ use itertools::Itertools;
 use la_arena::ArenaMap;
 use paths::{AbsPath, AbsPathBuf, Utf8PathBuf};
 use rustc_hash::{FxHashMap, FxHashSet};
+use semver::Version;
 use serde::Deserialize as _;
 use stdx::never;
 use toolchain::Tool;
@@ -24,6 +25,7 @@ use crate::{
     CargoConfig, CargoFeatures, CargoWorkspace, InvocationStrategy, ManifestPath, Package, Sysroot,
     TargetKind,
     cargo_config_file::{LockfileCopy, LockfileUsage, make_lockfile_copy},
+    toolchain_info::version::require_cargo_unstable_options,
     utf8_stdout,
 };
 
@@ -185,6 +187,7 @@ impl WorkspaceBuildScripts {
         current_dir: &AbsPath,
         extra_env: &FxHashMap<String, Option<String>>,
         sysroot: &Sysroot,
+        version: Option<&Version>,
     ) -> Self {
         let mut bs = WorkspaceBuildScripts::default();
         for p in rustc.packages() {
@@ -193,9 +196,9 @@ impl WorkspaceBuildScripts {
         let res = (|| {
             let target_libdir = (|| {
                 let mut cargo_config = sysroot.tool(Tool::Cargo, current_dir, extra_env);
-                cargo_config
-                    .args(["rustc", "-Z", "unstable-options", "--print", "target-libdir"])
-                    .env("RUSTC_BOOTSTRAP", "1");
+                cargo_config.arg("rustc");
+                require_cargo_unstable_options(version, &mut cargo_config);
+                cargo_config.args(["--print", "target-libdir"]);
                 if let Ok(it) = utf8_stdout(&mut cargo_config) {
                     return Ok(it);
                 }

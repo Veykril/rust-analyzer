@@ -269,7 +269,7 @@ impl ProjectWorkspace {
 
         tracing::info!(workspace = %cargo_toml, src_root = ?sysroot.rust_lib_src_root(), root = ?sysroot.root(), "Using sysroot");
         progress("querying project metadata".to_owned());
-        let config_file = CargoConfigFile::load(cargo_toml, extra_env, &sysroot);
+        let config_file = CargoConfigFile::load(cargo_toml, extra_env, &sysroot, None);
         let config_file_ = config_file.clone();
         let toolchain_config = QueryConfig::Cargo(&sysroot, cargo_toml, &config_file_);
         let targets =
@@ -307,19 +307,29 @@ impl ProjectWorkspace {
             let rustc_cfg = Builder::new()
                 .name("ProjectWorkspace::rustc_cfg".to_owned())
                 .spawn_scoped(s, || {
-                    rustc_cfg::get(toolchain_config, targets.first().map(Deref::deref), extra_env)
+                    rustc_cfg::get(
+                        toolchain_config,
+                        targets.first().map(Deref::deref),
+                        extra_env,
+                        toolchain.as_ref(),
+                    )
                 })
                 .expect("failed to spawn thread");
             let target_data = Builder::new()
                 .name("ProjectWorkspace::target_data".to_owned())
                 .spawn_scoped(s, || {
-                    target_data::get(toolchain_config, targets.first().map(Deref::deref), extra_env)
-                        .inspect_err(|e| {
-                            tracing::error!(%e,
-                                "failed fetching data layout for \
-                                {cargo_toml:?} workspace"
-                            )
-                        })
+                    target_data::get(
+                        toolchain_config,
+                        targets.first().map(Deref::deref),
+                        extra_env,
+                        toolchain.as_ref(),
+                    )
+                    .inspect_err(|e| {
+                        tracing::error!(%e,
+                            "failed fetching data layout for \
+                            {cargo_toml:?} workspace"
+                        )
+                    })
                 })
                 .expect("failed to spawn thread");
 
@@ -364,7 +374,7 @@ impl ProjectWorkspace {
                                 &workspace,
                                 workspace_dir,
                                 extra_env,
-                                &sysroot,
+                                &sysroot, toolchain.as_ref()
                             );
                             Ok(Box::new((workspace, build_scripts)))
                         }
@@ -488,10 +498,20 @@ impl ProjectWorkspace {
         // on systems were process spawning is delayed)
         let join = thread::scope(|s| {
             let rustc_cfg = s.spawn(|| {
-                rustc_cfg::get(query_config, targets.first().map(Deref::deref), &config.extra_env)
+                rustc_cfg::get(
+                    query_config,
+                    targets.first().map(Deref::deref),
+                    &config.extra_env,
+                    toolchain.as_ref(),
+                )
             });
             let data_layout = s.spawn(|| {
-                target_data::get(query_config, targets.first().map(Deref::deref), &config.extra_env)
+                target_data::get(
+                    query_config,
+                    targets.first().map(Deref::deref),
+                    &config.extra_env,
+                    toolchain.as_ref(),
+                )
             });
             let loaded_sysroot = s.spawn(|| {
                 if let Some(sysroot_project) = sysroot_project {
@@ -549,13 +569,14 @@ impl ProjectWorkspace {
             None => Sysroot::empty(),
         };
 
-        let config_file = CargoConfigFile::load(detached_file, &config.extra_env, &sysroot);
+        let config_file = CargoConfigFile::load(detached_file, &config.extra_env, &sysroot, None);
         let query_config = QueryConfig::Cargo(&sysroot, detached_file, &config_file);
         let toolchain = version::get(query_config, &config.extra_env).ok().flatten();
         let targets = target_tuple::get(query_config, config.target.as_deref(), &config.extra_env)
             .unwrap_or_default();
-        let rustc_cfg = rustc_cfg::get(query_config, None, &config.extra_env);
-        let target_data = target_data::get(query_config, None, &config.extra_env);
+        let rustc_cfg = rustc_cfg::get(query_config, None, &config.extra_env, toolchain.as_ref());
+        let target_data =
+            target_data::get(query_config, None, &config.extra_env, toolchain.as_ref());
 
         let loaded_sysroot = sysroot.load_workspace(
             &RustSourceWorkspaceConfig::CargoMetadata(sysroot_metadata_config(
@@ -948,7 +969,7 @@ impl ProjectWorkspace {
     ) -> (CrateGraphBuilder, ProcMacroPaths) {
         let _p = tracing::info_span!("ProjectWorkspace::to_crate_graph").entered();
 
-        let Self { kind, sysroot, cfg_overrides, rustc_cfg, .. } = self;
+        let Self { kind, sysroot, cfg_overrides, rustc_cfg, toolchain, .. } = self;
         let crate_ws_data = Arc::new(CrateWorkspaceData {
             toolchain: self.toolchain.clone(),
             target: self.target.clone(),
@@ -964,6 +985,7 @@ impl ProjectWorkspace {
                 self.set_test,
                 false,
                 crate_ws_data,
+                toolchain.as_ref(),
             ),
             ProjectWorkspaceKind::Cargo { cargo, rustc, build_scripts, error: _ } => {
                 cargo_to_crate_graph(
@@ -976,6 +998,7 @@ impl ProjectWorkspace {
                     build_scripts,
                     self.set_test,
                     crate_ws_data,
+                    toolchain.as_ref(),
                 )
             }
             ProjectWorkspaceKind::DetachedFile { file, cargo: cargo_script, .. } => {
@@ -990,6 +1013,7 @@ impl ProjectWorkspace {
                         build_scripts,
                         self.set_test,
                         crate_ws_data,
+                        toolchain.as_ref(),
                     )
                 } else {
                     detached_file_to_crate_graph(
@@ -1000,6 +1024,7 @@ impl ProjectWorkspace {
                         cfg_overrides,
                         self.set_test,
                         crate_ws_data,
+                        toolchain.as_ref(),
                     )
                 }
             }
@@ -1069,6 +1094,7 @@ fn project_json_to_crate_graph(
     set_test: bool,
     is_sysroot: bool,
     crate_ws_data: Arc<CrateWorkspaceData>,
+    toolchain: Option<&Version>,
 ) -> (CrateGraphBuilder, ProcMacroPaths) {
     let mut res = (CrateGraphBuilder::default(), ProcMacroPaths::default());
     let (crate_graph, proc_macros) = &mut res;
@@ -1079,6 +1105,7 @@ fn project_json_to_crate_graph(
         load,
         // FIXME: This looks incorrect but I don't think this matters.
         crate_ws_data.clone(),
+        toolchain,
     );
 
     let mut cfg_cache: FxHashMap<&str, Vec<CfgAtom>> = FxHashMap::default();
@@ -1121,6 +1148,7 @@ fn project_json_to_crate_graph(
                             QueryConfig::Rustc(sysroot, project.project_root().as_ref()),
                             Some(target),
                             extra_env,
+                            toolchain,
                         )
                     }),
                     None => &rustc_cfg,
@@ -1226,6 +1254,7 @@ fn cargo_to_crate_graph(
     build_scripts: &WorkspaceBuildScripts,
     set_test: bool,
     crate_ws_data: Arc<CrateWorkspaceData>,
+    toolchain: Option<&Version>,
 ) -> (CrateGraphBuilder, ProcMacroPaths) {
     let _p = tracing::info_span!("cargo_to_crate_graph").entered();
     let mut res = (CrateGraphBuilder::default(), ProcMacroPaths::default());
@@ -1236,6 +1265,7 @@ fn cargo_to_crate_graph(
         rustc_cfg.clone(),
         load,
         crate_ws_data.clone(),
+        toolchain,
     );
     let cargo_path = sysroot.tool_path(Tool::Cargo, cargo.workspace_root(), cargo.env());
 
@@ -1437,6 +1467,7 @@ fn detached_file_to_crate_graph(
     override_cfg: &CfgOverrides,
     set_test: bool,
     crate_ws_data: Arc<CrateWorkspaceData>,
+    toolchain: Option<&Version>,
 ) -> (CrateGraphBuilder, ProcMacroPaths) {
     let _p = tracing::info_span!("detached_file_to_crate_graph").entered();
     let mut crate_graph = CrateGraphBuilder::default();
@@ -1447,6 +1478,7 @@ fn detached_file_to_crate_graph(
         load,
         // FIXME: This looks incorrect but I don't think this causes problems.
         crate_ws_data.clone(),
+        toolchain,
     );
 
     let mut cfg_options = CfgOptions::from_iter(rustc_cfg);
@@ -1767,6 +1799,7 @@ fn sysroot_to_crate_graph(
     rustc_cfg: Vec<CfgAtom>,
     load: FileLoader<'_>,
     crate_ws_data: Arc<CrateWorkspaceData>,
+    toolchain: Option<&Version>,
 ) -> (SysrootPublicDeps, Option<CrateBuilderId>) {
     let _p = tracing::info_span!("sysroot_to_crate_graph").entered();
     match sysroot.workspace() {
@@ -1791,6 +1824,7 @@ fn sysroot_to_crate_graph(
                 &WorkspaceBuildScripts::default(),
                 false,
                 crate_ws_data,
+                toolchain,
             );
 
             extend_crate_graph_with_sysroot(crate_graph, sysroot_cg, sysroot_pm)
@@ -1812,6 +1846,7 @@ fn sysroot_to_crate_graph(
                 false,
                 true,
                 crate_ws_data,
+                toolchain,
             );
 
             extend_crate_graph_with_sysroot(crate_graph, sysroot_cg, sysroot_pm)

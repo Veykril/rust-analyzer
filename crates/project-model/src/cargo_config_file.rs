@@ -1,13 +1,16 @@
 //! Read `.cargo/config.toml` as a TOML table
 use paths::{AbsPath, Utf8Path, Utf8PathBuf};
 use rustc_hash::FxHashMap;
+use semver::Version;
 use toml::{
     Spanned,
     de::{DeTable, DeValue},
 };
 use toolchain::Tool;
 
-use crate::{ManifestPath, Sysroot, utf8_stdout};
+use crate::{
+    ManifestPath, Sysroot, toolchain_info::version::require_cargo_unstable_options, utf8_stdout,
+};
 
 #[derive(Clone)]
 pub struct CargoConfigFile(String);
@@ -17,11 +20,11 @@ impl CargoConfigFile {
         manifest: &ManifestPath,
         extra_env: &FxHashMap<String, Option<String>>,
         sysroot: &Sysroot,
+        version: Option<&Version>,
     ) -> Option<Self> {
         let mut cargo_config = sysroot.tool(Tool::Cargo, manifest.parent(), extra_env);
-        cargo_config
-            .args(["-Z", "unstable-options", "config", "get", "--format", "toml", "--show-origin"])
-            .env("RUSTC_BOOTSTRAP", "1");
+        require_cargo_unstable_options(version, &mut cargo_config);
+        cargo_config.args(["config", "get", "--format", "toml", "--show-origin"]);
         if manifest.is_rust_manifest() {
             cargo_config.arg("-Zscript");
         }

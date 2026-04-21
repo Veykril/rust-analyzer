@@ -1017,19 +1017,23 @@ fn main() {
 }
 //- /src/main.rs
 #![allow(warnings)]
-#![feature(rustc_attrs)]
-#[rustc_builtin_macro] macro_rules! include {
-    ($file:expr $(,)?) => {{ /* compiler built-in */ }};
-}
-#[rustc_builtin_macro] macro_rules! include_str {
-    ($file:expr $(,)?) => {{ /* compiler built-in */ }};
-}
-#[rustc_builtin_macro] macro_rules! concat {
-    ($($e:ident),+ $(,)?) => {{ /* compiler built-in */ }};
-}
-#[rustc_builtin_macro] macro_rules! env {
-    ($name:expr $(,)?) => {{ /* compiler built-in */ }};
-    ($name:expr, $error_msg:expr $(,)?) => {{ /* compiler built-in */ }};
+
+#[cfg(rust_analyzer)]
+#[macro_use]
+mod macros {
+    #[rustc_builtin_macro] macro_rules! include {
+        ($file:expr $(,)?) => {{ /* compiler built-in */ }};
+    }
+    #[rustc_builtin_macro] macro_rules! include_str {
+        ($file:expr $(,)?) => {{ /* compiler built-in */ }};
+    }
+    #[rustc_builtin_macro] macro_rules! concat {
+        ($($e:ident),+ $(,)?) => {{ /* compiler built-in */ }};
+    }
+    #[rustc_builtin_macro] macro_rules! env {
+        ($name:expr $(,)?) => {{ /* compiler built-in */ }};
+        ($name:expr, $error_msg:expr $(,)?) => {{ /* compiler built-in */ }};
+    }
 }
 
 include!(concat!(env!("OUT_DIR"), "/hello.rs"));
@@ -1062,10 +1066,6 @@ fn main() {
                 "buildScripts": {
                     "enable": true
                 },
-                "sysroot": null,
-                "extraEnv": {
-                    "RUSTC_BOOTSTRAP": "1"
-                }
             }
         }))
         .server()
