@@ -6,31 +6,21 @@ extern crate alloc;
 
 use alloc::{borrow::Cow, boxed::Box, string::String, sync::Arc};
 use core::{
-    borrow::Borrow,
-    cmp::{self, Ordering},
-    convert::Infallible,
-    fmt, hash, iter, mem, ops,
-    str::FromStr,
+    borrow::Borrow, cmp::Ordering, convert::Infallible, fmt, hash, iter, mem, ops, str::FromStr,
 };
 
 /// A `SmolStr` is a string type that has the following properties:
 ///
 /// * `size_of::<SmolStr>() == 24` (therefor `== size_of::<String>()` on 64 bit platforms)
 /// * `Clone` is `O(1)`
-/// * Strings are stack-allocated if they are:
-///     * Up to 23 bytes long
-///     * Longer than 23 bytes, but substrings of `WS` (see below). Such strings consist
-///       solely of consecutive newlines, followed by consecutive spaces
-/// * If a string does not satisfy the aforementioned conditions, it is heap-allocated
+/// * Strings are stack-allocated if they are up to 23 bytes long
+/// * Otherwise it is heap-allocated
 /// * Additionally, a `SmolStr` can be explicitly created from a `&'static str` without allocation
 ///
 /// Unlike `String`, however, `SmolStr` is immutable. The primary use case for
 /// `SmolStr` is a good enough default storage for tokens of typical programming
-/// languages. Strings consisting of a series of newlines, followed by a series of
-/// whitespace are a typical pattern in computer programs because of indentation.
+/// languages.
 /// Note that a specialized interner might be a better solution for some use cases.
-///
-/// `WS`: A string of 32 newlines followed by 128 spaces.
 pub struct SmolStr(Repr);
 
 impl SmolStr {
@@ -529,14 +519,6 @@ impl FromStr for SmolStr {
 }
 
 const INLINE_CAP: usize = InlineSize::_V23 as usize;
-const N_NEWLINES: usize = 32;
-const N_SPACES: usize = 128;
-const WS: &str = "\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n                                                                                                                                ";
-const _: () = {
-    assert!(WS.len() == N_NEWLINES + N_SPACES);
-    assert!(WS.as_bytes()[N_NEWLINES - 1] == b'\n');
-    assert!(WS.as_bytes()[N_NEWLINES] == b' ');
-};
 
 /// A [`u8`] with a bunch of niches.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -602,26 +584,14 @@ impl Repr {
         if len <= INLINE_CAP {
             let mut buf = [0; INLINE_CAP];
             buf[..len].copy_from_slice(text.as_bytes());
-            return Some(Repr::Inline {
+            Some(Repr::Inline {
                 // SAFETY: We know that `len` is less than or equal to the maximum value of `InlineSize`
                 len: unsafe { InlineSize::transmute_from_u8(len as u8) },
                 buf,
-            });
+            })
+        } else {
+            None
         }
-
-        if len <= N_NEWLINES + N_SPACES {
-            let bytes = text.as_bytes();
-            let possible_newline_count = cmp::min(len, N_NEWLINES);
-            let newlines =
-                bytes[..possible_newline_count].iter().take_while(|&&b| b == b'\n').count();
-            let possible_space_count = len - newlines;
-            if possible_space_count <= N_SPACES && bytes[newlines..].iter().all(|&b| b == b' ') {
-                let spaces = possible_space_count;
-                let substring = &WS[N_NEWLINES - newlines..N_NEWLINES + spaces];
-                return Some(Repr::Static(substring));
-            }
-        }
-        None
     }
 
     fn new(text: &str) -> Self {
