@@ -1,6 +1,6 @@
 //! Entry point of a single LSP session: initialization handshake, then the main loop.
 
-use std::{env, path::PathBuf};
+use std::{env, io, path::PathBuf, thread};
 
 use anyhow::Context;
 use lsp_server::Connection;
@@ -17,12 +17,23 @@ use crate::{
 pub enum IoThreads {
     /// The stdio transport of a standalone server.
     Stdio(lsp_server::IoThreads),
+    /// A daemon session's socket transport.
+    Socket(Vec<thread::JoinHandle<io::Result<()>>>),
 }
 
 impl IoThreads {
     fn join(self) -> anyhow::Result<()> {
         match self {
             IoThreads::Stdio(io_threads) => Ok(io_threads.join()?),
+            IoThreads::Socket(handles) => {
+                for handle in handles {
+                    match handle.join() {
+                        Ok(res) => res?,
+                        Err(panic) => std::panic::resume_unwind(panic),
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -30,6 +41,9 @@ impl IoThreads {
 /// Runs a full LSP session over `connection`: waits for the client's `initialize`,
 /// negotiates capabilities, then runs the main loop until the client disconnects or
 /// requests shutdown.
+///
+/// A `startup_notice` is shown to the client as a warning right after initialization;
+/// used to surface a daemon fallback.
 ///
 /// # Errors
 ///

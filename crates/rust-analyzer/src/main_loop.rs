@@ -967,7 +967,7 @@ impl GlobalState {
                     self.report_progress("Loading proc-macros", state, msg, None, None);
                 }
             }
-            Task::BuildDepsHaveChanged => self.build_deps_changed = true,
+            Task::BuildDepsHaveChanged => self.shared.build_deps_changed = true,
             Task::DiscoverTest(tests) => {
                 self.send_notification::<lsp_ext::DiscoveredTestsNotification>(tests);
             }
@@ -1323,8 +1323,8 @@ impl GlobalState {
         let mut dispatcher = RequestDispatcher { req: Some(req), global_state: self };
         dispatcher.on_sync_mut::<lsp_types::ShutdownRequest>(|s, ()| {
             s.shutdown_requested = true;
-            s.proc_macro_clients =
-                std::iter::repeat_with(|| None).take(s.proc_macro_clients.len()).collect();
+            s.shared.proc_macro_clients =
+                std::iter::repeat_with(|| None).take(s.shared.proc_macro_clients.len()).collect();
             s.flycheck.iter().for_each(|handle| handle.cancel());
             s.discover_handles.clear();
             Ok(())

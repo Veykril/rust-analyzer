@@ -9,6 +9,7 @@
   - [FAQ](faq.md)
 - [Configuration](configuration.md)
   - [Non-Cargo Based Projects](non_cargo_based_projects.md)
+- [Daemon Mode (Experimental)](daemon.md)
 - [Security](security.md)
 - [Privacy](privacy.md)
 - [Features](features.md)

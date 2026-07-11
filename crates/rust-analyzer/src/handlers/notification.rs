@@ -175,8 +175,8 @@ pub(crate) fn handle_did_save_text_document(
         let file_id = try_default!(snap.vfs_path_to_file_id(&vfs_path)?);
         let sr = snap.analysis.source_root_id(file_id)?;
 
-        if state.config.script_rebuild_on_save(Some(sr)) && state.build_deps_changed {
-            state.build_deps_changed = false;
+        if state.config.script_rebuild_on_save(Some(sr)) && state.shared.build_deps_changed {
+            state.shared.build_deps_changed = false;
             state
                 .fetch_build_data_queue
                 .request_op("build_deps_changed - save notification".to_owned(), ());

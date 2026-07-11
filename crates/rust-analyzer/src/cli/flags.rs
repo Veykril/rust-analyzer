@@ -34,6 +34,23 @@ xflags::xflags! {
 
             /// Dump a LSP config JSON schema.
             optional --print-config-schema
+
+            /// Proxy the session to a shared daemon instance, spawning it if necessary.
+            /// Falls back to running in-process when the daemon is unreachable.
+            optional --use-daemon
+        }
+
+        /// A daemon instance hosting LSP sessions for proxied `lsp-server` clients.
+        cmd daemon {
+            /// Run the daemon in the foreground.
+            cmd run {
+                /// Exit after this many seconds without any connected client. Defaults to 600.
+                optional --idle-timeout seconds: u64
+            }
+            /// Print the running daemon's status as JSON.
+            cmd status {}
+            /// Stop the running daemon, disconnecting all of its clients.
+            cmd stop {}
         }
 
         /// Parse stdin.
@@ -214,6 +231,7 @@ pub struct RustAnalyzer {
 #[derive(Debug)]
 pub enum RustAnalyzerCmd {
     LspServer(LspServer),
+    Daemon(Daemon),
     Parse(Parse),
     Symbols(Symbols),
     Highlight(Highlight),
@@ -233,7 +251,31 @@ pub enum RustAnalyzerCmd {
 pub struct LspServer {
     pub version: bool,
     pub print_config_schema: bool,
+    pub use_daemon: bool,
 }
+
+#[derive(Debug)]
+pub struct Daemon {
+    pub subcommand: DaemonCmd,
+}
+
+#[derive(Debug)]
+pub enum DaemonCmd {
+    Run(Run),
+    Status(Status),
+    Stop(Stop),
+}
+
+#[derive(Debug)]
+pub struct Run {
+    pub idle_timeout: Option<u64>,
+}
+
+#[derive(Debug)]
+pub struct Status;
+
+#[derive(Debug)]
+pub struct Stop;
 
 #[derive(Debug)]
 pub struct Parse {

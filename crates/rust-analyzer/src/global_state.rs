@@ -105,9 +105,7 @@ pub(crate) struct GlobalState {
     pub(crate) shutdown_requested: bool,
     pub(crate) last_reported_status: lsp_ext::ServerStatusParams,
 
-    // proc macros
-    pub(crate) proc_macro_clients: Arc<[Option<anyhow::Result<ProcMacroClient>>]>,
-    pub(crate) build_deps_changed: bool,
+    pub(crate) shared: SharedServices,
 
     // Flycheck
     pub(crate) flycheck: Arc<[FlycheckHandle]>,
@@ -205,6 +203,11 @@ pub(crate) struct MiniCoreRustAnalyzerInternalOnly {
     pub(crate) minicore_text: Option<Arc<str>>,
 }
 
+pub(crate) struct SharedServices {
+    pub(crate) proc_macro_clients: Arc<[Option<anyhow::Result<ProcMacroClient>>]>,
+    pub(crate) build_deps_changed: bool,
+}
+
 /// An immutable snapshot of the world's state at a point in time.
 pub(crate) struct GlobalStateSnapshot {
     pub(crate) config: Arc<Config>,
@@ -283,9 +286,10 @@ impl GlobalState {
             local_roots_parent_map: Arc::new(FxHashMap::default()),
             config_errors: Default::default(),
 
-            proc_macro_clients: Arc::from_iter([]),
-
-            build_deps_changed: false,
+            shared: SharedServices {
+                proc_macro_clients: Arc::from_iter([]),
+                build_deps_changed: false,
+            },
 
             flycheck: Arc::from_iter([]),
             flycheck_sender,

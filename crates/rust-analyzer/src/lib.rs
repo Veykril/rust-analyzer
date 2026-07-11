@@ -29,6 +29,7 @@ pub const MINIMUM_SUPPORTED_TOOLCHAIN_VERSION: semver::Version = semver::Version
 };
 
 pub mod cli;
+pub mod daemon;
 
 mod command;
 mod diagnostics;

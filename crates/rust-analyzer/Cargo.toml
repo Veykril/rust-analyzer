@@ -24,6 +24,7 @@ anyhow.workspace = true
 base64 = "0.22"
 crossbeam-channel.workspace = true
 dirs = "6.0.0"
+getrandom = "0.3"
 dissimilar.workspace = true
 ide-completion.workspace = true
 indexmap.workspace = true
@@ -79,9 +80,14 @@ ra-ap-rustc_type_ir.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_System_Console",
   "Win32_System_Diagnostics_Debug",
   "Win32_System_Threading",
 ] }
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 jemallocator = { version = "0.5.4", package = "tikv-jemallocator", optional = true }

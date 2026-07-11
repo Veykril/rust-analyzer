@@ -58,6 +58,21 @@ fn actual_main() -> anyhow::Result<ExitCode> {
                 break 'lsp_server;
             }
 
+            let startup_notice = if cmd.use_daemon {
+                match rust_analyzer::daemon::proxy::run_proxy() {
+                    Ok(code) => return Ok(code),
+                    Err(err) => {
+                        tracing::error!("daemon unreachable, running in-process instead: {err:#}");
+                        Some(format!(
+                            "rust-analyzer could not reach its daemon and is running \
+                             standalone instead: {err:#}"
+                        ))
+                    }
+                }
+            } else {
+                None
+            };
+
             // rust-analyzer’s “main thread” is actually
             // a secondary latency-sensitive thread with an increased stack size.
             // We use this thread intent because any delay in the main loop
@@ -65,9 +80,17 @@ fn actual_main() -> anyhow::Result<ExitCode> {
             with_extra_thread(
                 "LspServer",
                 stdx::thread::ThreadIntent::LatencySensitive,
-                move || run_server(None),
+                move || run_server(startup_notice),
             )?;
         }
+        flags::RustAnalyzerCmd::Daemon(cmd) => match cmd.subcommand {
+            flags::DaemonCmd::Run(run) => {
+                let idle_timeout = std::time::Duration::from_secs(run.idle_timeout.unwrap_or(600));
+                rust_analyzer::daemon::server::run(idle_timeout)?;
+            }
+            flags::DaemonCmd::Status(_) => return rust_analyzer::daemon::control::status(),
+            flags::DaemonCmd::Stop(_) => return rust_analyzer::daemon::control::stop(),
+        },
         flags::RustAnalyzerCmd::Parse(cmd) => cmd.run()?,
         flags::RustAnalyzerCmd::Symbols(cmd) => cmd.run()?,
         flags::RustAnalyzerCmd::Highlight(cmd) => cmd.run()?,
