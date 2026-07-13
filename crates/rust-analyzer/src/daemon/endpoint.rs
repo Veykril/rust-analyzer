@@ -117,6 +117,11 @@ impl InstanceDir {
         Ok(InstanceDir { path })
     }
 
+    /// Returns the path of the instance directory itself.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
     /// Returns the path of the daemon's log file.
     pub fn log_path(&self) -> PathBuf {
         self.path.join("log")

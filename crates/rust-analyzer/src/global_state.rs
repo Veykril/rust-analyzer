@@ -216,6 +216,16 @@ pub struct SharedServices {
     pub(crate) proc_macro_pool: ProcMacroClientPool,
 }
 
+impl SharedServices {
+    /// Returns the number of live pooled proc-macro clients (each a group of server
+    /// processes), for status reporting and tests.
+    pub fn pooled_proc_macro_servers(&self) -> usize {
+        let mut clients = self.proc_macro_pool.clients.lock();
+        clients.retain(|(_, client)| client.upgrade().is_some());
+        clients.len()
+    }
+}
+
 /// Deduplicates proc-macro servers between all sessions of this process.
 ///
 /// Keyed by everything that affects a server's observable behavior: the server

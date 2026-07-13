@@ -218,6 +218,7 @@ impl Drop for DaemonGuard {
     }
 }
 
+#[allow(clippy::disallowed_methods, reason = "not invoking a toolchain binary")]
 fn ra_command(daemon_dir: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_rust-analyzer"));
     // The daemon directory doubles as the working directory: sessions in these tests

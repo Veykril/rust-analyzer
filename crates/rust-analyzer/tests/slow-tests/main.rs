@@ -17,6 +17,7 @@ extern crate rustc_driver as _;
 mod cli;
 mod daemon;
 mod flycheck;
+mod multi_session;
 mod ratoml;
 mod support;
 mod testdir;

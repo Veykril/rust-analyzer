@@ -77,6 +77,8 @@ pub struct StatusResponse {
     pub uptime_secs: u64,
     /// Human-readable amount of memory currently allocated by the daemon.
     pub memory: String,
+    /// Number of live pooled proc-macro servers shared between the sessions.
+    pub proc_macro_servers: usize,
     /// The currently connected sessions.
     pub sessions: Vec<SessionStatus>,
 }

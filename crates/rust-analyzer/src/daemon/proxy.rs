@@ -4,12 +4,17 @@
 //! forwarded unmodified frame by frame (peeking only at whether a frame is the `exit`
 //! notification, to tell a clean daemon-side close from a crash), daemon bytes are
 //! forwarded verbatim.
+#![allow(
+    clippy::print_stderr,
+    reason = "the proxy's stderr is the client's server-output log, where connection-phase \
+              failures belong"
+)]
 
 use std::{
     env, fs,
     io::{self, BufRead, Write},
     net::{Shutdown, TcpStream},
-    process::{self, Command, ExitCode, Stdio},
+    process::{self, ExitCode, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -133,7 +138,9 @@ fn spawn_daemon(dir: &InstanceDir) -> anyhow::Result<()> {
     #[cfg(windows)]
     prevent_std_handle_inheritance();
     let exe = env::current_exe()?;
-    let mut cmd = Command::new(exe);
+    // Give the daemon a neutral working directory instead of inheriting whichever
+    // directory this proxy happens to run in (and thereby pinning it).
+    let mut cmd = toolchain::command(exe, dir.path(), &rustc_hash::FxHashMap::default());
     cmd.arg("--log-file")
         .arg(dir.log_path())
         .args(["daemon", "run"])

@@ -244,6 +244,7 @@ fn try_handle_connection(state: &DaemonState, stream: TcpStream, id: u64) -> any
                             pid: process::id(),
                             uptime_secs: state.started.elapsed().as_secs(),
                             memory: profile::memory_usage().allocated.to_string(),
+                            proc_macro_servers: state.shared.pooled_proc_macro_servers(),
                             sessions: connections
                                 .sessions
                                 .values()

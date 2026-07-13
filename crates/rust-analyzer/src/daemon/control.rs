@@ -1,4 +1,5 @@
 //! Client side of daemon control connections: `rust-analyzer daemon status` / `stop`.
+#![allow(clippy::print_stdout, clippy::print_stderr, reason = "this is a CLI")]
 
 use std::{net::TcpStream, process::ExitCode, time::Duration};
 

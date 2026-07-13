@@ -1,7 +1,7 @@
 use std::{
     cell::{Cell, RefCell},
     env, fs,
-    sync::Once,
+    sync::{Arc, Once},
     time::Duration,
 };
 
@@ -14,6 +14,7 @@ use lsp_types::{
 use parking_lot::{Mutex, MutexGuard};
 use paths::{Utf8Path, Utf8PathBuf};
 use rust_analyzer::{
+    SharedServices,
     cli::flags,
     config::{Config, ConfigChange, ConfigErrors},
     lsp, main_loop,
@@ -32,6 +33,7 @@ pub(crate) struct Project<'a> {
     roots: Vec<Utf8PathBuf>,
     config: serde_json::Value,
     root_dir_contains_symlink: bool,
+    shared: Option<Arc<SharedServices>>,
 }
 
 impl Project<'_> {
@@ -56,6 +58,7 @@ impl Project<'_> {
                 }
             }),
             root_dir_contains_symlink: false,
+            shared: None,
         }
     }
 
@@ -71,6 +74,13 @@ impl Project<'_> {
 
     pub(crate) fn with_root_dir_contains_symlink(mut self) -> Self {
         self.root_dir_contains_symlink = true;
+        self
+    }
+
+    /// Makes this session share process-wide services (like the proc-macro server
+    /// pool) with other sessions, the way sessions of one daemon do.
+    pub(crate) fn with_shared(mut self, shared: &Arc<SharedServices>) -> Self {
+        self.shared = Some(Arc::clone(shared));
         self
     }
 
@@ -279,7 +289,8 @@ impl Project<'_> {
 
         config.rediscover_workspaces();
 
-        Server::new(config_dir_guard, tmp_dir.keep(), config)
+        let shared = self.shared.unwrap_or_default();
+        Server::new(config_dir_guard, tmp_dir.keep(), config, shared)
     }
 }
 
@@ -302,11 +313,12 @@ impl Server {
         config_dir_guard: Option<(MutexGuard<'static, ()>, TestDir)>,
         dir: TestDir,
         config: Config,
+        shared: Arc<SharedServices>,
     ) -> Server {
         let (connection, client) = Connection::memory();
 
         let _thread = stdx::thread::Builder::new(stdx::thread::ThreadIntent::Worker, "test server")
-            .spawn(move || main_loop(config, connection, Default::default()).unwrap())
+            .spawn(move || main_loop(config, connection, shared).unwrap())
             .expect("failed to spawn a thread");
 
         Server {
