@@ -142,7 +142,7 @@ impl GlobalState {
             message.push_str("Auto-reloading is disabled and the workspace has changed, a manual workspace reload is required.\n\n");
         }
 
-        if self.shared.build_deps_changed {
+        if self.build_deps_changed {
             status.health |= lsp_ext::Health::Warning;
             message.push_str(
                 "Proc-macros and/or build scripts have changed and need to be rebuilt.\n\n",
@@ -195,8 +195,7 @@ impl GlobalState {
                 format_to!(message, "{e}");
             });
 
-            let proc_macro_clients =
-                self.shared.proc_macro_clients.iter().chain(iter::repeat(&None));
+            let proc_macro_clients = self.proc_macro_clients.iter().chain(iter::repeat(&None));
 
             for (ws, proc_macro_client) in self.workspaces.iter().zip(proc_macro_clients) {
                 if let ProjectWorkspaceKind::Cargo { error: Some(error), .. }
@@ -417,7 +416,7 @@ impl GlobalState {
     ) {
         info!(%cause, "will load proc macros");
         let ignored_proc_macros = self.config.ignored_proc_macros(None).clone();
-        let proc_macro_clients = self.shared.proc_macro_clients.clone();
+        let proc_macro_clients = self.proc_macro_clients.clone();
 
         self.task_pool.handle.spawn_with_sender(ThreadIntent::Worker, move |sender| {
             sender.send(Task::LoadProcMacros(ProcMacroProgress::Begin)).unwrap();
@@ -547,7 +546,7 @@ impl GlobalState {
             });
 
             if self.config.run_build_scripts(None) {
-                self.shared.build_deps_changed = false;
+                self.build_deps_changed = false;
                 self.fetch_build_data_queue.request_op("workspace updated".to_owned(), ());
 
                 if !switching_from_empty_workspace {
@@ -667,12 +666,9 @@ impl GlobalState {
 
             // Workspaces referring to the same proc-macro server executable (i.e. the same
             // sysroot) with an identical spawn environment share a single client, and thereby
-            // a single set of server processes.
-            let mut clients: Vec<(
-                (AbsPathBuf, Option<semver::Version>, FxHashMap<String, Option<String>>),
-                ProcMacroClient,
-            )> = Vec::new();
-            self.shared.proc_macro_clients = Arc::from_iter(self.workspaces.iter().map(|ws| {
+            // a single set of server processes -- across all sessions of this process, via
+            // the shared pool.
+            self.proc_macro_clients = Arc::from_iter(self.workspaces.iter().map(|ws| {
                 let path = match self.config.proc_macro_srv() {
                     Some(path) => path,
                     None => match ws.find_sysroot_proc_macro_srv()? {
@@ -705,28 +701,21 @@ impl GlobalState {
                 };
 
                 let key = (path, ws.toolchain.clone(), env);
-                if let Some((_, client)) = clients.iter().find(|(k, _)| *k == key) {
-                    return Some(Ok(client.clone()));
-                }
-
-                let (path, toolchain, env) = &key;
-                info!("Spawning proc-macro server at {path}");
                 let num_process = self.config.proc_macro_num_processes();
 
-                Some(match ProcMacroClient::spawn(path, env, toolchain.as_ref(), num_process) {
-                    Ok(client) => {
-                        clients.push((key.clone(), client.clone()));
-                        Ok(client)
-                    }
-                    Err(err) => {
-                        tracing::error!(
-                            "Failed to run proc-macro server from path {path}, error: {err:?}",
-                        );
-                        Err(anyhow::format_err!(
-                            "Failed to run proc-macro server from path {path}, error: {err:?}",
-                        ))
-                    }
-                })
+                Some(self.shared.proc_macro_pool.get_or_spawn(key, |(path, toolchain, env)| {
+                    info!("Spawning proc-macro server at {path}");
+                    ProcMacroClient::spawn(path, env, toolchain.as_ref(), num_process).map_err(
+                        |err| {
+                            tracing::error!(
+                                "Failed to run proc-macro server from path {path}, error: {err:?}",
+                            );
+                            anyhow::format_err!(
+                                "Failed to run proc-macro server from path {path}, error: {err:?}",
+                            )
+                        },
+                    )
+                }))
             }))
         }
 

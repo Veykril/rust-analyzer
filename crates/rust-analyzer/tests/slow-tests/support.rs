@@ -306,7 +306,7 @@ impl Server {
         let (connection, client) = Connection::memory();
 
         let _thread = stdx::thread::Builder::new(stdx::thread::ThreadIntent::Worker, "test server")
-            .spawn(move || main_loop(config, connection).unwrap())
+            .spawn(move || main_loop(config, connection, Default::default()).unwrap())
             .expect("failed to spawn a thread");
 
         Server {

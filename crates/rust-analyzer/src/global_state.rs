@@ -23,7 +23,7 @@ use parking_lot::{
     MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard, RwLockUpgradableReadGuard,
     RwLockWriteGuard,
 };
-use proc_macro_api::ProcMacroClient;
+use proc_macro_api::{ProcMacroClient, WeakProcMacroClient};
 use project_model::{
     ManifestPath, ProjectWorkspace, ProjectWorkspaceKind, TargetKind, WorkspaceBuildScripts,
 };
@@ -105,7 +105,11 @@ pub(crate) struct GlobalState {
     pub(crate) shutdown_requested: bool,
     pub(crate) last_reported_status: lsp_ext::ServerStatusParams,
 
-    pub(crate) shared: SharedServices,
+    pub(crate) shared: std::sync::Arc<SharedServices>,
+
+    // proc macros
+    pub(crate) proc_macro_clients: Arc<[Option<anyhow::Result<ProcMacroClient>>]>,
+    pub(crate) build_deps_changed: bool,
 
     // Flycheck
     pub(crate) flycheck: Arc<[FlycheckHandle]>,
@@ -203,9 +207,50 @@ pub(crate) struct MiniCoreRustAnalyzerInternalOnly {
     pub(crate) minicore_text: Option<Arc<str>>,
 }
 
-pub(crate) struct SharedServices {
-    pub(crate) proc_macro_clients: Arc<[Option<anyhow::Result<ProcMacroClient>>]>,
-    pub(crate) build_deps_changed: bool,
+/// Process-wide services shared between all client sessions.
+///
+/// A daemon creates one instance serving all of its sessions; a standalone server
+/// creates one for its only session.
+#[derive(Default)]
+pub struct SharedServices {
+    pub(crate) proc_macro_pool: ProcMacroClientPool,
+}
+
+/// Deduplicates proc-macro servers between all sessions of this process.
+///
+/// Keyed by everything that affects a server's observable behavior: the server
+/// executable, the toolchain version, and the spawn environment. The pool holds only
+/// weak handles, so the server processes of an entry exit as soon as the last session
+/// drops its client.
+#[derive(Default)]
+pub(crate) struct ProcMacroClientPool {
+    clients: Mutex<Vec<(ProcMacroClientKey, WeakProcMacroClient)>>,
+}
+
+pub(crate) type ProcMacroClientKey =
+    (AbsPathBuf, Option<semver::Version>, FxHashMap<String, Option<String>>);
+
+impl ProcMacroClientPool {
+    /// Returns the pooled client for `key`, or spawns, pools, and returns a new one.
+    ///
+    /// Spawn failures are not pooled; every caller retries and reports its own error.
+    pub(crate) fn get_or_spawn(
+        &self,
+        key: ProcMacroClientKey,
+        spawn: impl FnOnce(&ProcMacroClientKey) -> anyhow::Result<ProcMacroClient>,
+    ) -> anyhow::Result<ProcMacroClient> {
+        let mut clients = self.clients.lock();
+        clients.retain(|(_, client)| client.upgrade().is_some());
+        if let Some(client) =
+            clients.iter().filter(|(k, _)| *k == key).find_map(|(_, client)| client.upgrade())
+        {
+            tracing::info!("reusing pooled proc-macro server at {}", client.server_path());
+            return Ok(client);
+        }
+        let client = spawn(&key)?;
+        clients.push((key, client.downgrade()));
+        Ok(client)
+    }
 }
 
 /// An immutable snapshot of the world's state at a point in time.
@@ -228,7 +273,11 @@ pub(crate) struct GlobalStateSnapshot {
 impl std::panic::UnwindSafe for GlobalStateSnapshot {}
 
 impl GlobalState {
-    pub(crate) fn new(sender: Sender<lsp_server::Message>, config: Config) -> GlobalState {
+    pub(crate) fn new(
+        sender: Sender<lsp_server::Message>,
+        config: Config,
+        shared: std::sync::Arc<SharedServices>,
+    ) -> GlobalState {
         let loader = {
             let (sender, receiver) = unbounded::<vfs::loader::Message>();
             let handle: vfs_notify::NotifyHandle = vfs::loader::Handle::spawn(sender);
@@ -286,10 +335,10 @@ impl GlobalState {
             local_roots_parent_map: Arc::new(FxHashMap::default()),
             config_errors: Default::default(),
 
-            shared: SharedServices {
-                proc_macro_clients: Arc::from_iter([]),
-                build_deps_changed: false,
-            },
+            shared,
+
+            proc_macro_clients: Arc::from_iter([]),
+            build_deps_changed: false,
 
             flycheck: Arc::from_iter([]),
             flycheck_sender,
@@ -1003,5 +1052,36 @@ pub(crate) fn vfs_path_to_file_id(
     match excluded {
         vfs::FileExcluded::Yes => Ok(None),
         vfs::FileExcluded::No => Ok(Some(file_id)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn proc_macro_pool_does_not_cache_spawn_failures() {
+        let pool = ProcMacroClientPool::default();
+        let key = || {
+            (
+                AbsPathBuf::assert(paths::Utf8PathBuf::from(if cfg!(windows) {
+                    r"C:\proc-macro-srv"
+                } else {
+                    "/proc-macro-srv"
+                })),
+                None,
+                FxHashMap::default(),
+            )
+        };
+
+        let mut attempts = 0;
+        for _ in 0..2 {
+            let res = pool.get_or_spawn(key(), |_| {
+                attempts += 1;
+                Err(anyhow::format_err!("boom"))
+            });
+            assert!(res.is_err());
+        }
+        assert_eq!(attempts, 2, "spawn failures must not be pooled");
     }
 }

@@ -72,8 +72,8 @@ mod integrated_benchmarks;
 use serde::de::DeserializeOwned;
 
 pub use crate::{
-    lsp::capabilities::server_capabilities, main_loop::main_loop, reload::ws_to_crate_graph,
-    version::version,
+    global_state::SharedServices, lsp::capabilities::server_capabilities, main_loop::main_loop,
+    reload::ws_to_crate_graph, version::version,
 };
 
 pub fn from_json<T: DeserializeOwned>(what: &str, json: &serde_json::Value) -> anyhow::Result<T> {

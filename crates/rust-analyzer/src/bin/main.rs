@@ -217,5 +217,6 @@ fn run_server(startup_notice: Option<String>) -> anyhow::Result<()> {
         connection,
         rust_analyzer::session::IoThreads::Stdio(io_threads),
         startup_notice,
+        Arc::new(rust_analyzer::SharedServices::default()),
     )
 }

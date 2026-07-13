@@ -23,7 +23,7 @@ use crate::{
     flycheck::{self, ClearDiagnosticsKind, ClearScope, FlycheckMessage},
     global_state::{
         FetchBuildDataResponse, FetchWorkspaceRequest, FetchWorkspaceResponse, GlobalState,
-        file_id_to_url, url_to_file_id,
+        SharedServices, file_id_to_url, url_to_file_id,
     },
     handlers::{
         dispatch::{NotificationDispatcher, RequestDispatcher},
@@ -38,7 +38,11 @@ use crate::{
     test_runner::{CargoTestMessage, CargoTestOutput, TestState},
 };
 
-pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
+pub fn main_loop(
+    config: Config,
+    connection: Connection,
+    shared: std::sync::Arc<SharedServices>,
+) -> anyhow::Result<()> {
     tracing::info!("initial config: {:#?}", config);
 
     // Windows scheduler implements priority boosts: if thread waits for an
@@ -68,7 +72,7 @@ pub fn main_loop(config: Config, connection: Connection) -> anyhow::Result<()> {
         }
     }
 
-    GlobalState::new(connection.sender, config).run(connection.receiver)
+    GlobalState::new(connection.sender, config, shared).run(connection.receiver)
 }
 
 enum Event {
@@ -967,7 +971,7 @@ impl GlobalState {
                     self.report_progress("Loading proc-macros", state, msg, None, None);
                 }
             }
-            Task::BuildDepsHaveChanged => self.shared.build_deps_changed = true,
+            Task::BuildDepsHaveChanged => self.build_deps_changed = true,
             Task::DiscoverTest(tests) => {
                 self.send_notification::<lsp_ext::DiscoveredTestsNotification>(tests);
             }
@@ -1323,8 +1327,8 @@ impl GlobalState {
         let mut dispatcher = RequestDispatcher { req: Some(req), global_state: self };
         dispatcher.on_sync_mut::<lsp_types::ShutdownRequest>(|s, ()| {
             s.shutdown_requested = true;
-            s.shared.proc_macro_clients =
-                std::iter::repeat_with(|| None).take(s.shared.proc_macro_clients.len()).collect();
+            s.proc_macro_clients =
+                std::iter::repeat_with(|| None).take(s.proc_macro_clients.len()).collect();
             s.flycheck.iter().for_each(|handle| handle.cancel());
             s.discover_handles.clear();
             Ok(())

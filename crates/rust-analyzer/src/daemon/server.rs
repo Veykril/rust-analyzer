@@ -18,6 +18,7 @@ use stdx::thread::{Builder, ThreadIntent};
 use rustc_hash::FxHashMap;
 
 use crate::{
+    SharedServices,
     daemon::{
         endpoint::{Endpoint, InstanceDir, InstanceKey, Token, Transport},
         protocol::{
@@ -76,6 +77,7 @@ pub fn run(idle_timeout: Duration) -> anyhow::Result<()> {
         env_fingerprint: protocol::env_fingerprint(),
         started: Instant::now(),
         dir,
+        shared: Arc::new(SharedServices::default()),
         connections: Mutex::new(Connections {
             live: 0,
             last_activity: Instant::now(),
@@ -116,6 +118,7 @@ struct DaemonState {
     env_fingerprint: BTreeMap<String, Option<String>>,
     started: Instant,
     dir: InstanceDir,
+    shared: Arc<SharedServices>,
     connections: Mutex<Connections>,
 }
 
@@ -220,8 +223,9 @@ fn try_handle_connection(state: &DaemonState, stream: TcpStream, id: u64) -> any
             tracing::info!("session connected");
 
             let (connection, io_threads) = socket_connection(stream)?;
+            let shared = Arc::clone(&state.shared);
             match panic::catch_unwind(AssertUnwindSafe(|| {
-                run_session(connection, io_threads, None)
+                run_session(connection, io_threads, None, shared)
             })) {
                 Ok(Ok(())) => tracing::info!("session finished"),
                 Ok(Err(err)) => tracing::error!("session errored: {err:#}"),

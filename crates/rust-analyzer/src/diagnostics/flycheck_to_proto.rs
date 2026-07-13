@@ -538,6 +538,7 @@ mod tests {
                 Vec::new(),
                 None,
             ),
+            Default::default(),
         );
         let snap = state.snapshot();
         let mut actual = map_rust_diagnostic_to_lsp(&config, diagnostic, workspace_root, &snap);

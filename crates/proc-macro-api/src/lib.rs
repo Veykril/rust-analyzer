@@ -90,6 +90,25 @@ pub struct ProcMacroClient {
     path: AbsPathBuf,
 }
 
+/// A weak handle to a [`ProcMacroClient`].
+///
+/// Holding it does not keep the server processes alive: they exit when the last strong
+/// [`ProcMacroClient`] is dropped. Useful for pooling clients without the pool itself
+/// keeping servers running.
+#[derive(Debug, Clone)]
+pub struct WeakProcMacroClient {
+    pool: std::sync::Weak<ProcMacroServerPool>,
+    path: AbsPathBuf,
+}
+
+impl WeakProcMacroClient {
+    /// Attempts to upgrade to a strong [`ProcMacroClient`], if the server is still alive.
+    pub fn upgrade(&self) -> Option<ProcMacroClient> {
+        let pool = self.pool.upgrade()?;
+        Some(ProcMacroClient { pool, path: self.path.clone() })
+    }
+}
+
 /// Represents a dynamically loaded library containing procedural macros.
 pub struct MacroDylib {
     path: AbsPathBuf,
@@ -194,6 +213,11 @@ impl ProcMacroClient {
     /// Returns the absolute path to the proc-macro server.
     pub fn server_path(&self) -> &AbsPath {
         &self.path
+    }
+
+    /// Creates a [`WeakProcMacroClient`] that does not keep the server processes alive.
+    pub fn downgrade(&self) -> WeakProcMacroClient {
+        WeakProcMacroClient { pool: Arc::downgrade(&self.pool), path: self.path.clone() }
     }
 
     /// Loads a proc-macro dylib into the server process returning a list of `ProcMacro`s loaded.
