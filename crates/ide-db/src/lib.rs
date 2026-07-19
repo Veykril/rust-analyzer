@@ -183,6 +183,13 @@ impl SourceDatabase for RootDatabase {
     }
 }
 
+#[salsa_macros::db]
+impl HirDatabase for RootDatabase {
+    fn as_dyn(&self) -> &dyn HirDatabase {
+        self
+    }
+}
+
 impl Default for RootDatabase {
     fn default() -> RootDatabase {
         RootDatabase::new(None)

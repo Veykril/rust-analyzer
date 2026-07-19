@@ -16,6 +16,8 @@ use syntax::TextRange;
 use test_utils::extract_annotations;
 use triomphe::Arc;
 
+use crate::db::HirDatabase;
+
 #[salsa_macros::db]
 pub(crate) struct TestDB {
     storage: salsa::Storage<Self>,
@@ -135,6 +137,13 @@ impl SourceDatabase for TestDB {
 
     fn line_column(&self, _file: FileId, _offset: syntax::TextSize) -> Result<(u32, u32), ()> {
         Err(())
+    }
+}
+
+#[salsa_macros::db]
+impl HirDatabase for TestDB {
+    fn as_dyn(&self) -> &dyn HirDatabase {
+        self
     }
 }
 
