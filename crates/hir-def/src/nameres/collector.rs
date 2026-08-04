@@ -56,7 +56,6 @@ use crate::{
     visibility::{RawVisibility, Visibility},
 };
 
-const GLOB_RECURSION_LIMIT: usize = 100;
 const FIXED_POINT_LIMIT: usize = 8192;
 
 pub(super) fn collect_defs(
@@ -1094,97 +1093,80 @@ impl<'db> DefCollector<'db> {
         vis: Visibility,
         import: Option<ImportOrExternCrate>,
     ) {
-        self.update_recursive(module_id, resolutions, vis, import, 0)
-    }
+        let mut worklist = vec![(module_id, vis, import)];
+        while let Some((module_id, vis, import)) = worklist.pop() {
+            let mut changed = false;
 
-    fn update_recursive(
-        &mut self,
-        // The module for which `resolutions` have been resolved.
-        module_id: ModuleId,
-        resolutions: &[(Option<Name>, PerNs)],
-        // All resolutions are imported with this visibility; the visibilities in
-        // the `PerNs` values are ignored and overwritten
-        vis: Visibility,
-        import: Option<ImportOrExternCrate>,
-        depth: usize,
-    ) {
-        if depth > GLOB_RECURSION_LIMIT {
-            // prevent stack overflows (but this shouldn't be possible)
-            panic!("infinite recursion in glob imports!");
-        }
-        let mut changed = false;
-
-        for (name, res) in resolutions {
-            match name {
-                Some(name) => {
-                    changed |=
-                        self.push_res_and_update_glob_vis(module_id, name, *res, vis, import);
-                }
-                None => {
-                    let (tr, import) = match res.take_types_full() {
-                        Some(Item { def: ModuleDefId::TraitId(tr), vis: _, import }) => {
-                            (tr, import)
-                        }
-                        Some(other) => {
-                            tracing::debug!("non-trait `_` import of {:?}", other);
-                            continue;
-                        }
-                        None => continue,
-                    };
-                    let old_vis = self.def_map.modules[module_id].scope.unnamed_trait_vis(tr);
-                    let should_update = match old_vis {
-                        None => true,
-                        Some(old_vis) => {
-                            let max_vis = old_vis.max(self.db, vis, &self.def_map).unwrap_or_else(|| {
-                                panic!("`Tr as _` imports with unrelated visibilities {old_vis:?} and {vis:?} (trait {tr:?})");
-                            });
-
-                            if max_vis == old_vis {
-                                false
-                            } else {
-                                cov_mark::hit!(upgrade_underscore_visibility);
-                                true
+            for (name, res) in resolutions {
+                match name {
+                    Some(name) => {
+                        changed |=
+                            self.push_res_and_update_glob_vis(module_id, name, *res, vis, import);
+                    }
+                    None => {
+                        let (tr, import) = match res.take_types_full() {
+                            Some(Item { def: ModuleDefId::TraitId(tr), vis: _, import }) => {
+                                (tr, import)
                             }
-                        }
-                    };
+                            Some(other) => {
+                                tracing::debug!("non-trait `_` import of {:?}", other);
+                                continue;
+                            }
+                            None => continue,
+                        };
+                        let old_vis = self.def_map.modules[module_id].scope.unnamed_trait_vis(tr);
+                        let should_update = match old_vis {
+                            None => true,
+                            Some(old_vis) => {
+                                let max_vis =
+                                    old_vis.max(self.db, vis, &self.def_map).unwrap_or_else(|| {
+                                        panic!(
+                                            "`Tr as _` imports with unrelated visibilities {old_vis:?} and {vis:?} (trait {tr:?})"
+                                        );
+                                    });
 
-                    if should_update {
-                        changed = true;
-                        self.def_map.modules[module_id].scope.push_unnamed_trait(
-                            tr,
-                            vis,
-                            import.and_then(ImportOrExternCrate::import),
-                        );
+                                if max_vis == old_vis {
+                                    false
+                                } else {
+                                    cov_mark::hit!(upgrade_underscore_visibility);
+                                    true
+                                }
+                            }
+                        };
+
+                        if should_update {
+                            changed = true;
+                            self.def_map.modules[module_id].scope.push_unnamed_trait(
+                                tr,
+                                vis,
+                                import.and_then(ImportOrExternCrate::import),
+                            );
+                        }
                     }
                 }
             }
-        }
 
-        if !changed {
-            return;
-        }
-        let glob_imports = self
-            .glob_imports
-            .get(&module_id)
-            .into_iter()
-            .flatten()
-            .filter(|(glob_importing_module, _, _)| {
-                // we know all resolutions have the same visibility (`vis`), so we
-                // just need to check that once
-                vis.is_visible_from_def_map(self.db, &self.def_map, *glob_importing_module)
-            })
-            .cloned()
-            .collect::<Vec<_>>();
+            if !changed {
+                continue;
+            }
+            let glob_imports = self
+                .glob_imports
+                .get(&module_id)
+                .into_iter()
+                .flatten()
+                .filter(|(glob_importing_module, _, _)| {
+                    // we know all resolutions have the same visibility (`vis`), so we
+                    // just need to check that once
+                    vis.is_visible_from_def_map(self.db, &self.def_map, *glob_importing_module)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
 
-        for (glob_importing_module, glob_import_vis, glob) in glob_imports {
-            let vis = glob_import_vis.min(self.db, vis, &self.def_map).unwrap_or(glob_import_vis);
-            self.update_recursive(
-                glob_importing_module,
-                resolutions,
-                vis,
-                Some(ImportOrExternCrate::Glob(glob)),
-                depth + 1,
-            );
+            for (glob_importing_module, glob_import_vis, glob) in glob_imports.into_iter().rev() {
+                let vis =
+                    glob_import_vis.min(self.db, vis, &self.def_map).unwrap_or(glob_import_vis);
+                worklist.push((glob_importing_module, vis, Some(ImportOrExternCrate::Glob(glob))));
+            }
         }
     }
 
@@ -2791,6 +2773,28 @@ macro_rules! foo {
 foo!(KABOOM);
 "#,
         );
+    }
+
+    #[test]
+    fn glob_imports_propagate_through_long_finite_chains() {
+        let last = 250;
+        let mut fixture = String::new();
+        for module in 0..last {
+            let next = module + 1;
+            fixture.push_str(&format!("mod m{module} {{ pub use crate::m{next}::*; }}\n"));
+        }
+        fixture.push_str(&format!("mod m{last} {{ pub struct S; }}"));
+
+        let (db, _) = TestDB::with_single_file(&fixture);
+        let def_map = crate_def_map(&db, db.test_crate());
+        let root = def_map.root_module_id();
+        let m0 = def_map[root]
+            .children
+            .iter()
+            .find_map(|(name, &module)| (name.as_str() == "m0").then_some(module))
+            .expect("missing m0");
+
+        assert!(def_map[m0].scope.entries().any(|(name, _)| name.as_str() == "S"));
     }
 
     #[ignore]
